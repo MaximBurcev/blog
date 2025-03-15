@@ -48,7 +48,7 @@ Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
         Route::get('/create', 'App\Http\Controllers\Admin\Post\CreateController')->name('admin.post.create');
         Route::get('/add', 'App\Http\Controllers\Admin\Post\AddController')->name('admin.post.add');
 
-        Route::prefix('add')->group(function (){
+        Route::prefix('add')->group(function () {
             Route::post('/', 'App\Http\Controllers\Admin\Post\StoreAddController')->name('admin.post.store.add');
         });
 
@@ -102,6 +102,17 @@ Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
         Route::patch('/{comment}', 'App\Http\Controllers\Admin\Comment\UpdateController')->name('admin.comment.update');
         Route::delete('/{comment}',
             'App\Http\Controllers\Admin\Comment\DeleteController')->name('admin.comment.delete');
+    });
+
+    Route::prefix('releases')->group(function () {
+        Route::get('/', 'App\Http\Controllers\Admin\Release\IndexController')->name('admin.release.index');
+        Route::get('/create', 'App\Http\Controllers\Admin\Release\CreateController')->name('admin.release.create');
+        Route::post('/', 'App\Http\Controllers\Admin\Release\StoreController')->name('admin.release.store');
+        Route::get('/{release}', 'App\Http\Controllers\Admin\Release\ShowController')->name('admin.release.show');
+        Route::get('/{release}/edit', 'App\Http\Controllers\Admin\Release\EditController')->name('admin.release.edit');
+        Route::patch('/{release}', 'App\Http\Controllers\Admin\Release\UpdateController')->name('admin.release.update');
+        Route::delete('/{release}',
+            'App\Http\Controllers\Admin\Release\DeleteController')->name('admin.release.delete');
     });
 
 });
