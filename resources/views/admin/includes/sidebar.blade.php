@@ -22,6 +22,15 @@
                 </li>
 
                 <li class="nav-item">
+                    <a href="{{ route('admin.release.index') }}" class="nav-link">
+                        <i class="nav-icon fas fa-users"></i>
+                        <p>
+                            Выпуски
+                        </p>
+                    </a>
+                </li>
+
+                <li class="nav-item">
                     <a href="{{ route('admin.user.index') }}" class="nav-link">
                         <i class="nav-icon fas fa-users"></i>
                         <p>

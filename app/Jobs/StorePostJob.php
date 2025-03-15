@@ -48,7 +48,7 @@ class StorePostJob implements ShouldQueue
                 $this->data['code'] = Str::slug($title);
 
                 $finder = new DomXPath($dom);
-                $nodes = $finder->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' " . $data['selector'] . " ')]");
+                $nodes = $finder->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' " . $this->data['selector'] . " ')]");
 
                 ob_start();
                 foreach ($nodes as $node) {
@@ -65,7 +65,8 @@ class StorePostJob implements ShouldQueue
         $this->service->store($this->data);
     }
 
-    private function showDOMNode(DOMNode $domNode) {
+    private function showDOMNode(\DOMNode $domNode): void
+    {
         $googleTranslate = new GoogleTranslate('ru');
         foreach ($domNode->childNodes as $node)
         {
