@@ -7,6 +7,9 @@ use App\Http\Controllers\UploadController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
+use Illuminate\Support\Facades\Http;
+use Symfony\Component\DomCrawler\Crawler;
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -119,6 +122,36 @@ Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
 
 Auth::routes();
 
-Route::post('/upload', UploadController::class);
+Route::post('/upload', UploadController::class)->name('upload');
+
+Route::get('phpinfo', function () {
+    phpinfo();
+})->name('phpinfo');
+
+Route::get('test', function () {
 
 
+    $url = 'http://mailer.inovica.com/newsletter.php?id=1081&eid=12445554';
+
+    try {
+        // Загружаем HTML-страницу
+        $html = Http::get($url)->body();
+
+        // Создаем объект Crawler для парсинга
+        $crawler = new Crawler($html);
+
+        // Парсим все ссылки внутри раздела "Articles"
+        $links = $crawler->filter('td.bodyContent:first-child a[href]')->each(function (Crawler $node) {
+            return [
+                'text' => $node->text(),
+                'url' => $node->attr('href'),
+            ];
+        });
+
+        // Выводим результат
+        dd($links); // Или сохраняем в базу
+
+    } catch (\Exception $e) {
+        dd("Ошибка: " . $e->getMessage());
+    }
+})->name('test');

@@ -4,13 +4,10 @@ namespace App\Http\Controllers\Admin\Release;
 
 use App\Http\Controllers\Controller;
 use App\Service\PostService;
+use App\Service\ReleaseService;
 
 class BaseController extends Controller
 {
-    public PostService $service;
+    public ReleaseService $service;
 
-    public function __construct(PostService $service)
-    {
-        $this->service = $service;
-    }
 }

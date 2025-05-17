@@ -13,7 +13,12 @@
                                 <div class="col-md-4 fetured-post blog-post" data-aos="fade-up">
                                     <a href="{{ route('post.show', $post->code) }}">
                                         <div class="blog-post-thumbnail-wrapper">
-                                            <img src="{{ 'storage/'. $post->preview_image }}" alt="{{ $post->title }}">
+                                            @if($post->preview_image)
+                                                <img src="{{ 'storage/'. $post->preview_image }}" alt="{{ $post->title }}">
+                                            @else
+                                                <img src="{{ 'storage/images/laravel.jpg' }}" alt="{{ $post->title }}">
+                                            @endif
+
                                         </div>
                                     </a>
                                     <a href="{{ route('category.show', $post->category->code) }}"><p class="blog-post-category">{{ $post->category->title }}</p></a>
@@ -25,11 +30,7 @@
 
                         </div>
 
-                        <div class="row">
-                            <div class="mx-auto">
-                                {{ $posts->links() }}
-                            </div>
-                        </div>
+
 
                     </section>
                 </div>
@@ -62,7 +63,11 @@
                             @foreach($popularPosts as $post)
                                 <li class="post">
                                     <a href="{{ route('post.show', $post->code) }}" class="post-permalink media">
-                                        <img src="{{ 'storage/' . $post->preview_image }}" alt="{{ $post->title }}">
+                                        @if($post->preview_image)
+                                            <img src="{{ 'storage/' . $post->preview_image }}" alt="{{ $post->title }}">
+                                        @else
+                                            <img src="{{ 'storage/images/laravel.jpg' }}" alt="{{ $post->title }}">
+                                        @endif
                                         <div class="media-body">
                                             <h6 class="post-title">{{ $post->title }}</h6>
                                         </div>

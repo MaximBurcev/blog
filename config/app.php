@@ -42,7 +42,7 @@ return [
     |
     */
 
-    'debug' => (bool) env('APP_DEBUG', false),
+    'debug' => (bool)env('APP_DEBUG', false),
 
     /*
     |--------------------------------------------------------------------------
@@ -183,7 +183,8 @@ return [
     */
 
     'aliases' => Facade::defaultAliases()->merge([
-        'GoogleTranslate' => Stichoza\GoogleTranslate\GoogleTranslate::class
+        'GoogleTranslate' => Stichoza\GoogleTranslate\GoogleTranslate::class,
+        'Html'            => Spatie\Html\Facades\Html::class,
     ])->toArray(),
 
 ];
