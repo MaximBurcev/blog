@@ -6,7 +6,9 @@ use App\Jobs\StorePostJob;
 use App\Models\Release;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\DomCrawler\Crawler;
 
 class ReleaseService
 {
@@ -97,9 +99,51 @@ class ReleaseService
         } else {
             Log::info('Found links with descriptions:', $linkList);
 
-            foreach ($linkList as $linkListItem) {
-                StorePostJob::dispatch($linkListItem);
+//            foreach ($linkList as $linkListItem) {
+//                StorePostJob::dispatch($linkListItem);
+//            }
+        }
+    }
+
+    /**
+     * Parse the page and extract links from it.
+     *
+     * @param string $url
+     */
+    public function addPosts(string $url): void
+    {
+        try {
+            // Fetch the page
+            $html = Http::get($url)->body();
+
+            // Create a Crawler object to parse the HTML
+            $crawler = new Crawler($html);
+
+            // Extract all links inside the "Articles" section
+            $links = $crawler->filter('td.bodyContent a[href]')->each(function (Crawler $node) {
+                return [
+                    'text' => $node->text(),
+                    'url'  => $node->attr('href'),
+                ];
+            });
+
+            // Log the result
+            Log::info('Parsed links:', $links);
+
+            // Extract the first 5 links
+            $links = array_splice($links, 2, 5);
+
+            Log::info('Splice Parsed links:', $links);
+
+            // Dispatch a job to store each link
+            if (!empty($links)) {
+                foreach ($links as $link) {
+                    StorePostJob::dispatch(['url' => $link['url']]);
+                }
             }
+
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch the page: ' . $e->getMessage());
         }
     }
 }

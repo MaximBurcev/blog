@@ -55,10 +55,17 @@
                                                     <a  href="{{ route('admin.release.show', $release->id) }}">{{ $release->id }}</a></td>
                                                 <td>{{ $release->url }}</td>
                                                 <td class="text-center">
-                                                    <a  href="{{ route('admin.comment.show', $release->id) }}"><i class="far fa-eye"></i></a>
+                                                    <a  href="{{ route('admin.release.show', $release->id) }}"><i class="far fa-eye"></i></a>
                                                 </td>
                                                 <td class="text-center">
-                                                    <a  href="{{ route('admin.comment.edit', $release->url) }}" class="text-success"><i class="fas fa-pencil-alt"></i></a>
+                                                    <form action="{{ route('admin.release.delete', $release->id) }}" method="POST">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="border-0 bg-transparent">
+                                                            <i class="fas fa-trash text-danger" role="button"></i>
+                                                            Удалить
+                                                        </button>
+                                                    </form>
                                                 </td>
                                             </tr>
                                         @endforeach

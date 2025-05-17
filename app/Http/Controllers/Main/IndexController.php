@@ -13,10 +13,10 @@ class IndexController extends Controller
     const POPULAR_POSTS_COUNT = 4;
     public function __invoke()
     {
-        $posts = Post::where('published', 1)->paginate(3);
+        $posts = Post::where('published', 1)->orderBy('created_at', 'desc')->get();
         $popularPosts = Post::get()->where('published', 1);
         if ($popularPosts->count() > self::POPULAR_POSTS_COUNT) {
-            $popularPosts = $popularPosts->rendom(self::POPULAR_POSTS_COUNT);
+            $popularPosts = $popularPosts->random(self::POPULAR_POSTS_COUNT);
         }
         $categories = Category::all();
         $tags = Tag::all();

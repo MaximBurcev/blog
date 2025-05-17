@@ -9,6 +9,7 @@ use App\Models\Post;
 use DOMDocument;
 use DOMNode;
 use DOMXPath;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 
@@ -17,6 +18,7 @@ class StoreAddController extends BaseController
     public function __invoke(StoreAddRequest $request)
     {
         $data = $request->validated();
+        Log::info('$data', $data);
         StorePostJob::dispatch($data);
         return redirect()->route('admin.post.index');
     }

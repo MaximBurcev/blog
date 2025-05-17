@@ -11,27 +11,28 @@ use Illuminate\Support\Facades\Log;
 
 class StoreController extends BaseController
 {
-    protected ReleaseService $releaseService;
 
-    public function __construct(ReleaseService $releaseService)
+    public function __construct(
+        public ReleaseService $service
+    )
     {
-        $this->releaseService = $releaseService;
+
     }
 
     public function __invoke(StoreRequest $request): RedirectResponse
     {
         try {
             $data = $request->validated();
-            $release = $this->releaseService->store($data);
+            $release = $this->service->store($data);
 
-            $this->releaseService->parsePostsUrl($release->url);
+            $this->service->addPosts($release->url);
 
             return redirect()
                 ->route('admin.release.index')
                 ->with('success', 'Релиз успешно создан');
         } catch (\Exception $e) {
             Log::error('Ошибка при создании релиза: ' . $e->getMessage(), [
-                'url' => $request->url,
+                'url'   => $request->url,
                 'error' => $e->getMessage()
             ]);
 
