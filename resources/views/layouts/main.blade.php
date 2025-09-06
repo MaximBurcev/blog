@@ -33,6 +33,9 @@
                     <li class="nav-item active">
                         <a class="nav-link" href="{{ route('main.index') }}">Главная</a>
                     </li>
+                    <li>
+                        <a class="nav-link" href="{{ route('main.search') }}">Поиск</a>
+                    </li>
                 </ul>
 
             </div>

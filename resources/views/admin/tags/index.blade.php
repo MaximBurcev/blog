@@ -45,31 +45,9 @@
                                         <th colspan="3" class="text-center">Действие</th>
                                     </tr>
                                     </thead>
-                                    <tbody>
-                                    @foreach($tags as $tag)
-                                        <tr>
-                                            <td>{{ $tag->id }}</td>
-                                            <td>{{ $tag->title }}</td>
-                                            <td>{{ $tag->code }}</td>
-                                            <td class="text-center">
-                                                <a  href="{{ route('admin.tag.show', $tag->id) }}"><i class="far fa-eye"></i></a>
-                                            </td>
-                                            <td class="text-center">
-                                                <a  href="{{ route('admin.tag.edit', $tag->id) }}" class="text-success"><i class="fas fa-pencil-alt"></i></a>
-                                            </td>
-                                            <td class="text-center">
-                                                <form action="{{ route('admin.tag.delete', $tag->id) }}" method="POST">
-                                                    @csrf
-                                                    @method('DELETE')
-                                                    <button type="submit" class="border-0 bg-transparent">
-                                                        <i class="fas fa-trash text-danger" role="button"></i>
-                                                    </button>
-                                                </form>
 
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                    </tbody>
+                                    <livewire:admin.tag.tag-list />
+
                                 </table>
                             </div>
                             <!-- /.card-body -->

@@ -30,6 +30,8 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}" />
 
+    @livewireStyles
+
 </head>
 <body class="hold-transition sidebar-mini layout-fixed">
 <div class="wrapper">
@@ -158,6 +160,8 @@
     });
 
 </script>
+
+@livewireScripts
 
 </body>
 </html>

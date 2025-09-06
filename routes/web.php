@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\Main\IndexController;
+use App\Http\Controllers\Main\SearchController;
 use App\Http\Controllers\Post\Comment\StoreController;
 use App\Http\Controllers\Post\ShowController;
 use App\Http\Controllers\UploadController;
+use App\Livewire\Counter;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -23,6 +25,8 @@ use Symfony\Component\DomCrawler\Crawler;
 
 
 Route::get('/', IndexController::class)->name('main.index');
+
+Route::get('/search', SearchController::class)->name('main.search');
 
 Route::get('/sitemap', [\App\Http\Controllers\Sitemap\IndexController::class, 'index'])->name('sitemap.index');
 
@@ -155,3 +159,5 @@ Route::get('test', function () {
         dd("Ошибка: " . $e->getMessage());
     }
 })->name('test');
+
+Route::get('/counter', Counter::class);

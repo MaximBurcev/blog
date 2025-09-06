@@ -65,6 +65,8 @@ class PostService
 
             $data['code'] = Str::slug($data['title'], '-', 'ru');
 
+            $data['content'] = str_replace('http://laravel.local', '', $data['content']);
+
             $post->update($data);
             $post->tags()->sync($tagIds);
             DB::commit();
