@@ -29,6 +29,7 @@ class StoreRequest extends FormRequest
             'category_id'   => 'required|integer|exists:categories,id',
             'tag_ids'       => 'required|array',
             'tag_ids.*'     => 'nullable|integer|exists:tags,id',
+            'translate'     => 'nullable'
         ];
     }
 
@@ -36,7 +37,7 @@ class StoreRequest extends FormRequest
     {
         return [
             'title.required' => 'Укажите название поста',
-            'title.string'  =>  'Данные должны соответствовать строчному типу'
+            'title.string'   => 'Данные должны соответствовать строчному типу'
         ];
     }
 }

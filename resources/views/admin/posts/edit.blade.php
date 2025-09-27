@@ -118,6 +118,11 @@
                         @enderror
                     </div>
                     <div class="form-group">
+                        <label for="translate">Сделать перевод</label>
+                        <input type="hidden" name="translate" value="0">
+                        <input type="checkbox" name="translate" id="translate">
+                    </div>
+                    <div class="form-group">
                         <input type="submit" class="btn btn-primary" value="Обновить">
                     </div>
                 </form>

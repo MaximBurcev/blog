@@ -93,6 +93,10 @@
                         @enderror
                     </div>
                     <div class="form-group">
+                        <label for="translate">Сделать перевод</label>
+                        <input type="checkbox" name="translate" id="translate" {{ (old('translate') == 'on')? 'checked':'' }}>
+                    </div>
+                    <div class="form-group">
                         <input type="submit" class="btn btn-primary" value="Добавить">
                     </div>
                 </form>

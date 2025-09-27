@@ -10,7 +10,7 @@
   "require": {
     "php": "^8.1",
     "ext-dom": "*",
-    "doctrine/dbal": "*",
+    "doctrine/dbal": "^4.3",
     "guzzlehttp/guzzle": "^7.9",
     "imangazaliev/didom": "^2.0",
     "jeroennoten/laravel-adminlte": "^3.9",
@@ -25,6 +25,7 @@
     "meilisearch/meilisearch-php": "^1.15",
     "opcodesio/log-viewer": "^3.1",
     "predis/predis": "*",
+    "rappasoft/laravel-livewire-tables": "^3.7",
     "spatie/laravel-backup": "^9.3",
     "spatie/laravel-html": "^3.12",
     "stichoza/google-translate-php": "^5.1",

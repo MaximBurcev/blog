@@ -31,9 +31,15 @@ class PostService
                 $data['main_image'] = Storage::disk('public')->put('/images', $data['main_image']);
             }
 
+            if ($data['translate'] == 'on') {
+                $translateService = new TranslateService($data);
+                $data = $translateService->translate();
+                $data['url'] = '';
+            }
+
             $post = Post::create($data);
 
-            Log::info('$post', $post);
+            Log::info('$data', $data);
 
             if (!empty($tagIds)) {
                 $post->tags()->attach($tagIds);
@@ -41,6 +47,7 @@ class PostService
 
             DB::commit();
         } catch (\Exception $exception) {
+            dd($exception->getMessage());
             logger($exception->getMessage());
             DB::rollBack();
             abort(404);
@@ -49,6 +56,8 @@ class PostService
 
     public function update($data, $post): Post
     {
+
+
         try {
             DB::beginTransaction();
 
@@ -63,6 +72,14 @@ class PostService
                 $data['main_image'] = Storage::disk('public')->put('/images', $data['main_image']);
             }
 
+            if ($data['translate'] == 'on') {
+                $data['url'] = '';
+                $data['selector'] = '';
+                $translateService = new TranslateService($data);
+                $data = $translateService->translate();
+
+            }
+
             $data['code'] = Str::slug($data['title'], '-', 'ru');
 
             $data['content'] = str_replace('http://laravel.local', '', $data['content']);
@@ -71,6 +88,7 @@ class PostService
             $post->tags()->sync($tagIds);
             DB::commit();
         } catch (\Exception $exception) {
+            dd($exception->getMessage());
             DB::rollBack();
             abort(500);
         }

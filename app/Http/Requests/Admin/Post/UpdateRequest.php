@@ -30,7 +30,8 @@ class UpdateRequest extends FormRequest
             'tag_ids'       => 'nullable|array',
             'tag_ids.*'     => 'nullable|integer|exists:tags,id',
             'code'          => 'required|string',
-            'published'     =>  'boolean'
+            'published'     =>  'boolean',
+            'translate'     =>  'nullable',
         ];
     }
 
