@@ -13,7 +13,7 @@ class UpdateController extends BaseController
     public function __invoke(UpdateRequest $request, Post $post)
     {
         $data = $request->validated();
-        Log::info('data', $data);
+        //Log::info('data', $data);
         $post = $this->service->update($data, $post);
 
         return redirect()->route('admin.post.edit', compact('post'));

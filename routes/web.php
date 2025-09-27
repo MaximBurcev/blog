@@ -132,6 +132,9 @@ Route::get('phpinfo', function () {
     phpinfo();
 })->name('phpinfo');
 
+Route::get('/sitemap.xml', 'App\Http\Controllers\SitemapController@index');
+Route::get('/sitemap/posts', 'App\Http\Controllers\SitemapController@posts');
+
 Route::get('test', function () {
 
 
@@ -161,3 +164,4 @@ Route::get('test', function () {
 })->name('test');
 
 Route::get('/counter', Counter::class);
+

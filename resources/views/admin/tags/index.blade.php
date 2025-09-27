@@ -22,43 +22,11 @@
         <!-- /.content-header -->
 
         <!-- Main content -->
-        <section class="content">
-            <div class="container-fluid">
 
-                <div class="row">
-
-                    <div class="col-1 mb-3">
-                        <a href="{{ route('admin.tag.create') }}" class="btn btn-block btn-primary">Добавить</a>
-                    </div>
-                </div>
-
-                <div class="row">
-                    <div class="col-4">
-                        <div class="card">
-                            <div class="card-body table-responsive p-0">
-                                <table class="table table-hover text-nowrap">
-                                    <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Название</th>
-                                        <th>Код</th>
-                                        <th colspan="3" class="text-center">Действие</th>
-                                    </tr>
-                                    </thead>
 
                                     <livewire:admin.tag.tag-list />
 
-                                </table>
-                            </div>
-                            <!-- /.card-body -->
-                        </div>
-                    </div>
 
-                </div>
-
-
-            </div><!-- /.container-fluid -->
-        </section>
         <!-- /.content -->
     </div>
     <!-- /.content-wrapper -->
