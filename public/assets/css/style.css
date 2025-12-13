@@ -7249,7 +7249,7 @@ a.text-dark:hover, a.text-dark:focus {
 .edica-footer {
   background-color: #191919;
   padding-top: 200px;
-  margin-top: -93px;
+  /*margin-top: -93px;*/
   padding-bottom: 56px;
   color: #ffffff; }
   .edica-footer .footer-brand-wrapper {

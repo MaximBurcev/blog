@@ -34,4 +34,18 @@ class Post extends Model
     {
         return $this->hasMany(Comment::class, 'post_id', 'id');
     }
+
+    protected $casts = [
+        'tags' => 'array',
+    ];
+
+    public function likes()
+    {
+        return $this->hasMany(PostLike::class);
+    }
+
+    public function likesCount()
+    {
+        return $this->likes()->count();
+    }
 }

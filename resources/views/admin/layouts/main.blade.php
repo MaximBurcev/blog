@@ -121,47 +121,15 @@
 <script src="{{ asset('plugins/select2/js/select2.full.min.js') }}"></script>
 
 <script>
-    $(document).ready(function() {
-        $('#summernote').summernote({
-            height: 200,
-            callbacks: {
-                onImageUpload: function(files) {
-                    const editor = $(this);
-                    sendFile(files[0], editor);
-                }
-            }
-        });
-
-
-        function sendFile(file, editor) {
-            data = new FormData();
-            data.append("file", file);
-            $.ajax({
-                data: data,
-                type: "POST",
-                url: "/upload",
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                },
-                cache: false,
-                contentType: false,
-                processData: false,
-                success: function (url) {
-                    $(editor).summernote('insertImage', url, '');
-                }
-            });
-        }
-    });
 
     $(function () {
         bsCustomFileInput.init();
-
         $('.select2').select2();
     });
 
 </script>
 
 @livewireScripts
-
+@stack('scripts')
 </body>
 </html>

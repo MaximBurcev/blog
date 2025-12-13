@@ -3,14 +3,15 @@
 use App\Http\Controllers\Main\IndexController;
 use App\Http\Controllers\Main\SearchController;
 use App\Http\Controllers\Post\Comment\StoreController;
+use App\Http\Controllers\Post\Like\StoreController as PostLikeStoreController;
 use App\Http\Controllers\Post\ShowController;
 use App\Http\Controllers\UploadController;
 use App\Livewire\Counter;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
-use Illuminate\Support\Facades\Http;
-use Symfony\Component\DomCrawler\Crawler;
+use App\Events\UserNotification;
+use App\Models\User;
 
 /*
 |--------------------------------------------------------------------------
@@ -34,6 +35,7 @@ Route::prefix('posts')->group(function () {
     Route::get('/', IndexController::class)->name('posts.index');
     Route::post('/{post}/comments', StoreController::class)->name('post.comment.store');
     Route::get('/{post}', ShowController::class)->name('post.show');
+    Route::post('/{post}/like', [PostLikeStoreController::class, 'like'])->middleware('auth');
 });
 
 Route::prefix('categories')->group(function () {
@@ -138,29 +140,12 @@ Route::get('/sitemap/posts', 'App\Http\Controllers\SitemapController@posts');
 Route::get('test', function () {
 
 
-    $url = 'http://mailer.inovica.com/newsletter.php?id=1081&eid=12445554';
+    $user = User::find(Auth::user()->getAuthIdentifier());
 
-    try {
-        // Загружаем HTML-страницу
-        $html = Http::get($url)->body();
+    dump($user->id);
 
-        // Создаем объект Crawler для парсинга
-        $crawler = new Crawler($html);
+    broadcast(new UserNotification($user, time() . ': У вас новое уведомление!'));
 
-        // Парсим все ссылки внутри раздела "Articles"
-        $links = $crawler->filter('td.bodyContent:first-child a[href]')->each(function (Crawler $node) {
-            return [
-                'text' => $node->text(),
-                'url' => $node->attr('href'),
-            ];
-        });
-
-        // Выводим результат
-        dd($links); // Или сохраняем в базу
-
-    } catch (\Exception $e) {
-        dd("Ошибка: " . $e->getMessage());
-    }
 })->name('test');
 
 Route::get('/counter', Counter::class);
