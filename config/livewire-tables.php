@@ -129,4 +129,9 @@ return [
         'enableUserForEvent' => true,
     ],
 
+    'temporary_file_upload' => [
+        'disk' => 'public',
+        'rules' => ['required', 'file', 'max:2048'], // 2MB
+    ],
+
 ];

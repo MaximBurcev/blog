@@ -23,7 +23,7 @@
     $dirCurrentRelease = $dirReleases . '/' . $date->format('YmdHis');
 @endsetup
 
-@servers(['production' => 'deployer@103.137.249.210'])
+@servers(['production' => 'deployer@103.137.249.210', '/home/sail/.ssh/id_rsa'])
 
 @story('deploy', ['on' => 'production'])
     gitclone

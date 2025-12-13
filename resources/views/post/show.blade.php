@@ -18,6 +18,33 @@
             <section class="post-content">
                 {!! $post->content !!}
             </section>
+
+            @auth()
+                <p>Количество пользователей, которым понравилась статья: <span id="likes-count">{{ $post->likesCount() }}</span></p>
+            <button id="like-btn">❤️ Мне нравится</button>
+            @endauth()
+
+            <script>
+                document.addEventListener('DOMContentLoaded', () => {
+                    // Подключение Echo (после сборки Vite или через script)
+                    const postId = {{ $post->id }};
+                    Echo.private(`post.${postId}`)
+                        .listen('.post.liked', (e) => {
+                            document.getElementById('likes-count').textContent = e.newLikesCount;
+                        });
+
+                    document.getElementById('like-btn').addEventListener('click', () => {
+                        fetch(`/posts/${postId}/like`, {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                                'Accept': 'application/json'
+                            }
+                        });
+                        // Локально тоже обновляем (опционально, т.к. уведомление придет от сервера)
+                    });
+                });
+            </script>
             <div class="row">
                 <div class="col-lg-9 mx-auto">
                     @if($relatedPosts->count())
