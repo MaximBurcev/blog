@@ -113,7 +113,7 @@ class PostList extends Component
     {
         $posts = Post::query()
             ->select('posts.id', 'posts.title', 'posts.code', 'categories.title as category_name')
-            ->join('categories', 'posts.category_id', '=', 'categories.id')
+            ->leftJoin('categories', 'posts.category_id', '=', 'categories.id')
             ->when($this->search, function (Builder $query) {
                 $query->where(function (Builder $q) {
                     $q->where('posts.title', 'like', '%' . $this->search . '%')

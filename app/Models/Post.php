@@ -15,6 +15,13 @@ class Post extends Model
 {
     use SoftDeletes, Searchable;
 
+    protected $connection = 'secondary';
+
+    public function getConnectionName(): ?string
+    {
+        return app()->environment('local') ? null : $this->connection;
+    }
+
     protected $table = 'posts';
 
     protected $guarded = false;
@@ -35,9 +42,7 @@ class Post extends Model
         return $this->hasMany(Comment::class, 'post_id', 'id');
     }
 
-    protected $casts = [
-        'tags' => 'array',
-    ];
+    protected $casts = [];
 
     public function likes()
     {

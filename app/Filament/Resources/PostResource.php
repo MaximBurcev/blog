@@ -40,8 +40,8 @@ class PostResource extends Resource
                 Forms\Components\RichEditor::make('content')->required(),
                 Forms\Components\Select::make('category_id')->relationship('category', 'title')->required()->options(Category::all()->pluck('title', 'id'))
                     ->searchable(),
-                Forms\Components\FileUpload::make('preview_image')->required(),
-                Forms\Components\FileUpload::make('main_image')->required(),
+                Forms\Components\FileUpload::make('preview_image')->nullable(),
+                Forms\Components\FileUpload::make('main_image')->nullable(),
                 Forms\Components\Checkbox::make('published'),
             ])->columns(1);
     }
@@ -53,7 +53,7 @@ class PostResource extends Resource
                 TextColumn::make('id')->label('ID')->sortable(),
                 Tables\Columns\ImageColumn::make('preview_image'),
                 TextColumn::make('title')->label('Title')->sortable(),
-                TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
+                //TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
             ])
             ->filters([
                 Tables\Filters\Filter::make('published'),
