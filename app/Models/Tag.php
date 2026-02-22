@@ -12,6 +12,8 @@ class Tag extends Model
 
     use SoftDeletes;
 
+    protected $connection = 'mysql';
+
     protected $table = 'tags';
 
     protected $guarded = false;

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Service\CategoryDetectorService;
 use App\Service\ContentImageService;
 use App\Service\PostService;
 use DOMDocument;
@@ -15,6 +16,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 
@@ -45,40 +47,60 @@ class StorePostJob implements ShouldQueue
             $dom = new DOMDocument();
             Log::info('job:url', [$this->data['url']]);
             //dd(file_get_contents($this->data['url']));
-            $context = stream_context_create([
-                'http' => [
-                    'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\r\n"
-                ]
+            if (!empty($this->data['html_file'])) {
+                $html = file_get_contents($this->data['html_file']);
+                Log::info('StorePostJob: reading from file', ['file' => $this->data['html_file']]);
+            } else {
+                $tmp = tempnam(sys_get_temp_dir(), 'curl_');
+                $url = escapeshellarg($this->data['url']);
+                shell_exec(
+                    "/usr/bin/curl -s -L --max-time 30 --http2 " .
+                    "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' " .
+                    "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' " .
+                    "-H 'Accept-Language: en-US,en;q=0.9' " .
+                    "--output " . escapeshellarg($tmp) . " " .
+                    "{$url} 2>/dev/null"
+                );
+                $html = file_get_contents($tmp);
+                unlink($tmp);
+            }
+
+            Log::info('StorePostJob: response', [
+                'length'                 => strlen((string) $html),
+                'has_crayons_article'    => str_contains((string) $html, 'crayons-article__body'),
             ]);
 
+            if (empty($html)) {
+                Log::warning('StorePostJob: empty response', ['url' => $this->data['url']]);
+                return;
+            }
 
-//            $response = Http::withHeaders([
-//                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-//                'Accept'     => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-//            ])->timeout(60)->get($this->data['url']);
-//            $content = $response->body();
+            @$dom->loadHTML($html);
 
-//            $proxy = 'socks5://103.137.249.210:12140';
-//            $response = Http::withOptions([
-//                'proxy'   => $proxy,
-//                'timeout' => 60,
-//            ])->withHeaders([
-//                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-//            ])->get($this->data['url']);
-//            $content = $response->body();
-
-
-            @$dom->loadHTML(@file_get_contents($this->data['url'], false, $context));
-
-            //$dom->loadHTML($content);
+            // Извлекаем OG-изображение статьи
+            if (empty($this->data['preview_image'])) {
+                $finder  = new DomXPath($dom);
+                $ogImage = $finder->query("//meta[@property='og:image']/@content");
+                if ($ogImage->length > 0) {
+                    $ogImageUrl = $ogImage->item(0)->nodeValue;
+                    $imagePath  = $this->imageService->downloadImage($ogImageUrl);
+                    if ($imagePath) {
+                        $this->data['preview_image'] = $imagePath;
+                        $this->data['main_image']    = $imagePath;
+                    }
+                }
+            }
 
             $h1 = $dom->getElementsByTagName("h1");
             if ($h1->length > 0) {
                 $title = $h1->item(0)->nodeValue;
                 $this->data['title'] = $googleTranslate->translate($title);
 
-                Log::info('title', [$this->data['title']]);
-                Log::info('code', [$this->data['code']]);
+                if (empty($this->data['category_id'])) {
+                    $this->data['category_id'] = (new CategoryDetectorService())->detect($title, $this->data['url']);
+                }
+
+                Log::info('title', [$this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
 
                 $finder = new DomXPath($dom);
 
@@ -88,14 +110,27 @@ class StorePostJob implements ShouldQueue
                     $panel->parentNode->removeChild($panel);
                 }
 
-                $nodes = $finder->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' " . $this->data['selector'] . " ')]");
+                $selector = $this->data['selector'];
+                if (str_starts_with($selector, '#')) {
+                    $xpathQuery = "//*[@id='" . ltrim($selector, '#') . "']";
+                } else {
+                    $xpathQuery = "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$selector} ')]";
+                }
+                $nodes = $finder->query($xpathQuery);
+
+                Log::info('selector nodes found', ['selector' => $selector, 'xpath' => $xpathQuery, 'count' => $nodes->count()]);
+
+                // Сохраняем оригинальный контент до перевода
+                $contentOrig = '';
+                foreach ($nodes as $node) {
+                    $contentOrig .= $dom->saveHTML($node);
+                }
 
                 $this->googleTranslate = new GoogleTranslate('ru');
 
                 foreach ($nodes as $node) {
                     $this->processNode($node);
                 }
-
 
                 $postContent = '';
                 foreach ($nodes as $node) {
@@ -108,14 +143,30 @@ class StorePostJob implements ShouldQueue
                 $postContent = $this->imageService->downloadAndReplaceImages($postContent);
 
                 if (!empty($postContent)) {
-                    $this->data['content'] = $postContent;
+                    $this->data['content']      = $postContent;
+                    $this->data['content_orig'] = $contentOrig;
+
+                    if (empty($this->data['preview_image'])) {
+                        $imagePath = $this->extractFirstImagePath($postContent);
+                        if ($imagePath) {
+                            $this->data['preview_image'] = $imagePath;
+                            $this->data['main_image']    = $imagePath;
+                        }
+                    }
                 }
 
             }
-        } catch (\Exception $exception) {
-            logger($exception->getMessage());
+        } catch (\Throwable $exception) {
+            Log::error('StorePostJob error: ' . $exception->getMessage(), [
+                'class' => get_class($exception),
+                'line'  => $exception->getLine(),
+            ]);
         }
 
+        if (empty($this->data['title'])) {
+            Log::warning('StorePostJob: skipping, no title found', ['url' => $this->data['url']]);
+            return;
+        }
 
         $this->service->store($this->data);
     }
@@ -181,6 +232,26 @@ class StorePostJob implements ShouldQueue
                 $this->processNode($childNode, $node);
             }
         }
+    }
+
+    /**
+     * Извлекает путь первой локально сохранённой картинки из контента.
+     * Возвращает путь относительно storage/public (например images/content/xxx.jpg).
+     */
+    private function extractFirstImagePath(string $content): ?string
+    {
+        if (!preg_match('/<img[^>]+src="([^"]+)"/i', $content, $matches)) {
+            return null;
+        }
+
+        $url        = $matches[1];
+        $storageUrl = rtrim(Storage::disk('public')->url(''), '/') . '/';
+
+        if (!str_starts_with($url, $storageUrl)) {
+            return null;
+        }
+
+        return str_replace($storageUrl, '', $url);
     }
 
     /**

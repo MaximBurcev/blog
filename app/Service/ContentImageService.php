@@ -15,6 +15,32 @@ class ContentImageService
      * @param string $content
      * @return string
      */
+    /**
+     * Downloads a single image by URL and saves it to storage.
+     * Returns the storage-relative path (e.g. images/content/xxx.jpg), or null on failure.
+     */
+    public function downloadImage(string $url): ?string
+    {
+        try {
+            $imageContent = Http::timeout(30)->get($url)->body();
+
+            $extension = pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION);
+            $extension = $extension ?: 'jpg';
+            // Strip query params from extension
+            $extension = strtolower(preg_replace('/[^a-zA-Z].*/', '', $extension));
+            $extension = $extension ?: 'jpg';
+
+            $filename = 'images/content/' . Str::random(40) . '.' . $extension;
+            Storage::disk('public')->put($filename, $imageContent);
+
+            Log::info('ContentImageService: downloaded', ['url' => $url, 'path' => $filename]);
+            return $filename;
+        } catch (\Exception $e) {
+            Log::warning('ContentImageService: download failed', ['url' => $url, 'error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
     public function downloadAndReplaceImages(string $content): string
     {
         // reg expression to match image tags
