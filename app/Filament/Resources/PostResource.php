@@ -29,20 +29,24 @@ class PostResource extends Resource
 
     protected static ?string $navigationGroup = 'Блог';
 
+    protected static ?string $modelLabel = 'Пост';
+
+    protected static ?string $pluralModelLabel = 'Посты';
+
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
                 TextInput::make('title')->required()->reactive()->afterStateUpdated(function ($set, $state) {
                     $set('code', Str::slug($state));
-                })->label(__('Title')),
-                TextInput::make('code')->required(),
-                Forms\Components\RichEditor::make('content')->required(),
+                })->label('Заголовок'),
+                TextInput::make('code')->required()->label('Код (slug)'),
+                Forms\Components\RichEditor::make('content')->required()->label('Контент'),
                 Forms\Components\Select::make('category_id')->relationship('category', 'title')->required()->options(Category::all()->pluck('title', 'id'))
-                    ->searchable(),
-                Forms\Components\FileUpload::make('preview_image')->nullable(),
-                Forms\Components\FileUpload::make('main_image')->nullable(),
-                Forms\Components\Checkbox::make('published'),
+                    ->searchable()->label('Категория'),
+                Forms\Components\FileUpload::make('preview_image')->nullable()->label('Превью-изображение'),
+                Forms\Components\FileUpload::make('main_image')->nullable()->label('Главное изображение'),
+                Forms\Components\Checkbox::make('published')->label('Опубликован'),
             ])->columns(1);
     }
 
@@ -51,15 +55,16 @@ class PostResource extends Resource
         return $table
             ->columns([
                 TextColumn::make('id')->label('ID')->sortable(),
-                Tables\Columns\ImageColumn::make('preview_image'),
-                TextColumn::make('title')->label('Title')->sortable(),
+                Tables\Columns\ImageColumn::make('preview_image')->label('Превью'),
+                TextColumn::make('title')->label('Заголовок')->sortable(),
                 //TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
             ])
+            ->defaultSort('id', 'desc')
             ->filters([
-                Tables\Filters\Filter::make('published'),
-                Tables\Filters\Filter::make('created_at')->form([
-                    Forms\Components\DatePicker::make('created_from'),
-                    Forms\Components\DatePicker::make('created_until'),
+                Tables\Filters\Filter::make('published')->label('Опубликован'),
+                Tables\Filters\Filter::make('created_at')->label('Дата создания')->form([
+                    Forms\Components\DatePicker::make('created_from')->label('С'),
+                    Forms\Components\DatePicker::make('created_until')->label('По'),
                 ])
                 ->query(function (Builder $query, array $data) {
                     return $query->when($data['created_from'], fn($query) => $query->whereDate('created_at', '>=', $data['created_from']))
