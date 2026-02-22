@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Service\CategoryDetectorService;
 use App\Service\ContentImageService;
+use App\Service\ImageTranslatorService;
 use App\Service\PostService;
 use DOMDocument;
 use DOMNode;
@@ -95,6 +96,12 @@ class StorePostJob implements ShouldQueue
             if ($h1->length > 0) {
                 $title = $h1->item(0)->nodeValue;
                 $this->data['title'] = $googleTranslate->translate($title);
+
+                // Переводим текст на обложке, если картинка уже скачана
+                if (!empty($this->data['preview_image']) && !empty($this->data['title'])) {
+                    $fullPath = Storage::disk('public')->path($this->data['preview_image']);
+                    (new ImageTranslatorService())->translateCoverImage($fullPath, $this->data['title']);
+                }
 
                 if (empty($this->data['category_id'])) {
                     $this->data['category_id'] = (new CategoryDetectorService())->detect($title, $this->data['url']);
