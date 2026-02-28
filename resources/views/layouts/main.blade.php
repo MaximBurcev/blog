@@ -17,6 +17,11 @@
     <link rel="stylesheet" href="{{ asset('assets/vendors/font-awesome/css/all.min.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/vendors/aos/aos.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
+    <style>
+        .blog .blog-post .blog-post-thumbnail-wrapper img {
+            object-position: right center;
+        }
+    </style>
     <script src="{{ asset('assets/vendors/jquery/jquery.min.js') }}"></script>
     <script src="{{ asset('assets/js/loader.js') }}"></script>
 
