@@ -99,8 +99,12 @@ class StorePostJob implements ShouldQueue
 
                 // Переводим текст на обложке, если картинка уже скачана
                 if (!empty($this->data['preview_image']) && !empty($this->data['title'])) {
-                    $fullPath = Storage::disk('public')->path($this->data['preview_image']);
-                    (new ImageTranslatorService())->translateCoverImage($fullPath, $this->data['title']);
+                    try {
+                        $fullPath = Storage::disk('public')->path($this->data['preview_image']);
+                        (new ImageTranslatorService())->translateCoverImage($fullPath, $this->data['title']);
+                    } catch (\Throwable $e) {
+                        Log::warning('ImageTranslatorService: failed', ['error' => $e->getMessage()]);
+                    }
                 }
 
                 if (empty($this->data['category_id'])) {
