@@ -15,13 +15,6 @@ class Post extends Model
 {
     use SoftDeletes, Searchable;
 
-    protected $connection = 'secondary';
-
-    public function getConnectionName(): ?string
-    {
-        return app()->environment('local') ? null : $this->connection;
-    }
-
     protected $table = 'posts';
 
     protected $guarded = false;

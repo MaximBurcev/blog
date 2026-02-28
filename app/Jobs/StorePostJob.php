@@ -120,6 +120,11 @@ class StorePostJob implements ShouldQueue
                 $selector = $this->data['selector'];
                 if (str_starts_with($selector, '#')) {
                     $xpathQuery = "//*[@id='" . ltrim($selector, '#') . "']";
+                } elseif (str_starts_with($selector, '.')) {
+                    $class = ltrim($selector, '.');
+                    $xpathQuery = "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$class} ')]";
+                } elseif (preg_match('/^[a-zA-Z][a-zA-Z0-9]*$/', $selector)) {
+                    $xpathQuery = "//{$selector}";
                 } else {
                     $xpathQuery = "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$selector} ')]";
                 }
