@@ -30,6 +30,7 @@
     composer
     npm
     config_project
+    migrate
     set_current
     releases_clean
 @endstory
