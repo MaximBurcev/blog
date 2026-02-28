@@ -29,8 +29,8 @@ class ImageTranslatorService
 
             $lightWidth = $this->detectLightRegionWidth($image, $width, $height);
 
-            if ($lightWidth < $width * 0.2) {
-                Log::info('ImageTranslator: no significant light region, skipping', ['path' => $imagePath]);
+            if ($lightWidth < $width * 0.2 || $lightWidth > $width * 0.75) {
+                Log::info('ImageTranslator: light region out of range, skipping', ['path' => $imagePath, 'light_width' => $lightWidth, 'width' => $width]);
                 imagedestroy($image);
                 return $imagePath;
             }
