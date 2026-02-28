@@ -13,13 +13,6 @@ class Category extends Model
 
     use SoftDeletes;
 
-    protected $connection = 'secondary';
-
-    public function getConnectionName(): ?string
-    {
-        return app()->environment('local') ? null : $this->connection;
-    }
-
     protected $table = 'categories';
 
     protected $guarded = false;

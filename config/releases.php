@@ -43,8 +43,9 @@ return [
     |
     */
     'domain_selectors' => [
-        'dev.to'     => '#article-body',
-        'medium.com' => 'article',
+        'dev.to'           => '#article-body',
+        'medium.com'       => 'article',
+        'gitconnected.com' => 'article',
     ],
 
     /*
