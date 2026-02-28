@@ -135,3 +135,12 @@
     ln -nfs {{$dirCurrentRelease}} {{$dirCurrent}};
 @endtask
 
+@story('post-parse', ['on' => 'production'])
+    run_post_parse
+@endstory
+
+@task('run_post_parse', ['on' => 'production'])
+    cd {{$dirCurrent}}
+    php artisan post:parse "{{$url}}" {{ isset($selector) ? '--selector=' . $selector : '' }} {{ isset($sync) ? '--sync' : '' }}
+@endtask
+
