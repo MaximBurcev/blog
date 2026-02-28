@@ -18,6 +18,9 @@
     <link rel="stylesheet" href="{{ asset('assets/vendors/aos/aos.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
     <style>
+        .blog .blog-post .blog-post-thumbnail-wrapper {
+            background-color: #1a1a2e;
+        }
         .blog .blog-post .blog-post-thumbnail-wrapper img {
             object-fit: contain;
             object-position: center center;
