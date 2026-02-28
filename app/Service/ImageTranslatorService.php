@@ -3,14 +3,11 @@
 namespace App\Service;
 
 use Illuminate\Support\Facades\Log;
-use Imagick;
-use ImagickDraw;
-use ImagickPixel;
 
 class ImageTranslatorService
 {
     private const FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
-    private const TEXT_COLOR = '#1a1a1a';
+    private const TEXT_COLOR = [26, 26, 26]; // #1a1a1a
     private const PADDING = 40;
 
     /**
@@ -21,43 +18,68 @@ class ImageTranslatorService
     public function translateCoverImage(string $imagePath, string $translatedTitle): string
     {
         try {
-            $imagick = new Imagick($imagePath);
-            $width   = $imagick->getImageWidth();
-            $height  = $imagick->getImageHeight();
-
-            $lightWidth = $this->detectLightRegionWidth($imagick, $width, $height);
-
-            if ($lightWidth < $width * 0.2) {
-                Log::info('ImageTranslator: no significant light region, skipping', ['path' => $imagePath]);
-                $imagick->destroy();
+            $image = $this->loadImage($imagePath);
+            if (!$image) {
+                Log::warning('ImageTranslator: cannot load image', ['path' => $imagePath]);
                 return $imagePath;
             }
 
-            // Закрашиваем белую область белым прямоугольником
-            $draw = new ImagickDraw();
-            $draw->setFillColor(new ImagickPixel('white'));
-            $draw->rectangle(0, 0, $lightWidth, $height);
-            $imagick->drawImage($draw);
+            $width  = imagesx($image);
+            $height = imagesy($image);
+
+            $lightWidth = $this->detectLightRegionWidth($image, $width, $height);
+
+            if ($lightWidth < $width * 0.2) {
+                Log::info('ImageTranslator: no significant light region, skipping', ['path' => $imagePath]);
+                imagedestroy($image);
+                return $imagePath;
+            }
+
+            // Закрашиваем светлую область белым прямоугольником
+            $white = imagecolorallocate($image, 255, 255, 255);
+            imagefilledrectangle($image, 0, 0, $lightWidth, $height, $white);
 
             // Рисуем переведённый текст
-            $this->drawText($imagick, $translatedTitle, $lightWidth, $height);
+            $this->drawText($image, $translatedTitle, $lightWidth, $height);
 
-            $imagick->writeImage($imagePath);
-            $imagick->destroy();
+            $this->saveImage($image, $imagePath);
+            imagedestroy($image);
 
             Log::info('ImageTranslator: done', ['path' => $imagePath, 'light_width' => $lightWidth]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::warning('ImageTranslator: failed', ['error' => $e->getMessage()]);
         }
 
         return $imagePath;
     }
 
+    private function loadImage(string $path): \GdImage|false
+    {
+        $mime = mime_content_type($path);
+        return match ($mime) {
+            'image/jpeg' => imagecreatefromjpeg($path),
+            'image/png'  => imagecreatefrompng($path),
+            'image/webp' => imagecreatefromwebp($path),
+            default      => false,
+        };
+    }
+
+    private function saveImage(\GdImage $image, string $path): void
+    {
+        $mime = mime_content_type($path);
+        match ($mime) {
+            'image/jpeg' => imagejpeg($image, $path, 90),
+            'image/png'  => imagepng($image, $path),
+            'image/webp' => imagewebp($image, $path, 90),
+            default      => imagejpeg($image, $path, 90),
+        };
+    }
+
     /**
      * Сканирует пиксели по нескольким горизонтальным строкам (25%, 50%, 75% высоты),
      * находит максимальную ширину светлой (яркость > 200) области.
      */
-    private function detectLightRegionWidth(Imagick $imagick, int $width, int $height): int
+    private function detectLightRegionWidth(\GdImage $image, int $width, int $height): int
     {
         $scanRows = [
             (int) ($height * 0.25),
@@ -70,9 +92,11 @@ class ImageTranslatorService
         foreach ($scanRows as $y) {
             $lightWidth = 0;
             for ($x = 0; $x < $width; $x++) {
-                $pixel = $imagick->getImagePixelColor($x, $y);
-                $color = $pixel->getColor();
-                $brightness = ($color['r'] + $color['g'] + $color['b']) / 3;
+                $rgb        = imagecolorat($image, $x, $y);
+                $r          = ($rgb >> 16) & 0xFF;
+                $g          = ($rgb >> 8) & 0xFF;
+                $b          = $rgb & 0xFF;
+                $brightness = ($r + $g + $b) / 3;
 
                 if ($brightness < 200) {
                     break;
@@ -90,15 +114,14 @@ class ImageTranslatorService
     /**
      * Рисует текст в белой области, автоматически подбирая размер шрифта и перенося строки.
      */
-    private function drawText(Imagick $imagick, string $text, int $areaWidth, int $height): void
+    private function drawText(\GdImage $image, string $text, int $areaWidth, int $height): void
     {
         $maxTextWidth = $areaWidth - self::PADDING * 2;
 
-        // Подбираем размер шрифта
         $fontSize = 48;
-        $lines = [];
+        $lines    = [];
         while ($fontSize >= 16) {
-            $lines = $this->wrapText($text, $fontSize, $maxTextWidth);
+            $lines       = $this->wrapText($text, $fontSize, $maxTextWidth);
             $totalHeight = count($lines) * ($fontSize * 1.3);
             if ($totalHeight <= $height - self::PADDING * 2) {
                 break;
@@ -106,22 +129,17 @@ class ImageTranslatorService
             $fontSize -= 4;
         }
 
-        $lineHeight = (int) ($fontSize * 1.3);
+        $lineHeight      = (int) ($fontSize * 1.3);
         $totalTextHeight = count($lines) * $lineHeight;
-        $startY = (int) (($height - $totalTextHeight) / 2) + $fontSize;
+        $startY          = (int) (($height - $totalTextHeight) / 2) + $fontSize;
 
-        $draw = new ImagickDraw();
-        $draw->setFont(self::FONT);
-        $draw->setFontSize($fontSize);
-        $draw->setFillColor(new ImagickPixel(self::TEXT_COLOR));
-        $draw->setTextAntialias(true);
+        [$r, $g, $b] = self::TEXT_COLOR;
+        $color = imagecolorallocate($image, $r, $g, $b);
 
         foreach ($lines as $i => $line) {
             $y = $startY + $i * $lineHeight;
-            $draw->annotation(self::PADDING, $y, $line);
+            imagettftext($image, $fontSize, 0, self::PADDING, $y, $color, self::FONT, $line);
         }
-
-        $imagick->drawImage($draw);
     }
 
     /**
@@ -129,22 +147,18 @@ class ImageTranslatorService
      */
     private function wrapText(string $text, int $fontSize, int $maxWidth): array
     {
-        $words = explode(' ', $text);
-        $lines = [];
+        $words   = explode(' ', $text);
+        $lines   = [];
         $current = '';
 
-        $imagick = new Imagick();
-        $draw = new ImagickDraw();
-        $draw->setFont(self::FONT);
-        $draw->setFontSize($fontSize);
-
         foreach ($words as $word) {
-            $test = $current ? $current . ' ' . $word : $word;
-            $metrics = $imagick->queryFontMetrics($draw, $test);
+            $test    = $current ? $current . ' ' . $word : $word;
+            $bbox    = imagettfbbox($fontSize, 0, self::FONT, $test);
+            $textWidth = abs($bbox[4] - $bbox[0]);
 
-            if ($metrics['textWidth'] > $maxWidth && $current !== '') {
-                $lines[] = $current;
-                $current = $word;
+            if ($textWidth > $maxWidth && $current !== '') {
+                $lines[]  = $current;
+                $current  = $word;
             } else {
                 $current = $test;
             }
@@ -154,7 +168,6 @@ class ImageTranslatorService
             $lines[] = $current;
         }
 
-        $imagick->destroy();
         return $lines;
     }
 }
