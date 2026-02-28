@@ -74,7 +74,11 @@ class PostService
 
         $message = 'Создан новый пост: ' . $post->title;
         User::where('role', 0)->each(function (User $user) use ($post, $message) {
-            UserNotification::dispatch($user, $message);
+            try {
+                UserNotification::dispatch($user, $message);
+            } catch (\Exception $e) {
+                Log::warning('UserNotification: broadcast failed', ['error' => $e->getMessage()]);
+            }
             try {
                 $user->notify(new PostCreatedNotification($post));
             } catch (\Exception $e) {
