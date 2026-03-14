@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Traits\TranslatesNodes;
 use DOMDocument;
 use DOMNode;
 use DOMXPath;
@@ -10,6 +11,7 @@ use Stichoza\GoogleTranslate\GoogleTranslate;
 
 class TranslateService
 {
+    use TranslatesNodes;
 
 
     private mixed $data;
@@ -29,7 +31,7 @@ class TranslateService
         try {
             $dom = new DOMDocument();
 
-            @$dom->loadHTML($this->data['content']);
+            @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $this->data['content']);
 
             //$h1 = $dom->getElementsByTagName("h1");
 
@@ -88,26 +90,6 @@ class TranslateService
         return $this->data;
     }
 
-    private function processNode(DOMNode $node, DOMNode|bool $parentNode = false): void
-    {
-
-        if ($node->nodeName == 'code') {
-            return;
-        }
-
-
-        if ($node->nodeType === XML_TEXT_NODE) {
-            $translatedText = $this->googleTranslate->translate($node->nodeValue);
-            $node->nodeValue = $translatedText;
-        }
-
-
-        if ($node->hasChildNodes()) {
-            foreach ($node->childNodes as $childNode) {
-                $this->processNode($childNode, $node);
-            }
-        }
-    }
 
     private function modifyContent(string $postContent): string
     {

@@ -9,6 +9,7 @@ use App\Service\PostService;
 use DOMDocument;
 use DOMNode;
 use DOMXPath;
+use App\Traits\TranslatesNodes;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -23,7 +24,9 @@ use Stichoza\GoogleTranslate\GoogleTranslate;
 
 class StorePostJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, TranslatesNodes;
+
+    public int $timeout = 300;
 
     private $data;
     private PostService $service;
@@ -54,8 +57,10 @@ class StorePostJob implements ShouldQueue
             } else {
                 $tmp = tempnam(sys_get_temp_dir(), 'curl_');
                 $url = escapeshellarg($this->data['url']);
+                $proxy = env('CURL_PROXY') ? '--socks5 ' . escapeshellarg(env('CURL_PROXY')) . ' ' : '';
                 shell_exec(
                     "/usr/bin/curl -s -L --max-time 30 --http2 " .
+                    $proxy .
                     "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' " .
                     "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' " .
                     "-H 'Accept-Language: en-US,en;q=0.9' " .
@@ -93,6 +98,17 @@ class StorePostJob implements ShouldQueue
             }
 
             $h1 = $dom->getElementsByTagName("h1");
+            if ($h1->length === 0) {
+                $titleTag = $dom->getElementsByTagName("title");
+                if ($titleTag->length > 0) {
+                    $rawTitle = $titleTag->item(0)->nodeValue;
+                    // Strip site name suffix (e.g. "Article Title | Site Name")
+                    $rawTitle = preg_replace('/\s*[|\-—]\s*[^|\-—]+$/', '', $rawTitle);
+                    $fakeH1 = $dom->createElement('h1', htmlspecialchars(trim($rawTitle)));
+                    $dom->documentElement->appendChild($fakeH1);
+                    $h1 = $dom->getElementsByTagName("h1");
+                }
+            }
             if ($h1->length > 0) {
                 $title = $h1->item(0)->nodeValue;
                 $this->data['title'] = $googleTranslate->translate($title);
@@ -128,7 +144,7 @@ class StorePostJob implements ShouldQueue
                     $class = ltrim($selector, '.');
                     $xpathQuery = "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$class} ')]";
                 } elseif (preg_match('/^[a-zA-Z][a-zA-Z0-9]*$/', $selector)) {
-                    $xpathQuery = "//{$selector}";
+                    $xpathQuery = "(//{$selector})[1]";
                 } else {
                     $xpathQuery = "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$selector} ')]";
                 }
@@ -225,27 +241,6 @@ class StorePostJob implements ShouldQueue
         if ($node->hasChildNodes()) {
             foreach ($node->childNodes as $childNode) {
                 $this->replaceTextInNodes($childNode, $callback);
-            }
-        }
-    }
-
-    private function processNode(DOMNode $node, DOMNode|bool $parentNode = false): void
-    {
-
-        if ($node->nodeName == 'code') {
-            return;
-        }
-
-
-        if ($node->nodeType === XML_TEXT_NODE) {
-            $translatedText = $this->googleTranslate->translate($node->nodeValue);
-            $node->nodeValue = $translatedText;
-        }
-
-
-        if ($node->hasChildNodes()) {
-            foreach ($node->childNodes as $childNode) {
-                $this->processNode($childNode, $node);
             }
         }
     }
