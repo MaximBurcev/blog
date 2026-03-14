@@ -46,6 +46,8 @@ return [
         'dev.to'           => '#article-body',
         'medium.com'       => 'article',
         'gitconnected.com' => 'article',
+        'laravel-news.com' => 'article',
+        'symfony.com'      => 'article',
     ],
 
     /*

@@ -46,7 +46,7 @@
                                     <tr>
                                         <td>Контент</td>
                                         <td>
-                                            {{ $post->content }}
+                                            {!! $post->content !!}
                                         </td>
                                     </tr>
                                     </tbody>

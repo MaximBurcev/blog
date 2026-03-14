@@ -56,7 +56,8 @@ class PostResource extends Resource
             ->columns([
                 TextColumn::make('id')->label('ID')->sortable(),
                 Tables\Columns\ImageColumn::make('preview_image')->label('Превью'),
-                TextColumn::make('title')->label('Заголовок')->sortable(),
+                TextColumn::make('title')->label('Заголовок')->sortable()->wrap(),
+                TextColumn::make('created_at')->label('Дата создания')->dateTime('d.m.Y H:i')->sortable(),
                 //TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
             ])
             ->defaultSort('id', 'desc')
