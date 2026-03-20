@@ -124,13 +124,13 @@ class ReleaseService
         $response = $client->get($url);
         
         if ($response->getStatusCode() !== 200) {
-            throw new RequestException("HTTP {$response->getStatusCode()}: Failed to fetch content");
+            throw new \RuntimeException("HTTP {$response->getStatusCode()}: Failed to fetch content");
         }
-        
+
         $content = $response->getBody()->getContents();
-        
+
         if (empty($content)) {
-            throw new RequestException('Empty content received from URL');
+            throw new \RuntimeException('Empty content received from URL');
         }
         
         return $content;
