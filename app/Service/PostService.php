@@ -66,10 +66,9 @@ class PostService
 
             DB::commit();
         } catch (\Exception $exception) {
-            dd($exception->getMessage());
-            logger($exception->getMessage());
             DB::rollBack();
-            abort(404);
+            Log::error('PostService::store failed', ['error' => $exception->getMessage()]);
+            abort(500);
         }
 
         $message = 'Создан новый пост: ' . $post->title;
@@ -140,8 +139,8 @@ class PostService
             $post->tags()->sync($tagIds);
             DB::commit();
         } catch (\Exception $exception) {
-            dd($exception->getMessage());
             DB::rollBack();
+            Log::error('PostService::update failed', ['error' => $exception->getMessage()]);
             abort(500);
         }
 
