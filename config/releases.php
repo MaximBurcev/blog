@@ -48,6 +48,7 @@ return [
         'gitconnected.com' => 'article',
         'laravel-news.com' => 'article',
         'symfony.com'      => 'article',
+        'langchain.com'    => '.w-richtext',
     ],
 
     /*
