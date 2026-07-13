@@ -7,7 +7,6 @@ use App\Service\ContentImageService;
 use App\Service\ImageTranslatorService;
 use App\Service\PostService;
 use DOMDocument;
-use DOMNode;
 use DOMXPath;
 use App\Traits\TranslatesNodes;
 use Illuminate\Bus\Queueable;
@@ -50,7 +49,6 @@ class StorePostJob implements ShouldQueue
         try {
             $dom = new DOMDocument();
             Log::info('job:url', [$this->data['url']]);
-            //dd(file_get_contents($this->data['url']));
             if (!empty($this->data['html_file'])) {
                 $html = file_get_contents($this->data['html_file']);
                 Log::info('StorePostJob: reading from file', ['file' => $this->data['html_file']]);
@@ -201,48 +199,6 @@ class StorePostJob implements ShouldQueue
         }
 
         $this->service->store($this->data);
-    }
-
-    private function showDOMNode(\DOMNode $domNode, $googleTranslate): void
-    {
-
-        foreach ($domNode->childNodes as $node) {
-            Log::info('nodeName', [$node->nodeName]);
-
-            echo $this->formatNode($googleTranslate->translate($node->nodeValue), $node->nodeName);
-
-            if ($node->hasChildNodes()) {
-                $this->showDOMNode($node, $googleTranslate);
-            }
-        }
-
-    }
-
-    private function formatNode($value, $nodeName): string
-    {
-        return '<' . $nodeName . '>' . $value . '</' . $nodeName . '>';
-    }
-
-    /**
-     * Replaces text in DOM nodes recursively using a callback.
-     *
-     * @param \DOMNode $node The DOM node to process.
-     * @param callable $callback A callback to replace the text in the node.
-     */
-    private function replaceTextInNodes(DOMNode $node, callable $callback): void
-    {
-        // If the node is a text node, replace its value with the callback result
-        if ($node->nodeType === XML_TEXT_NODE) {
-            Log::info('nodeValue', [$node->nodeValue]);
-            $node->nodeValue = $callback($node->nodeValue);
-        }
-
-        // If the node has children, recursively process them
-        if ($node->hasChildNodes()) {
-            foreach ($node->childNodes as $childNode) {
-                $this->replaceTextInNodes($childNode, $callback);
-            }
-        }
     }
 
     /**

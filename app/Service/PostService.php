@@ -72,7 +72,7 @@ class PostService
         }
 
         $message = 'Создан новый пост: ' . $post->title;
-        User::where('role', 0)->each(function (User $user) use ($post, $message) {
+        User::where('role', User::ROLE_ADMIN)->each(function (User $user) use ($post, $message) {
             try {
                 UserNotification::dispatch($user, $message);
             } catch (\Exception $e) {

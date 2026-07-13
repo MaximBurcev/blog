@@ -49,6 +49,7 @@ return [
         'laravel-news.com' => 'article',
         'symfony.com'      => 'article',
         'langchain.com'    => '.w-richtext',
+        'stackademic.com'  => 'article',
     ],
 
     /*

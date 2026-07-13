@@ -27,24 +27,12 @@ class TranslateService
 
     public function translate(): mixed
     {
-        $googleTranslate = new GoogleTranslate('ru');
         try {
             $dom = new DOMDocument();
 
             @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $this->data['content']);
 
-            //$h1 = $dom->getElementsByTagName("h1");
-
-            $this->data['title'] = $googleTranslate->translate($this->data['title']);
-
-//            if ($h1->length > 0) {
-//                $title = $h1->item(0)->nodeValue;
-//
-//                Log::info('title', [$this->data['title']]);
-//                Log::info('code', [$this->data['code']]);
-//            }
-
-
+            $this->data['title'] = $this->googleTranslate->translate($this->data['title']);
 
                 $finder = new DomXPath($dom);
 
@@ -83,8 +71,7 @@ class TranslateService
 
 
         } catch (\Exception $exception) {
-            dd($exception->getMessage());
-            //logger($exception->getMessage());
+            Log::error('TranslateService::translate failed', ['error' => $exception->getMessage()]);
         }
 
         return $this->data;
