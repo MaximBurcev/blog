@@ -6,6 +6,7 @@ use DOMDocument;
 use DOMElement;
 use DOMNode;
 use Illuminate\Support\Facades\Log;
+use Stichoza\GoogleTranslate\GoogleTranslate;
 
 trait TranslatesNodes
 {
@@ -38,6 +39,22 @@ trait TranslatesNodes
         'section', 'article', 'aside', 'header', 'footer',
         'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     ];
+
+    /**
+     * Создаёт переводчик с учётом SOCKS5-прокси из config('releases.curl_proxy').
+     * Через голый env() читать нельзя: после `artisan config:cache` env()
+     * вне config/*.php возвращает null и прокси молча отключается.
+     */
+    private function makeGoogleTranslate(): GoogleTranslate
+    {
+        $translator = new GoogleTranslate('ru');
+
+        if ($proxy = config('releases.curl_proxy')) {
+            $translator->setOptions(['proxy' => 'socks5://'.$proxy]);
+        }
+
+        return $translator;
+    }
 
     private function processNode(DOMNode $node, DOMNode|bool $parentNode = false): void
     {

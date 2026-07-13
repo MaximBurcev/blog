@@ -45,7 +45,7 @@ class StorePostJob implements ShouldQueue
 
     public function handle(): void
     {
-        $googleTranslate = new GoogleTranslate('ru');
+        $googleTranslate = $this->makeGoogleTranslate();
         try {
             $dom = new DOMDocument();
             Log::info('job:url', [$this->data['url']]);
@@ -55,7 +55,7 @@ class StorePostJob implements ShouldQueue
             } else {
                 $tmp = tempnam(sys_get_temp_dir(), 'curl_');
                 $url = escapeshellarg($this->data['url']);
-                $proxy = env('CURL_PROXY') ? '--socks5 ' . escapeshellarg(env('CURL_PROXY')) . ' ' : '';
+                $proxy = config('releases.curl_proxy') ? '--socks5 ' . escapeshellarg(config('releases.curl_proxy')) . ' ' : '';
                 shell_exec(
                     "/usr/bin/curl -s -L --max-time 30 --http2 " .
                     $proxy .
@@ -156,7 +156,7 @@ class StorePostJob implements ShouldQueue
                     $contentOrig .= $dom->saveHTML($node);
                 }
 
-                $this->googleTranslate = new GoogleTranslate('ru');
+                $this->googleTranslate = $this->makeGoogleTranslate();
 
                 foreach ($nodes as $node) {
                     $this->processNode($node);
