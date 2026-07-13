@@ -23,6 +23,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | SOCKS5 Proxy for Parser and Translator
+    |--------------------------------------------------------------------------
+    |
+    | Proxy in host:port format used by StorePostJob (curl fetch) and
+    | Google Translate requests. Read via config() so it keeps working
+    | after `artisan config:cache` (bare env() would return null).
+    |
+    */
+    'curl_proxy' => env('CURL_PROXY'),
+
+    /*
+    |--------------------------------------------------------------------------
     | CSS Class for Post Content Extraction
     |--------------------------------------------------------------------------
     |

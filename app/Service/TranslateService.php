@@ -22,7 +22,7 @@ class TranslateService
     {
         $this->data = $data;
         $this->imageService = new ContentImageService();
-        $this->googleTranslate = new GoogleTranslate('ru');
+        $this->googleTranslate = $this->makeGoogleTranslate();
     }
 
     public function translate(): mixed
