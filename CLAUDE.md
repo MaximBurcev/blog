@@ -51,13 +51,9 @@ The project has **two separate admin panels** that coexist:
 
 2. **Filament Panel** at `/filament` — modern admin built with Filament 3, auto-discovers resources in `app/Filament/Resources/`. Configured in `app/Providers/Filament/FilamentPanelProvider.php`.
 
-### Dual Database Connections
+### Database
 
-The app uses **two MySQL databases** (`config/database.php`):
-- `mysql` — default connection (users, categories, tags, comments, releases)
-- `secondary` — used specifically by the `Post` model (`protected $connection = 'secondary'`)
-
-Configure via env vars: `DB_*` (primary) and `DB_SECONDARY_*` (secondary).
+Single MySQL database, default `mysql` connection (`config/database.php`), configured via `DB_*` env vars. The former `secondary` connection (remote posts DB) was decommissioned in July 2026 — all models, including `Post`, use the default connection.
 
 ### Controller Pattern
 

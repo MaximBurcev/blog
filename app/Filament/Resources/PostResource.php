@@ -57,6 +57,17 @@ class PostResource extends Resource
                 TextColumn::make('id')->label('ID')->sortable(),
                 Tables\Columns\ImageColumn::make('preview_image')->label('Превью'),
                 TextColumn::make('title')->label('Заголовок')->sortable()->wrap(),
+                Tables\Columns\IconColumn::make('translation_incomplete')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-exclamation-triangle')
+                    ->trueColor('warning')
+                    ->falseIcon('heroicon-o-check-circle')
+                    ->falseColor('success')
+                    ->label('Перевод')
+                    ->tooltip(fn (Post $record): ?string => $record->translation_incomplete
+                        ? 'Часть блоков осталась без перевода — требует ревью'
+                        : null)
+                    ->sortable(),
                 TextColumn::make('created_at')->label('Дата создания')->dateTime('d.m.Y H:i')->sortable(),
                 //TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
             ])
