@@ -198,6 +198,8 @@ class StorePostJob implements ShouldQueue
             return;
         }
 
+        $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
+
         $this->service->store($this->data);
     }
 

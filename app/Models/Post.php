@@ -35,7 +35,9 @@ class Post extends Model
         return $this->hasMany(Comment::class, 'post_id', 'id');
     }
 
-    protected $casts = [];
+    protected $casts = [
+        'translation_incomplete' => 'boolean',
+    ];
 
     public function likes()
     {

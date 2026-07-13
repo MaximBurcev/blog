@@ -71,8 +71,12 @@ class TranslateService
 
 
         } catch (\Exception $exception) {
+            // Исключение до/во время перевода — контент остался (частично) непереведённым
+            $this->translationFallbacks++;
             Log::error('TranslateService::translate failed', ['error' => $exception->getMessage()]);
         }
+
+        $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
 
         return $this->data;
     }

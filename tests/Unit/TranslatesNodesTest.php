@@ -180,6 +180,36 @@ class TranslatesNodesTest extends TestCase
         $this->assertSame('<p>TOM &amp; JERRY</p>', $result);
     }
 
+    public function test_successful_translation_reports_no_fallbacks(): void
+    {
+        $harness = $this->harness(new FakeGoogleTranslate);
+        $harness->translateHtml('<p>Use <strong>Laravel</strong> now</p>');
+
+        $this->assertFalse($harness->hadFallbacks());
+    }
+
+    public function test_empty_translation_is_counted_as_fallback(): void
+    {
+        $translator = new FakeGoogleTranslate;
+        $translator->forcedResult = '';
+
+        $harness = $this->harness($translator);
+        $harness->translateHtml('<p>Some text</p>');
+
+        $this->assertTrue($harness->hadFallbacks());
+    }
+
+    public function test_lost_placeholder_is_counted_as_fallback(): void
+    {
+        $translator = new FakeGoogleTranslate;
+        $translator->forcedResult = 'ПЕРЕВОД БЕЗ ПЛЕЙСХОЛДЕРОВ';
+
+        $harness = $this->harness($translator);
+        $harness->translateHtml('<p>Use <strong>Laravel</strong> now</p>');
+
+        $this->assertTrue($harness->hadFallbacks());
+    }
+
     private function harness(FakeGoogleTranslate $translator): TranslatesNodesHarness
     {
         return new TranslatesNodesHarness($translator);
@@ -194,6 +224,11 @@ class TranslatesNodesHarness
     use TranslatesNodes;
 
     public function __construct(private readonly FakeGoogleTranslate $googleTranslate) {}
+
+    public function hadFallbacks(): bool
+    {
+        return $this->hasTranslationFallbacks();
+    }
 
     public function translateHtml(string $html): string
     {

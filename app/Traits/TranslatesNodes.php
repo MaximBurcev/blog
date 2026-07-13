@@ -41,6 +41,17 @@ trait TranslatesNodes
     ];
 
     /**
+     * Сколько блоков/узлов остались без перевода в текущем прогоне
+     * (пустой ответ Google, потерянный плейсхолдер, битый HTML после перевода).
+     */
+    private int $translationFallbacks = 0;
+
+    private function hasTranslationFallbacks(): bool
+    {
+        return $this->translationFallbacks > 0;
+    }
+
+    /**
      * Создаёт переводчик с учётом SOCKS5-прокси из config('releases.curl_proxy').
      * Через голый env() читать нельзя: после `artisan config:cache` env()
      * вне config/*.php возвращает null и прокси молча отключается.
@@ -127,6 +138,7 @@ trait TranslatesNodes
 
         foreach (array_keys($map) as $token) {
             if (! str_contains($translated, $token)) {
+                $this->translationFallbacks++;
                 Log::warning('TranslatesNodes: placeholder lost, keeping original block', [
                     'token' => $token,
                     'text' => mb_substr($masked, 0, 100),
@@ -167,6 +179,7 @@ trait TranslatesNodes
             }
         }
 
+        $this->translationFallbacks++;
         Log::warning('TranslatesNodes: empty translation, keeping original text', [
             'text' => mb_substr($text, 0, 100),
         ]);
@@ -229,6 +242,7 @@ trait TranslatesNodes
     {
         $tmp = new DOMDocument;
         if (! @$tmp->loadHTML('<?xml encoding="utf-8" ?><body>'.$html.'</body>')) {
+            $this->translationFallbacks++;
             Log::warning('TranslatesNodes: failed to parse translated block, keeping original', [
                 'html' => mb_substr($html, 0, 100),
             ]);
