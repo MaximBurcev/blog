@@ -6,19 +6,16 @@ use App\Service\CategoryDetectorService;
 use App\Service\ContentImageService;
 use App\Service\ImageTranslatorService;
 use App\Service\PostService;
+use App\Traits\TranslatesNodes;
 use DOMDocument;
 use DOMXPath;
-use App\Traits\TranslatesNodes;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 
 class StorePostJob implements ShouldQueue
@@ -28,54 +25,72 @@ class StorePostJob implements ShouldQueue
     public int $timeout = 300;
 
     private $data;
+
     private PostService $service;
 
     private GoogleTranslate $googleTranslate;
-    private ContentImageService $imageService;
 
+    private ContentImageService $imageService;
 
     public function __construct($data)
     {
         //
         $this->data = $data;
-        $this->service = new PostService();
-        $this->imageService = new ContentImageService();
+        $this->service = new PostService;
+        $this->imageService = new ContentImageService;
     }
-
 
     public function handle(): void
     {
         $googleTranslate = $this->makeGoogleTranslate();
         try {
-            $dom = new DOMDocument();
+            $dom = new DOMDocument;
             Log::info('job:url', [$this->data['url']]);
-            if (!empty($this->data['html_file'])) {
+            if (! empty($this->data['html_file'])) {
                 $html = file_get_contents($this->data['html_file']);
                 Log::info('StorePostJob: reading from file', ['file' => $this->data['html_file']]);
             } else {
                 $tmp = tempnam(sys_get_temp_dir(), 'curl_');
                 $url = escapeshellarg($this->data['url']);
-                $proxy = config('releases.curl_proxy') ? '--socks5 ' . escapeshellarg(config('releases.curl_proxy')) . ' ' : '';
-                shell_exec(
-                    "/usr/bin/curl -s -L --max-time 30 --http2 " .
-                    $proxy .
-                    "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' " .
-                    "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' " .
-                    "-H 'Accept-Language: en-US,en;q=0.9' " .
-                    "--output " . escapeshellarg($tmp) . " " .
-                    "{$url} 2>/dev/null"
-                );
+                $proxy = config('releases.curl_proxy') ? '--socks5 '.escapeshellarg(config('releases.curl_proxy')).' ' : '';
+                $impersonate = config('releases.curl_binary');
+
+                if ($impersonate) {
+                    // curl-impersonate сам выставляет TLS-отпечаток и заголовки Chrome —
+                    // свои не добавляем, чтобы не выдать себя дублями заголовков
+                    $command = escapeshellcmd($impersonate).' -s -L --max-time 30 '.
+                        $proxy.
+                        '--output '.escapeshellarg($tmp).' '.
+                        "{$url} 2>/dev/null";
+                } else {
+                    $command = '/usr/bin/curl -s -L --max-time 30 --http2 '.
+                        $proxy.
+                        "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' ".
+                        "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' ".
+                        "-H 'Accept-Language: en-US,en;q=0.9' ".
+                        '--output '.escapeshellarg($tmp).' '.
+                        "{$url} 2>/dev/null";
+                }
+
+                shell_exec($command);
                 $html = file_get_contents($tmp);
                 unlink($tmp);
             }
 
             Log::info('StorePostJob: response', [
-                'length'                 => strlen((string) $html),
-                'has_crayons_article'    => str_contains((string) $html, 'crayons-article__body'),
+                'length' => strlen((string) $html),
+                'has_crayons_article' => str_contains((string) $html, 'crayons-article__body'),
             ]);
 
             if (empty($html)) {
                 Log::warning('StorePostJob: empty response', ['url' => $this->data['url']]);
+
+                return;
+            }
+
+            if ($this->isChallengePage($html)) {
+                Log::warning('StorePostJob: anti-bot challenge page, skipping', ['url' => $this->data['url']]);
+
                 return;
             }
 
@@ -83,28 +98,28 @@ class StorePostJob implements ShouldQueue
 
             // Извлекаем OG-изображение статьи
             if (empty($this->data['preview_image'])) {
-                $finder  = new DomXPath($dom);
+                $finder = new DomXPath($dom);
                 $ogImage = $finder->query("//meta[@property='og:image']/@content");
                 if ($ogImage->length > 0) {
                     $ogImageUrl = $ogImage->item(0)->nodeValue;
-                    $imagePath  = $this->imageService->downloadImage($ogImageUrl);
+                    $imagePath = $this->imageService->downloadImage($ogImageUrl);
                     if ($imagePath) {
                         $this->data['preview_image'] = $imagePath;
-                        $this->data['main_image']    = $imagePath;
+                        $this->data['main_image'] = $imagePath;
                     }
                 }
             }
 
-            $h1 = $dom->getElementsByTagName("h1");
+            $h1 = $dom->getElementsByTagName('h1');
             if ($h1->length === 0) {
-                $titleTag = $dom->getElementsByTagName("title");
+                $titleTag = $dom->getElementsByTagName('title');
                 if ($titleTag->length > 0) {
                     $rawTitle = $titleTag->item(0)->nodeValue;
                     // Strip site name suffix (e.g. "Article Title | Site Name")
                     $rawTitle = preg_replace('/\s*[|\-—]\s*[^|\-—]+$/', '', $rawTitle);
                     $fakeH1 = $dom->createElement('h1', htmlspecialchars(trim($rawTitle)));
                     $dom->documentElement->appendChild($fakeH1);
-                    $h1 = $dom->getElementsByTagName("h1");
+                    $h1 = $dom->getElementsByTagName('h1');
                 }
             }
             if ($h1->length > 0) {
@@ -112,17 +127,17 @@ class StorePostJob implements ShouldQueue
                 $this->data['title'] = $googleTranslate->translate($title);
 
                 // Переводим текст на обложке, если картинка уже скачана
-                if (!empty($this->data['preview_image']) && !empty($this->data['title'])) {
+                if (! empty($this->data['preview_image']) && ! empty($this->data['title'])) {
                     try {
                         $fullPath = Storage::disk('public')->path($this->data['preview_image']);
-                        (new ImageTranslatorService())->translateCoverImage($fullPath, $this->data['title']);
+                        (new ImageTranslatorService)->translateCoverImage($fullPath, $this->data['title']);
                     } catch (\Throwable $e) {
                         Log::warning('ImageTranslatorService: failed', ['error' => $e->getMessage()]);
                     }
                 }
 
                 if (empty($this->data['category_id'])) {
-                    $this->data['category_id'] = (new CategoryDetectorService())->detect($title, $this->data['url']);
+                    $this->data['category_id'] = (new CategoryDetectorService)->detect($title, $this->data['url']);
                 }
 
                 Log::info('title', [$this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
@@ -137,7 +152,7 @@ class StorePostJob implements ShouldQueue
 
                 $selector = $this->data['selector'];
                 if (str_starts_with($selector, '#')) {
-                    $xpathQuery = "//*[@id='" . ltrim($selector, '#') . "']";
+                    $xpathQuery = "//*[@id='".ltrim($selector, '#')."']";
                 } elseif (str_starts_with($selector, '.')) {
                     $class = ltrim($selector, '.');
                     $xpathQuery = "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$class} ')]";
@@ -167,34 +182,34 @@ class StorePostJob implements ShouldQueue
                     $postContent .= $dom->saveHTML($node);
                 }
 
-
                 $postContent = $this->modifyContent($postContent);
 
                 $postContent = $this->imageService->downloadAndReplaceImages($postContent);
 
-                if (!empty($postContent)) {
-                    $this->data['content']      = $postContent;
+                if (! empty($postContent)) {
+                    $this->data['content'] = $postContent;
                     $this->data['content_orig'] = $contentOrig;
 
                     if (empty($this->data['preview_image'])) {
                         $imagePath = $this->extractFirstImagePath($postContent);
                         if ($imagePath) {
                             $this->data['preview_image'] = $imagePath;
-                            $this->data['main_image']    = $imagePath;
+                            $this->data['main_image'] = $imagePath;
                         }
                     }
                 }
 
             }
         } catch (\Throwable $exception) {
-            Log::error('StorePostJob error: ' . $exception->getMessage(), [
+            Log::error('StorePostJob error: '.$exception->getMessage(), [
                 'class' => get_class($exception),
-                'line'  => $exception->getLine(),
+                'line' => $exception->getLine(),
             ]);
         }
 
         if (empty($this->data['title'])) {
             Log::warning('StorePostJob: skipping, no title found', ['url' => $this->data['url']]);
+
             return;
         }
 
@@ -204,19 +219,44 @@ class StorePostJob implements ShouldQueue
     }
 
     /**
+     * Определяет антибот-заглушку (Cloudflare и т.п.) вместо реальной статьи.
+     * Без этой проверки заглушка «Just a moment...» проходила как валидный
+     * title и создавался мусорный пост с пустым контентом.
+     */
+    private function isChallengePage(string $html): bool
+    {
+        // Внимание: маркер '/cdn-cgi/challenge-platform/' НЕ подходит —
+        // Cloudflare инжектит этот скрипт и в легитимные страницы (скоринг),
+        // получается ложное срабатывание на нормальных статьях
+        $markers = [
+            '<title>Just a moment...</title>',
+            'cf-browser-verification',
+            'Attention Required! | Cloudflare',
+        ];
+
+        foreach ($markers as $marker) {
+            if (str_contains($html, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Извлекает путь первой локально сохранённой картинки из контента.
      * Возвращает путь относительно storage/public (например images/content/xxx.jpg).
      */
     private function extractFirstImagePath(string $content): ?string
     {
-        if (!preg_match('/<img[^>]+src="([^"]+)"/i', $content, $matches)) {
+        if (! preg_match('/<img[^>]+src="([^"]+)"/i', $content, $matches)) {
             return null;
         }
 
-        $url        = $matches[1];
-        $storageUrl = rtrim(Storage::disk('public')->url(''), '/') . '/';
+        $url = $matches[1];
+        $storageUrl = rtrim(Storage::disk('public')->url(''), '/').'/';
 
-        if (!str_starts_with($url, $storageUrl)) {
+        if (! str_starts_with($url, $storageUrl)) {
             return null;
         }
 
@@ -229,13 +269,13 @@ class StorePostJob implements ShouldQueue
      * Replaces certain tags with versions that have a non-breaking space added to the start and/or end.
      * This is needed because some tags (like <code>) don't wrap properly without the extra space.
      *
-     * @param string $postContent The content of the post to modify.
+     * @param  string  $postContent  The content of the post to modify.
      * @return string The modified content.
      */
     private function modifyContent(string $postContent): string
     {
         return str_replace(
-        // The tags we want to modify
+            // The tags we want to modify
             ['<code>', '</code>', '<strong>'],
             // The modified versions of the tags
             ['&nbsp;<code>', '</code>&nbsp;', '&nbsp;<strong>'],
@@ -243,5 +283,4 @@ class StorePostJob implements ShouldQueue
             $postContent
         );
     }
-
 }
