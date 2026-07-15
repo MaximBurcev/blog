@@ -35,6 +35,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Curl Binary Override (curl-impersonate)
+    |--------------------------------------------------------------------------
+    |
+    | Path to a curl-impersonate wrapper (e.g. curl_chrome116) used by
+    | StorePostJob to bypass TLS-fingerprint bot detection (Cloudflare on
+    | medium.com etc.). The wrapper sets Chrome TLS fingerprint and headers
+    | itself. Leave empty to use system /usr/bin/curl with manual headers.
+    |
+    */
+    'curl_binary' => env('CURL_BINARY'),
+
+    /*
+    |--------------------------------------------------------------------------
     | CSS Class for Post Content Extraction
     |--------------------------------------------------------------------------
     |
@@ -55,13 +68,13 @@ return [
     |
     */
     'domain_selectors' => [
-        'dev.to'           => '#article-body',
-        'medium.com'       => 'article',
+        'dev.to' => '#article-body',
+        'medium.com' => 'article',
         'gitconnected.com' => 'article',
         'laravel-news.com' => 'article',
-        'symfony.com'      => 'article',
-        'langchain.com'    => '.w-richtext',
-        'stackademic.com'  => 'article',
+        'symfony.com' => 'article',
+        'langchain.com' => '.w-richtext',
+        'stackademic.com' => 'article',
     ],
 
     /*
