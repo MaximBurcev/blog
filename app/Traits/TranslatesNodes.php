@@ -156,6 +156,13 @@ trait TranslatesNodes
             $map
         );
 
+        // Google иногда переставляет короткое слово/местоимение из середины
+        // инлайн-тега наружу при переводе (грамматический порядок слов в
+        // русском отличается) — сам перевод не теряется, но парный тег
+        // остаётся пустой оболочкой ("Ваша стратегия <code> </code>").
+        // Убираем такие пустые теги, чтобы не оставлять мусор в разметке
+        $restored = preg_replace('~<(\w+)(?:\s[^>]*)?>\s*</\1>~', '', $restored);
+
         $this->replaceInnerHtml($element, $restored);
     }
 
@@ -262,23 +269,37 @@ trait TranslatesNodes
     }
 
     /**
-     * Отличает риторическую фразу в <code> (стиль автора) от настоящего кода:
-     * несколько слов, оканчивается знаком препинания предложения, и нет
-     * характерных для кода символов ($, {}, ;, <>, ::, ->, =>).
+     * Отличает риторическую фразу в <code> (стиль автора) от настоящего кода.
+     *
+     * Некоторые авторы заворачивают в <code> даже одиночные слова/короткие
+     * словосочетания без пунктуации (напр. "<code>ideas</code>",
+     * "<code>domain knowledge</code>" — список "того, что всегда делало вас
+     * ценным"), поэтому требование "точка в конце" из первой версии было
+     * слишком строгим и упускало такие случаи. Вместо длины/пунктуации
+     * проверяем признаки, реально отличающие код: символы синтаксиса, цифры,
+     * двоеточие команд (migrate:fresh) и camelCase/PascalCase-идентификаторы
+     * (кроме сплошных капсом акронимов вроде AI/PHP — те не идентификаторы).
      */
     private function looksLikeProse(string $innerHtml): bool
     {
         $text = trim(strip_tags($innerHtml));
 
-        if ($text === '' || str_word_count($text) < 3) {
+        if ($text === '') {
             return false;
         }
 
-        if (preg_match('/[{}$;<>]|::|->|=>/', $text)) {
+        if (preg_match('/[{}$;<>()\[\]=:_]|->|=>|--|\d/', $text)) {
             return false;
         }
 
-        return (bool) preg_match('/[.!?]$/', $text);
+        foreach (preg_split('/\s+/', $text) as $word) {
+            $word = trim($word, ",.!?'\"");
+            if ($word !== '' && preg_match('/^.+[A-ZА-Я]/u', $word) && $word !== mb_strtoupper($word)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function replaceInnerHtml(DOMElement $element, string $html): void

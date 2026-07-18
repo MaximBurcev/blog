@@ -79,18 +79,49 @@ class TranslatesNodesTest extends TestCase
         $this->assertStringContainsString('which ones, and how?', $translator->calls[0]);
     }
 
-    public function test_short_code_without_sentence_punctuation_still_treated_as_code(): void
+    public function test_single_word_code_without_punctuation_is_translated(): void
     {
-        // "composer install" длиннее одного слова, но без точки/?/! в
-        // конце — не должен по ошибке классифицироваться как проза
+        // Реальный пример (christoph-rumpel.com/the-agentic-artisan): список
+        // "то же, что всегда делало вас ценным" — каждый пункт одно слово
+        // без пунктуации в <code>. Прежняя версия эвристики (нужна точка/
+        // 3+ слова) это упускала
         $translator = new FakeGoogleTranslate;
         $result = $this->harness($translator)->translateHtml(
-            '<p>Run <code>artisan migrate fresh</code> now</p>'
+            '<li>Your <code>ideas</code></li>'
         );
 
-        $this->assertStringContainsString('<code>artisan migrate fresh</code>', $result);
+        // Пробел внутри <code> добавлен намеренно (см. maskMarkup)
+        $this->assertStringContainsString('<code> IDEAS </code>', $result);
+        $this->assertStringContainsString('ideas', $translator->calls[0]);
+    }
+
+    public function test_cli_command_with_colon_still_treated_as_code(): void
+    {
+        // Двоеточие — характерный признак artisan-команд (migrate:fresh,
+        // queue:work) и т.п.; не должно классифицироваться как проза
+        $translator = new FakeGoogleTranslate;
+        $result = $this->harness($translator)->translateHtml(
+            '<p>Run <code>migrate:fresh</code> now</p>'
+        );
+
+        $this->assertStringContainsString('<code>migrate:fresh</code>', $result);
         foreach ($translator->calls as $call) {
-            $this->assertStringNotContainsString('artisan', $call);
+            $this->assertStringNotContainsString('migrate', $call);
+        }
+    }
+
+    public function test_camel_case_identifier_still_treated_as_code(): void
+    {
+        // "UserController" — похоже на реальный идентификатор (PascalCase),
+        // не на слово естественного языка
+        $translator = new FakeGoogleTranslate;
+        $result = $this->harness($translator)->translateHtml(
+            '<p>See <code>UserController</code> for details</p>'
+        );
+
+        $this->assertStringContainsString('<code>UserController</code>', $result);
+        foreach ($translator->calls as $call) {
+            $this->assertStringNotContainsString('UserController', $call);
         }
     }
 
@@ -241,6 +272,25 @@ class TranslatesNodesTest extends TestCase
         $this->assertStringContainsString('Tom & Jerry', $translator->calls[0]);
         // В итоговом HTML амперсанд снова закодирован
         $this->assertSame('<p>TOM &amp; JERRY</p>', $result);
+    }
+
+    public function test_empty_tag_left_by_word_reordering_is_removed(): void
+    {
+        // Регрессия на реальный баг: Google при переводе иногда переставляет
+        // короткое слово из середины инлайн-тега наружу (грамматический
+        // порядок в русском), парный тег остаётся пустой оболочкой —
+        // воспроизведено на реальном API: "Your <code>strategy</code>" →
+        // "Ваша стратегия ${0} ${1}" (слово уехало наружу, тег опустел)
+        $translator = new FakeGoogleTranslate;
+        $translator->forcedResult = 'Ваша стратегия ${0} ${1}';
+
+        $result = $this->harness($translator)->translateHtml(
+            '<ul><li>Your <code>strategy</code></li></ul>'
+        );
+
+        // Хвостовой пробел (от места удалённого пустого тега) визуально
+        // не важен для инлайн-разметки
+        $this->assertSame('<ul><li>Ваша стратегия </li></ul>', $result);
     }
 
     public function test_successful_translation_reports_no_fallbacks(): void
