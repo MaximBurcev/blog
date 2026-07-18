@@ -8,12 +8,19 @@ return new class extends Migration
 {
     /**
      * Run the migrations.
+     *
+     * Дубликат 2023_09_04_165418_add_code_to_categories_table — та же
+     * колонка. На средах, где обе миграции уже отмечены как выполненные,
+     * колонка добавлена первой из них; здесь просто пропускаем, если она
+     * уже есть, чтобы migrate:fresh не падал на "Duplicate column".
      */
     public function up(): void
     {
-        Schema::table('categories', function (Blueprint $table) {
-            $table->string('code');
-        });
+        if (! Schema::hasColumn('categories', 'code')) {
+            Schema::table('categories', function (Blueprint $table) {
+                $table->string('code');
+            });
+        }
     }
 
     /**
@@ -21,8 +28,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('categories', function (Blueprint $table) {
-            $table->dropColumn('code');
-        });
+        // Колонку удаляет 2023_09_04_165418_add_code_to_categories_table —
+        // не трогаем её здесь повторно
     }
 };

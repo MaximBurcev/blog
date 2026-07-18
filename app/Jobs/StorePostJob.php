@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Service\CategoryDetectorService;
 use App\Service\ContentImageService;
 use App\Service\ImageTranslatorService;
 use App\Service\PostService;
@@ -138,9 +137,9 @@ class StorePostJob implements ShouldQueue
                     }
                 }
 
-                if (empty($this->data['category_id'])) {
-                    $this->data['category_id'] = (new CategoryDetectorService)->detect($title, $this->data['url']);
-                }
+                // Категория определяется позже, в PostService::store()/update() —
+                // там уже доступен полный текст статьи (см. CategoryDetectorService),
+                // а на этом этапе контент ещё не извлечён из DOM
 
                 Log::info('title', [$this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
 
