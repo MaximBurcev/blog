@@ -75,6 +75,10 @@ return [
         'symfony.com' => 'article',
         'langchain.com' => '.w-richtext',
         'stackademic.com' => 'article',
+        'stitcher.io' => 'article',
+        'christoph-rumpel.com' => 'article',
+        'cakedc.com' => 'article',
+        'thephp.foundation' => '.leading-8',
     ],
 
     /*
