@@ -8,6 +8,8 @@ use App\Service\ImageTranslatorService;
 use App\Service\PostService;
 use App\Traits\TranslatesNodes;
 use DOMDocument;
+use DOMElement;
+use DOMNodeList;
 use DOMXPath;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -123,7 +125,7 @@ class StorePostJob implements ShouldQueue
                 }
             }
             if ($h1->length > 0) {
-                $title = $h1->item(0)->nodeValue;
+                $title = $this->selectArticleTitleNode($h1)->nodeValue;
                 $this->data['title'] = $googleTranslate->translate($title);
 
                 // Переводим текст на обложке, если картинка уже скачана
@@ -241,6 +243,40 @@ class StorePostJob implements ShouldQueue
         }
 
         return false;
+    }
+
+    /**
+     * Выбирает h1, соответствующий заголовку статьи, а не логотипу сайта.
+     *
+     * Частый паттерн вёрстки: <h1><a href="/">SiteName</a></h1> в шапке
+     * идёт раньше настоящего h1 статьи в DOM-порядке — брать item(0) без
+     * разбора значит получить название сайта вместо заголовка (см. баг
+     * с "шитье.io" на stitcher.io — Google дословно перевёл имя сайта).
+     */
+    private function selectArticleTitleNode(DOMNodeList $h1Nodes): DOMElement
+    {
+        foreach ($h1Nodes as $node) {
+            if (! $this->looksLikeSiteLogoHeading($node)) {
+                return $node;
+            }
+        }
+
+        return $h1Nodes->item(0);
+    }
+
+    private function looksLikeSiteLogoHeading(DOMElement $h1): bool
+    {
+        $links = $h1->getElementsByTagName('a');
+        if ($links->length !== 1) {
+            return false;
+        }
+
+        $href = trim($links->item(0)->getAttribute('href'));
+        if (! in_array($href, ['/', '', '#'], true)) {
+            return false;
+        }
+
+        return trim($h1->textContent) === trim($links->item(0)->textContent);
     }
 
     /**
