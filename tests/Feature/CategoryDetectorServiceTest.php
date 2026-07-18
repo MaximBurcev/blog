@@ -81,6 +81,23 @@ class CategoryDetectorServiceTest extends TestCase
         $this->assertNull(Category::where('title', 'AI')->first());
     }
 
+    public function test_existing_short_category_does_not_match_inside_unrelated_word(): void
+    {
+        // Регрессия: как только "AI" реально СУЩЕСТВУЕТ как категория,
+        // прежняя реализация матчила её через str_contains() без границ
+        // слова — "ai" внутри "contains"/"domain"/"email" ложно попадал
+        // почти в любую статью. Проверяем именно путь "уже существующая
+        // категория", а не словарь тем.
+        Category::create(['title' => 'AI', 'code' => 'ai']);
+
+        $result = (new CategoryDetectorService)->detect(
+            'This article contains information you can obtain by email',
+            'https://example.test/domain-training'
+        );
+
+        $this->assertNull($result);
+    }
+
     public function test_returns_null_when_nothing_matches(): void
     {
         $result = (new CategoryDetectorService)->detect(

@@ -20,7 +20,7 @@ class CategoryDetectorService
         $haystack = strtolower($url.' '.$title.' '.strip_tags($content));
 
         foreach (Category::all(['id', 'title']) as $category) {
-            if (str_contains($haystack, strtolower($category->title))) {
+            if ($this->matchesWord($haystack, $category->title)) {
                 Log::info('CategoryDetector: matched', ['category' => $category->title]);
 
                 return $category->id;
@@ -28,7 +28,7 @@ class CategoryDetectorService
         }
 
         foreach (config('topics.known', []) as $keyword => $canonicalName) {
-            if (preg_match('/\b'.preg_quote($keyword, '/').'\b/i', $haystack)) {
+            if ($this->matchesWord($haystack, $keyword)) {
                 $category = $this->findOrCreateCategory($canonicalName);
                 Log::info('CategoryDetector: auto-created category', ['category' => $canonicalName]);
 
@@ -39,6 +39,19 @@ class CategoryDetectorService
         Log::info('CategoryDetector: no match found');
 
         return null;
+    }
+
+    /**
+     * Проверяет вхождение $needle как отдельного слова (границы \b), а не
+     * произвольной подстроки. Баг: с plain str_contains() короткие названия
+     * (например "AI") ложно матчились внутри "contains", "domain", "email" —
+     * как только такая категория реально создавалась, следующие посты
+     * массово получали её по ошибке. \b с модификатором u корректно работает
+     * и с кириллицей (проверено на "Тестовая").
+     */
+    private function matchesWord(string $haystack, string $needle): bool
+    {
+        return (bool) preg_match('/\b'.preg_quote(strtolower($needle), '/').'\b/iu', $haystack);
     }
 
     /**
