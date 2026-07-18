@@ -151,6 +151,8 @@ class StorePostJob implements ShouldQueue
                     $panel->parentNode->removeChild($panel);
                 }
 
+                $this->stripAccessibilityJunk($finder);
+
                 $selector = $this->data['selector'];
                 if (str_starts_with($selector, '#')) {
                     $xpathQuery = "//*[@id='".ltrim($selector, '#')."']";
@@ -217,6 +219,23 @@ class StorePostJob implements ShouldQueue
         $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
 
         $this->service->store($this->data);
+    }
+
+    /**
+     * Убирает элементы с классом "speechify-ignore" — общий маркер
+     * инструментов доступности ("это не текст статьи, не читать вслух"),
+     * используется не только на Medium. Захватывает шапку автора
+     * (аватар/имя/время чтения/дата/кнопки Слушать-Поделиться) и подсказки
+     * вида "нажмите Enter, чтобы открыть картинку в полный размер" —
+     * мусор интерфейса, не контент статьи.
+     */
+    private function stripAccessibilityJunk(DOMXPath $finder): void
+    {
+        $junk = $finder->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' speechify-ignore ')]");
+
+        foreach (iterator_to_array($junk) as $junkNode) {
+            $junkNode->parentNode?->removeChild($junkNode);
+        }
     }
 
     /**
