@@ -23,7 +23,9 @@ class TranslatesNodesTest extends TestCase
             '<p>Use <strong>Laravel</strong> to build apps</p>'
         );
 
-        $this->assertSame('<p>USE <strong>LARAVEL</strong> TO BUILD APPS</p>', $result);
+        // Пробел внутри <strong> добавлен намеренно (см. maskMarkup) —
+        // защищает слово от склейки с плейсхолдером у Google Translate
+        $this->assertSame('<p>USE <strong> LARAVEL </strong> TO BUILD APPS</p>', $result);
 
         // Один блок = один запрос к переводчику
         $this->assertCount(1, $translator->calls);
@@ -63,6 +65,51 @@ class TranslatesNodesTest extends TestCase
         }
     }
 
+    public function test_code_styled_as_rhetorical_phrase_is_translated(): void
+    {
+        // Некоторые авторы оформляют риторические фразы через <code> вместо
+        // <em> (см. реальный пример: christoph-rumpel.com/the-agentic-artisan,
+        // "<code>which ones, and how?</code>") — это не код, это акцент
+        $translator = new FakeGoogleTranslate;
+        $result = $this->harness($translator)->translateHtml(
+            '<p>The question is: <code>which ones, and how?</code></p>'
+        );
+
+        $this->assertStringContainsString('WHICH ONES, AND HOW?', $result);
+        $this->assertStringContainsString('which ones, and how?', $translator->calls[0]);
+    }
+
+    public function test_short_code_without_sentence_punctuation_still_treated_as_code(): void
+    {
+        // "composer install" длиннее одного слова, но без точки/?/! в
+        // конце — не должен по ошибке классифицироваться как проза
+        $translator = new FakeGoogleTranslate;
+        $result = $this->harness($translator)->translateHtml(
+            '<p>Run <code>artisan migrate fresh</code> now</p>'
+        );
+
+        $this->assertStringContainsString('<code>artisan migrate fresh</code>', $result);
+        foreach ($translator->calls as $call) {
+            $this->assertStringNotContainsString('artisan', $call);
+        }
+    }
+
+    public function test_word_glued_to_inline_tag_without_space_is_not_dropped_by_translator(): void
+    {
+        // Регрессия на реальный баг: Google Translate, получив плейсхолдер
+        // вплотную к слову без пробела ("knows ${0}current${1} Laravel"),
+        // трактует их как один непереводимый кусок и оставляет слово как
+        // есть. Стаб-переводчик ниже воспроизводит именно это поведение
+        // Google, чтобы доказать, что фикс (пробел вокруг токена) работает.
+        $translator = new GluingFakeGoogleTranslate;
+        $result = $this->harness($translator)->translateHtml(
+            '<p>it knows <em>current</em> Laravel</p>'
+        );
+
+        $this->assertStringContainsString('ПЕРЕВЕДЕНО', $result);
+        $this->assertStringNotContainsString('current', $result);
+    }
+
     public function test_pre_block_is_untouched_and_costs_zero_requests(): void
     {
         $translator = new FakeGoogleTranslate;
@@ -81,7 +128,7 @@ class TranslatesNodesTest extends TestCase
             '<ul><li>First</li><li>Second <em>item</em></li></ul>'
         );
 
-        $this->assertSame('<ul><li>FIRST</li><li>SECOND <em>ITEM</em></li></ul>', $result);
+        $this->assertSame('<ul><li>FIRST</li><li>SECOND <em> ITEM </em></li></ul>', $result);
         $this->assertCount(2, $translator->calls);
     }
 
@@ -157,6 +204,22 @@ class TranslatesNodesTest extends TestCase
         $this->assertSame('<p>ЗАПУСТИ <strong>СЕЙЧАС</strong> ЖЕ</p>', $result);
     }
 
+    public function test_mangled_number_sign_token_from_google_is_normalized(): void
+    {
+        // Регрессия на реальный баг: Google при переводе на русский иногда
+        // подменяет "$" на "№" (особенно в ПОСЛЕДНЕМ токене строки) —
+        // воспроизведено стабильно на реальном API: "...how? ${3}" →
+        // "...как? №{3}"
+        $translator = new FakeGoogleTranslate;
+        $translator->forcedResult = 'ЗАПУСТИ ${0}СЕЙЧАС№{1} ЖЕ';
+
+        $result = $this->harness($translator)->translateHtml(
+            '<p>Run <strong>now</strong> please</p>'
+        );
+
+        $this->assertSame('<p>ЗАПУСТИ <strong>СЕЙЧАС</strong> ЖЕ</p>', $result);
+    }
+
     public function test_block_with_only_markup_costs_zero_requests(): void
     {
         $translator = new FakeGoogleTranslate;
@@ -210,7 +273,7 @@ class TranslatesNodesTest extends TestCase
         $this->assertTrue($harness->hadFallbacks());
     }
 
-    private function harness(FakeGoogleTranslate $translator): TranslatesNodesHarness
+    private function harness(GoogleTranslate $translator): TranslatesNodesHarness
     {
         return new TranslatesNodesHarness($translator);
     }
@@ -223,7 +286,7 @@ class TranslatesNodesHarness
 {
     use TranslatesNodes;
 
-    public function __construct(private readonly FakeGoogleTranslate $googleTranslate) {}
+    public function __construct(private readonly GoogleTranslate $googleTranslate) {}
 
     public function hadFallbacks(): bool
     {
@@ -279,5 +342,29 @@ class FakeGoogleTranslate extends GoogleTranslate
 
         // mb_strtoupper не искажает ${n} — имитирует perfect-перевод
         return mb_strtoupper($string);
+    }
+}
+
+/**
+ * Имитирует реальное поведение Google Translate: слово, зажатое между
+ * двумя плейсхолдерами БЕЗ пробела (напр. "${0}current${1}"), трактуется
+ * как единый непереводимый кусок и остаётся как есть; остальной текст
+ * переводится нормально.
+ */
+class GluingFakeGoogleTranslate extends GoogleTranslate
+{
+    public function __construct()
+    {
+        parent::__construct('ru');
+    }
+
+    public function translate(string $string): ?string
+    {
+        // Слово вплотную к токену с обеих сторон - не переводим (баг Google)
+        if (preg_match('/\$\{\d+\}\S+\$\{\d+\}/', $string)) {
+            return $string;
+        }
+
+        return preg_replace('/[^\$\{\}\d\s]+/u', 'ПЕРЕВЕДЕНО', $string);
     }
 }
