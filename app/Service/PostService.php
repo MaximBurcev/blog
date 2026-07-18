@@ -48,7 +48,8 @@ class PostService
             if (empty($data['category_id'])) {
                 $data['category_id'] = (new CategoryDetectorService())->detect(
                     $data['title'],
-                    $data['url'] ?? ''
+                    $data['url'] ?? '',
+                    $data['content'] ?? ''
                 );
             }
 
@@ -114,14 +115,15 @@ class PostService
 
             $data['code'] = Str::slug($data['title'], '-', 'ru');
 
+            $data['content'] = str_replace('http://laravel.local', '', $data['content']);
+
             if (empty($data['category_id'])) {
                 $data['category_id'] = (new CategoryDetectorService())->detect(
                     $data['title'],
-                    $post->url ?? ''
+                    $post->url ?? '',
+                    $data['content'] ?? ''
                 );
             }
-
-            $data['content'] = str_replace('http://laravel.local', '', $data['content']);
 
             if (empty($tagIds)) {
                 $tagIds = (new TagDetectorService())->detect($data['title'], $post->url ?? '', $data['content'] ?? '');
