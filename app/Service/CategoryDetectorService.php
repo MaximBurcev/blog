@@ -9,38 +9,11 @@ use Illuminate\Support\Str;
 class CategoryDetectorService
 {
     /**
-     * Ключевые слова -> каноническое имя категории. Используется, когда ни
-     * одна существующая категория не совпала по названию — позволяет
-     * автоматически завести категорию под новую тему вместо того, чтобы
-     * оставлять пост без категории.
-     *
-     * @var array<string, string>
-     */
-    private const KNOWN_TOPICS = [
-        'laravel' => 'Laravel',
-        'symfony' => 'Symfony',
-        'wordpress' => 'WordPress',
-        'cakephp' => 'CakePHP',
-        'typo3' => 'TYPO3',
-        'docker' => 'Docker',
-        'kubernetes' => 'Kubernetes',
-        'mysql' => 'MySQL',
-        'postgresql' => 'PostgreSQL',
-        'redis' => 'Redis',
-        'javascript' => 'JavaScript',
-        'node.js' => 'Node.js',
-        'nodejs' => 'Node.js',
-        'python' => 'Python',
-        'devops' => 'DevOps',
-        'security' => 'Security',
-        'ai' => 'AI',
-    ];
-
-    /**
      * Определяет category_id по URL, заголовку и содержимому статьи.
      * Проверяет вхождение названия категории (lower-case) в URL, заголовок
      * и текст статьи. Если ни одна существующая категория не подошла —
-     * пробует словарь известных тем (KNOWN_TOPICS) и создаёт категорию.
+     * пробует словарь известных тем (config('topics.known')) и создаёт
+     * категорию.
      */
     public function detect(string $title, string $url = '', string $content = ''): ?int
     {
@@ -54,7 +27,7 @@ class CategoryDetectorService
             }
         }
 
-        foreach (self::KNOWN_TOPICS as $keyword => $canonicalName) {
+        foreach (config('topics.known', []) as $keyword => $canonicalName) {
             if (preg_match('/\b'.preg_quote($keyword, '/').'\b/i', $haystack)) {
                 $category = $this->findOrCreateCategory($canonicalName);
                 Log::info('CategoryDetector: auto-created category', ['category' => $canonicalName]);
