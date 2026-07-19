@@ -187,6 +187,7 @@ class StorePostJob implements ShouldQueue
 
                 $postContent = $this->modifyContent($postContent);
 
+                $postContent = $this->imageService->replacePictureElements($postContent);
                 $postContent = $this->imageService->downloadAndReplaceImages($postContent);
 
                 if (! empty($postContent)) {
