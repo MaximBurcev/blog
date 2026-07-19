@@ -68,6 +68,10 @@ class PostResource extends Resource
                         ? 'Часть блоков осталась без перевода — требует ревью'
                         : null)
                     ->sortable(),
+                Tables\Columns\IconColumn::make('published')
+                    ->label('Опубликовано')
+                    ->boolean()
+                    ->sortable(),
                 TextColumn::make('created_at')->label('Дата создания')->dateTime('d.m.Y H:i')->sortable(),
                 //TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
             ])
