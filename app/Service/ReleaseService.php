@@ -5,23 +5,23 @@ namespace App\Service;
 use App\Jobs\StorePostJob;
 use App\Models\Release;
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
-use Symfony\Component\DomCrawler\Crawler;
 use InvalidArgumentException;
+use Symfony\Component\DomCrawler\Crawler;
 
 class ReleaseService
 {
     private const DEFAULT_SELECTOR = 'td.bodyContent a[href]';
+
     private const DEFAULT_MAX_LINKS = 5;
+
     private const DEFAULT_TIMEOUT = 30;
-    
+
     private array $config;
-    
+
     public function __construct()
     {
         $this->config = [
@@ -36,54 +36,54 @@ class ReleaseService
             'section_headings' => config('releases.section_headings', []),
         ];
     }
-    
+
     public function store(array $data): Release
     {
         $this->validateReleaseData($data);
-        
+
         return $this->saveRelease($data);
     }
-    
+
     public function update(array $data, Release $release): Release
     {
         $this->validateReleaseData($data);
-        
+
         return $this->saveRelease($data, $release);
     }
-    
+
     private function validateReleaseData(array $data): void
     {
         $validator = Validator::make($data, [
-            'url' => 'required|url|max:2048'
+            'url' => 'required|url|max:2048',
         ]);
-        
+
         if ($validator->fails()) {
             throw new ValidationException($validator);
         }
     }
-    
+
     private function saveRelease(array $data, ?Release $release = null): Release
     {
         try {
             DB::beginTransaction();
-            
+
             $releaseData = ['url' => rtrim($data['url'], '/')];
-            
+
             if ($release) {
                 $release->update($releaseData);
             } else {
                 $release = Release::create($releaseData);
             }
-            
+
             DB::commit();
-            
+
             return $release;
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to save release', [
                 'url' => $data['url'] ?? 'unknown',
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
@@ -92,37 +92,38 @@ class ReleaseService
     public function parsePostsUrl(string $url): array
     {
         $this->validateUrl($url);
-        
+
         try {
             $html = $this->fetchHtmlContent($url);
+
             return $this->extractLinksFromHtml($html);
         } catch (\Exception $e) {
             Log::error('Failed to parse posts from URL', [
                 'url' => $url,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
             throw $e;
         }
     }
-    
+
     private function validateUrl(string $url): void
     {
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+        if (! filter_var($url, FILTER_VALIDATE_URL)) {
             throw new InvalidArgumentException("Invalid URL provided: {$url}");
         }
     }
-    
+
     private function fetchHtmlContent(string $url): string
     {
         $client = new Client([
             'timeout' => $this->config['timeout'],
             'headers' => [
-                'User-Agent' => $this->config['user_agent']
-            ]
+                'User-Agent' => $this->config['user_agent'],
+            ],
         ]);
-        
+
         $response = $client->get($url);
-        
+
         if ($response->getStatusCode() !== 200) {
             throw new \RuntimeException("HTTP {$response->getStatusCode()}: Failed to fetch content");
         }
@@ -132,99 +133,100 @@ class ReleaseService
         if (empty($content)) {
             throw new \RuntimeException('Empty content received from URL');
         }
-        
+
         return $content;
     }
-    
+
     private function extractLinksFromHtml(string $html): array
     {
-        $dom = new \DOMDocument();
+        $dom = new \DOMDocument;
         libxml_use_internal_errors(true);
-        
-        if (!$dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD)) {
+
+        if (! $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD)) {
             throw new InvalidArgumentException('Failed to parse HTML content');
         }
-        
+
         libxml_clear_errors();
-        
+
         $xpath = new \DOMXPath($dom);
         $linkNodes = $xpath->query('//a[@href]');
-        
+
         $links = [];
         foreach ($linkNodes as $linkNode) {
             $href = $linkNode->getAttribute('href');
             $text = trim($linkNode->textContent);
-            
+
             if ($this->isValidLink($href, $text)) {
                 $links[] = [
                     'url' => $this->resolveUrl($href, $dom),
                     'title' => $text ?: 'Untitled',
-                    'selector' => '.content'
+                    'selector' => '.content',
                 ];
             }
         }
-        
+
         return $links;
     }
-    
+
     private function isValidLink(string $href, string $text): bool
     {
         // Пропускаем пустые ссылки, якоря, javascript и mailto
-        if (empty($href) || 
-            str_starts_with($href, '#') || 
-            str_starts_with($href, 'javascript:') || 
+        if (empty($href) ||
+            str_starts_with($href, '#') ||
+            str_starts_with($href, 'javascript:') ||
             str_starts_with($href, 'mailto:') ||
             str_starts_with($href, 'tel:')) {
             return false;
         }
-        
+
         // Проверяем, что ссылка содержит текст или это не просто символ
         if (empty($text) || strlen($text) < 2) {
             return false;
         }
-        
+
         // Проверяем домен, если указаны ограничения
-        if (!$this->isDomainAllowed($href)) {
+        if (! $this->isDomainAllowed($href)) {
             return false;
         }
-        
+
         return true;
     }
-    
+
     private function isDomainAllowed(string $url): bool
     {
         $host = parse_url($url, PHP_URL_HOST);
-        if (!$host) {
+        if (! $host) {
             return false;
         }
-        
+
         // Проверяем заблокированные домены
         foreach ($this->config['blocked_domains'] as $domain) {
             if (str_contains($host, $domain)) {
                 return false;
             }
         }
-        
+
         // Если есть разрешенные домены, проверяем их
-        if (!empty($this->config['allowed_domains'])) {
+        if (! empty($this->config['allowed_domains'])) {
             foreach ($this->config['allowed_domains'] as $domain) {
                 if (str_contains($host, $domain)) {
                     return true;
                 }
             }
+
             return false;
         }
-        
+
         return true;
     }
-    
+
     private function resolveUrl(string $href, \DOMDocument $dom): string
     {
         // Если URL уже абсолютный, возвращаем как есть
         if (filter_var($href, FILTER_VALIDATE_URL)) {
             return $href;
         }
-        
+
         // Для относительных URL нужно базовый URL, здесь упрощенная версия
         return $href;
     }
@@ -232,53 +234,60 @@ class ReleaseService
     public function addPosts(string $url): array
     {
         $this->validateUrl($url);
-        
+
         try {
             $html = $this->fetchHtmlContent($url);
-            $links = $this->extractLinksWithCrawler($html);
-            
+            $links = $this->extractLinksWithCrawler($html, $this->getLinkSelectorForUrl($url));
+
             if (empty($links)) {
                 Log::info('No links found on the page', ['url' => $url]);
+
                 return [];
             }
-            
+
             // Применяем конфигурацию для выбора ссылок
             $processedLinks = $this->processLinks($links);
-            
+
             Log::info('Processed links for dispatch', [
                 'url' => $url,
                 'total_found' => count($links),
                 'processed' => count($processedLinks),
-                'links' => array_map(fn($l) => $l['url'], $processedLinks),
+                'links' => array_map(fn ($l) => $l['url'], $processedLinks),
             ]);
-            
+
             // Отправляем задачи в очередь
             $this->dispatchJobs($processedLinks);
-            
+
             return $processedLinks;
-            
+
         } catch (\Exception $e) {
             Log::error('Failed to add posts from URL', [
                 'url' => $url,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
     }
-    
-    private function extractLinksWithCrawler(string $html): array
+
+    private function extractLinksWithCrawler(string $html, ?string $domainSelector = null): array
     {
         $crawler = new Crawler($html);
 
         try {
+            // Секционная фильтрация по h2-заголовкам (Articles/Tutorials и
+            // т.п.) заточена под td.bodyContent-вёрстку mailer.inovica.com.
+            // Для доменов с явно настроенным своим селектором ссылок эта
+            // логика не подходит и должна быть пропущена целиком
             $sectionHeadings = $this->config['section_headings'];
 
-            if (!empty($sectionHeadings)) {
+            if ($domainSelector === null && ! empty($sectionHeadings)) {
                 return $this->extractLinksFromSections($crawler, $sectionHeadings);
             }
 
-            $links = $crawler->filter($this->config['selector'])->each(function (Crawler $node) {
+            $selector = $domainSelector ?? $this->config['selector'];
+
+            $links = $crawler->filter($selector)->each(function (Crawler $node) {
                 $text = trim($node->text());
                 $url = trim($node->attr('href'));
 
@@ -293,8 +302,8 @@ class ReleaseService
 
         } catch (\Exception $e) {
             Log::error('Failed to extract links with crawler', [
-                'selector' => $this->config['selector'],
-                'error' => $e->getMessage()
+                'selector' => $selector,
+                'error' => $e->getMessage(),
             ]);
             throw $e;
         }
@@ -311,7 +320,7 @@ class ReleaseService
             }
 
             $heading = trim($h2->first()->text());
-            if (!in_array($heading, $headings)) {
+            if (! in_array($heading, $headings)) {
                 return;
             }
 
@@ -319,7 +328,7 @@ class ReleaseService
                 $text = trim($node->text());
                 $url = trim($node->attr('href'));
 
-                if (!empty($url) && !empty($text)) {
+                if (! empty($url) && ! empty($text)) {
                     $links[] = ['text' => $text, 'url' => $url];
                 }
             });
@@ -327,29 +336,29 @@ class ReleaseService
 
         return $links;
     }
-    
+
     private function processLinks(array $links): array
     {
         // Применяем смещение (offset) и ограничение (max_links)
         $offset = max(0, $this->config['offset']);
         $maxLinks = max(1, $this->config['max_links']);
-        
+
         // Убираем дубликаты по URL
         $uniqueLinks = [];
         $seenUrls = [];
-        
+
         foreach ($links as $link) {
             $url = $link['url'];
-            if (!in_array($url, $seenUrls)) {
+            if (! in_array($url, $seenUrls)) {
                 $uniqueLinks[] = $link;
                 $seenUrls[] = $url;
             }
         }
-        
+
         // Применяем смещение и ограничение
         return array_slice($uniqueLinks, $offset, $maxLinks);
     }
-    
+
     private function getSelectorForUrl(string $url): string
     {
         $host = parse_url($url, PHP_URL_HOST) ?? '';
@@ -363,25 +372,45 @@ class ReleaseService
         return config('releases.post_selector', 'article-body');
     }
 
+    /**
+     * CSS-селектор для извлечения ССЫЛОК со страницы релиза (не контента
+     * статьи). 'parser_selector' по умолчанию заточен под табличную
+     * email-вёрстку mailer.inovica.com — другие дайджесты (JS Weekly и т.п.)
+     * вёрстаны иначе, тут можно переопределить селектор по домену.
+     */
+    private function getLinkSelectorForUrl(string $url): ?string
+    {
+        $host = parse_url($url, PHP_URL_HOST) ?? '';
+
+        foreach (config('releases.parser_selectors_by_domain', []) as $domain => $selector) {
+            if (str_contains($host, $domain)) {
+                return $selector;
+            }
+        }
+
+        return null;
+    }
+
     private function dispatchJobs(array $links): void
     {
-        if (!$this->config['enable_job_dispatch']) {
+        if (! $this->config['enable_job_dispatch']) {
             Log::info('Job dispatch is disabled', ['links_count' => count($links)]);
+
             return;
         }
 
         foreach ($links as $link) {
             try {
                 StorePostJob::dispatch([
-                    'url'      => $link['url'],
+                    'url' => $link['url'],
                     'selector' => $this->getSelectorForUrl($link['url']),
-                    'tag_ids'  => [],
+                    'tag_ids' => [],
                     'translate' => null,
                 ]);
             } catch (\Exception $e) {
                 Log::error('Failed to dispatch job for link', [
                     'url' => $link['url'],
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ]);
                 // Продолжаем обработку других ссылок
             }
