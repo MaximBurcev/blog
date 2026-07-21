@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 use Laravel\Scout\Searchable;
 
 class Post extends Model
@@ -47,5 +48,12 @@ class Post extends Model
     public function likesCount()
     {
         return $this->likes()->count();
+    }
+
+    public function excerpt(int $length = 160): string
+    {
+        $text = html_entity_decode(strip_tags($this->content), ENT_QUOTES, 'UTF-8');
+
+        return Str::limit(trim(preg_replace('/\s+/u', ' ', $text)), $length);
     }
 }

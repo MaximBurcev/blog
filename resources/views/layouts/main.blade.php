@@ -12,6 +12,22 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
     <title>{{ $title?? '' }}</title>
+
+    <meta name="description" content="{{ $description ?? 'Блог о разработке: новости, статьи и переводы материалов' }}">
+    <link rel="alternate" type="application/rss+xml" title="{{ config('app.name', 'Laravel') }}" href="{{ route('feed.index') }}">
+
+    <meta property="og:site_name" content="{{ config('app.name', 'Laravel') }}">
+    <meta property="og:type" content="{{ $ogType ?? 'website' }}">
+    <meta property="og:title" content="{{ $title ?? config('app.name', 'Laravel') }}">
+    <meta property="og:description" content="{{ $description ?? 'Блог о разработке: новости, статьи и переводы материалов' }}">
+    <meta property="og:url" content="{{ $ogUrl ?? url()->current() }}">
+    <meta property="og:image" content="{{ $ogImage ?? asset('storage/images/laravel.jpg') }}">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ $title ?? config('app.name', 'Laravel') }}">
+    <meta name="twitter:description" content="{{ $description ?? 'Блог о разработке: новости, статьи и переводы материалов' }}">
+    <meta name="twitter:image" content="{{ $ogImage ?? asset('storage/images/laravel.jpg') }}">
+
     <link rel="stylesheet" href="{{ asset('assets/vendors/flag-icon-css/css/flag-icon.min.css')  }}">
     <link rel="stylesheet" href="{{ asset('plugins/summernote/summernote-bs4.min.css')  }}">
     <link rel="stylesheet" href="{{ asset('assets/vendors/font-awesome/css/all.min.css') }}">

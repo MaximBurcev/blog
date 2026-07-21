@@ -14,6 +14,8 @@ class ShowController extends Controller
 
         $category = Category::where('code', $code)->firstOrFail();
         $posts = $category->posts()->where('published', 1)->paginate(6);
-        return view('categories.show', compact('posts', 'category'));
+        $title = 'Посты категории ' . $category->title;
+        $description = 'Посты в категории «' . $category->title . '»';
+        return view('categories.show', compact('posts', 'category', 'title', 'description'));
     }
 }
