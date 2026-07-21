@@ -21,7 +21,7 @@ class ContentImageService
     public function downloadImage(string $url): ?string
     {
         try {
-            $imageContent = Http::timeout(30)->get($url)->body();
+            $imageContent = Http::timeout(30)->retry(3, 500)->get($url)->body();
 
             $extension = pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION);
             $extension = $extension ?: 'jpg';
@@ -69,7 +69,7 @@ class ContentImageService
             }
 
             try {
-                $imageContent = Http::timeout(30)->get($bestUrl)->throw()->body();
+                $imageContent = Http::timeout(30)->retry(3, 500)->get($bestUrl)->throw()->body();
 
                 $extension = pathinfo(parse_url($bestUrl, PHP_URL_PATH), PATHINFO_EXTENSION);
                 $extension = $extension ?: 'jpg';
@@ -145,7 +145,7 @@ class ContentImageService
 
             // Download the image
             try {
-                $imageContent = Http::timeout(30)->get($imageUrl)->body();
+                $imageContent = Http::timeout(30)->retry(3, 500)->get($imageUrl)->body();
 
                 // Generate a unique filename
                 $extension = pathinfo($imageUrl, PATHINFO_EXTENSION);

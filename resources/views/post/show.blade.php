@@ -19,6 +19,10 @@
                 {!! $post->content !!}
             </section>
 
+            @if($post->url)
+                <p class="post-original-source">Оригинал: <a href="{{ $post->url }}" target="_blank" rel="noopener noreferrer nofollow">{{ $post->url }}</a></p>
+            @endif
+
             @auth()
                 <p>Количество пользователей, которым понравилась статья: <span id="likes-count">{{ $post->likesCount() }}</span></p>
             <button id="like-btn">❤️ Мне нравится</button>
@@ -50,17 +54,19 @@
                     @if($relatedPosts->count())
                         <section class="related-posts">
                             <h2 class="section-title mb-4" data-aos="fade-up">Схожие посты</h2>
-                            @foreach($relatedPosts as $relatedPost)
-                                <div class="row">
-                                    <div class="col-md-4" data-aos="fade-right" data-aos-delay="100">
-                                        <img src="{{ asset('storage/' . $relatedPost->preview_image) }}"
+                            <div class="row">
+                                @foreach($relatedPosts as $relatedPost)
+                                    <div class="col-md-3" data-aos="fade-right" data-aos-delay="100">
+                                        <img src="{{ $relatedPost->preview_image ? asset('storage/' . $relatedPost->preview_image) : asset('storage/images/laravel.jpg') }}"
                                              alt="related post" class="post-thumbnail">
-                                        <p class="post-category">{{ $relatedPost->category->title }}</p>
+                                        @if($relatedPost->category)
+                                            <p class="post-category">{{ $relatedPost->category->title }}</p>
+                                        @endif
                                         <a href="{{ route('post.show', $relatedPost->code) }}"><h5
                                                     class="post-title">{{ $relatedPost->title }}</h5></a>
                                     </div>
-                                </div>
-                            @endforeach
+                                @endforeach
+                            </div>
                         </section>
                     @endif
 {{--                    <section class="comment-section">--}}

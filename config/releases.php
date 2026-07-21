@@ -33,7 +33,10 @@ return [
     |
     */
     'parser_selectors_by_domain' => [
-        'javascriptweekly.com' => 'li a',
+        // ':first-of-type' — в каждом пункте дайджеста берём только первую
+        // (заголовочную) ссылку; остальные — вторичные упоминания в тексте
+        // пункта (сайт проекта, автор, доп. ресурсы), их парсить не нужно.
+        'javascriptweekly.com' => 'li a:first-of-type',
     ],
 
     /*

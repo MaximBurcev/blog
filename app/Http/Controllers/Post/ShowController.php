@@ -17,14 +17,29 @@ class ShowController extends Controller
             $post = Post::where('code', $code)->where('published', true)->first();
             $date = Carbon::parse($post->created_at);
             $title = $post->title;
+            $description = $post->excerpt();
+            $ogImage = $post->main_image ? asset('storage/' . $post->main_image) : null;
+            $ogType = 'article';
 
             //$post->content = Content::cleanCodeTags($post->content);
-            $relatedPosts = Post::where('category_id', $post->category_id)
-                ->where('id', '!=', $post->id)
-                ->where('published', true)
-                ->get()
-                ->take(3);
-            return view('post.show', compact('post', 'date', 'relatedPosts', 'title'));
+            $tagIds = $post->tags->pluck('id');
+
+            $relatedPostsQuery = Post::where('id', '!=', $post->id)
+                ->where('published', true);
+
+            if ($tagIds->isNotEmpty()) {
+                $relatedPostsQuery->withCount(['tags as shared_tags_count' => function ($query) use ($tagIds) {
+                    $query->whereIn('tags.id', $tagIds);
+                }])->orderByDesc('shared_tags_count');
+            }
+
+            if ($post->category_id) {
+                $relatedPostsQuery->orderByRaw('category_id = ? DESC', [$post->category_id]);
+            }
+
+            $relatedPosts = $relatedPostsQuery->orderByDesc('created_at')->take(4)->get();
+            return view('post.show',
+                compact('post', 'date', 'relatedPosts', 'title', 'description', 'ogImage', 'ogType'));
         } catch (\Exception $exception) {
             abort(404);
         }

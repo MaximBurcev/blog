@@ -152,6 +152,8 @@ class StorePostJob implements ShouldQueue
                 }
 
                 $this->stripAccessibilityJunk($finder);
+                $this->stripMediumSubscribeWidget($finder);
+                $this->stripDuplicateTitleAndHero($finder);
 
                 $selector = $this->data['selector'];
                 if (str_starts_with($selector, '#')) {
@@ -217,6 +219,15 @@ class StorePostJob implements ShouldQueue
             return;
         }
 
+        if (empty($this->data['content'])) {
+            Log::warning('StorePostJob: skipping, no content extracted', [
+                'url' => $this->data['url'],
+                'selector' => $this->data['selector'] ?? null,
+            ]);
+
+            return;
+        }
+
         $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
 
         $this->service->store($this->data);
@@ -236,6 +247,56 @@ class StorePostJob implements ShouldQueue
 
         foreach (iterator_to_array($junk) as $junkNode) {
             $junkNode->parentNode?->removeChild($junkNode);
+        }
+    }
+
+    /**
+     * Убирает встроенный виджет Medium «Get stories from X in your inbox»
+     * (форма email, кнопки подписки, чекбокс «запомнить меня», recaptcha).
+     * Medium вставляет его прямо посреди текста статьи (не в конце), из-за
+     * чего в переводе появляется дублирующийся текст вида «Подписаться
+     * Подписаться» и обрывок формы входа. Классы у Medium хэшированные и
+     * меняются от сборки к сборке, поэтому ищем по стабильным маркерам —
+     * полю email и блоку recaptcha — и удаляем их ближайшего общего предка.
+     */
+    private function stripMediumSubscribeWidget(DOMXPath $finder): void
+    {
+        $emailInputs = $finder->query("//input[@placeholder='Enter your email']");
+
+        foreach (iterator_to_array($emailInputs) as $input) {
+            $ancestor = $input->parentNode;
+
+            while ($ancestor && $finder->query(".//*[@id='g-recaptcha']", $ancestor)->length === 0) {
+                $ancestor = $ancestor->parentNode;
+            }
+
+            if ($ancestor instanceof DOMElement && $ancestor->parentNode) {
+                $ancestor->parentNode->removeChild($ancestor);
+            }
+        }
+    }
+
+    /**
+     * Убирает дублирующийся заголовок и обложку статьи из тела контента.
+     * Страница поста уже рисует $post->title и $post->main_image своим
+     * собственным <h1> и картинкой в шапке — если экстрактор (например,
+     * <article> целиком на Medium/Stackademic) захватывает ещё и заголовок
+     * статьи (<h1 data-testid="storyTitle">) с её обложкой (<figure><img>
+     * сразу после заголовка), они дублируются на странице поста.
+     */
+    private function stripDuplicateTitleAndHero(DOMXPath $finder): void
+    {
+        foreach (iterator_to_array($finder->query("//h1[@data-testid='storyTitle']")) as $titleNode) {
+            $figure = $finder->query('following::figure[1]', $titleNode)->item(0);
+            if ($figure instanceof DOMElement && $figure->parentNode) {
+                $figure->parentNode->removeChild($figure);
+            }
+        }
+
+        // Любой оставшийся <h1> внутри тела статьи всегда дублирует
+        // заголовок страницы — подзаголовки в контенте должны быть h2+.
+        foreach (iterator_to_array($finder->query('//h1')) as $h1) {
+            $h1->parentNode?->removeChild($h1);
         }
     }
 

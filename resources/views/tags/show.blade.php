@@ -11,7 +11,9 @@
                             <div class="blog-post-thumbnail-wrapper">
                                 <img src="{{ asset('storage/'. $post->preview_image) }}" alt="{{ $post->title }}">
                             </div>
-                            <p class="blog-post-category">{{ $post->category->title }}</p>
+                            @if($post->category)
+                                <p class="blog-post-category">{{ $post->category->title }}</p>
+                            @endif
                             <a href="{{ route('post.show', $post->code) }}" class="blog-post-permalink">
                                 <h6 class="blog-post-title">{{ $post->title }}</h6>
                             </a>
