@@ -21,7 +21,9 @@
 
                                         </div>
                                     </a>
-                                    <a href="{{ route('category.show', $post->category->code) }}"><p class="blog-post-category">{{ $post->category->title }}</p></a>
+                                    @if($post->category)
+                                        <a href="{{ route('category.show', $post->category->code) }}"><p class="blog-post-category">{{ $post->category->title }}</p></a>
+                                    @endif
                                     <a href="{{ route('post.show', $post->code) }}" class="blog-post-permalink">
                                         <h6 class="blog-post-title">{{ $post->title }}</h6>
                                     </a>

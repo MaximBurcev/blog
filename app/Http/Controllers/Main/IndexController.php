@@ -14,14 +14,17 @@ class IndexController extends Controller
     public function __invoke()
     {
         $posts = Post::where('published', 1)->orderBy('created_at', 'desc')->get();
-        $popularPosts = Post::get()->where('published', 1);
-        if ($popularPosts->count() > self::POPULAR_POSTS_COUNT) {
-            $popularPosts = $popularPosts->random(self::POPULAR_POSTS_COUNT);
-        }
+        $popularPosts = Post::where('published', 1)
+            ->withCount(['likes', 'comments'])
+            ->orderByRaw('(likes_count + comments_count) DESC')
+            ->orderByDesc('created_at')
+            ->take(self::POPULAR_POSTS_COUNT)
+            ->get();
         $categories = Category::whereHas('posts', fn ($q) => $q->where('published', 1))->get();
         $tags = Tag::whereHas('posts', fn ($q) => $q->where('published', 1))->get();
         $title = 'Блог';
+        $description = 'Блог о разработке: новости, статьи и переводы материалов';
 
-        return view('main.index', compact('posts', 'categories', 'popularPosts', 'title', 'tags'));
+        return view('main.index', compact('posts', 'categories', 'popularPosts', 'title', 'tags', 'description'));
     }
 }
