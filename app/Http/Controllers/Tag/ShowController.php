@@ -12,6 +12,8 @@ class ShowController extends Controller
     {
         $tag = Tag::where('code', $code)->firstOrFail();
         $posts = $tag->posts()->where('published', true)->paginate(6);
-        return view('tags.show', compact('posts', 'tag'));
+        $title = 'Посты с тегом ' . $tag->title;
+        $description = 'Посты с тегом «' . $tag->title . '»';
+        return view('tags.show', compact('posts', 'tag', 'title', 'description'));
     }
 }
