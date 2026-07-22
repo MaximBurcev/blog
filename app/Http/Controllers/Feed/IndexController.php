@@ -9,7 +9,7 @@ class IndexController extends Controller
 {
     public function __invoke()
     {
-        $posts = Post::where('published', 1)
+        $posts = Post::published()
             ->orderBy('created_at', 'desc')
             ->take(30)
             ->get();

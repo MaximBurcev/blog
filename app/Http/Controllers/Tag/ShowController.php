@@ -3,17 +3,17 @@
 namespace App\Http\Controllers\Tag;
 
 use App\Http\Controllers\Controller;
-use App\Models\Category;
 use App\Models\Tag;
 
 class ShowController extends Controller
 {
-    public function __invoke($code)
+    public function __invoke(string $code)
     {
         $tag = Tag::where('code', $code)->firstOrFail();
-        $posts = $tag->posts()->where('published', true)->paginate(6);
-        $title = 'Посты с тегом ' . $tag->title;
-        $description = 'Посты с тегом «' . $tag->title . '»';
+        $posts = $tag->posts()->published()->paginate(6);
+        $title = 'Посты с тегом '.$tag->title;
+        $description = 'Посты с тегом «'.$tag->title.'»';
+
         return view('tags.show', compact('posts', 'tag', 'title', 'description'));
     }
 }

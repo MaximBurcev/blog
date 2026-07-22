@@ -134,7 +134,7 @@ Route::get('phpinfo', function () {
     phpinfo();
 })->name('phpinfo');
 
-Route::get('/sitemap.xml', 'App\Http\Controllers\SitemapController@index')->name('sitemap.xml');
+Route::get('/sitemap.xml', \App\Http\Controllers\Sitemap\XmlController::class)->name('sitemap.xml');
 
 Route::get('/feed.xml', \App\Http\Controllers\Feed\IndexController::class)->name('feed.index');
 

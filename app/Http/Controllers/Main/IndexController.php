@@ -9,22 +9,21 @@ use App\Models\Tag;
 
 class IndexController extends Controller
 {
-    const POPULAR_POSTS_COUNT = 4;
+    private const POPULAR_POSTS_COUNT = 4;
 
     public function __invoke()
     {
-        $posts = Post::where('published', 1)->orderBy('created_at', 'desc')->get();
-        $popularPosts = Post::where('published', 1)
+        $posts = Post::published()->orderBy('created_at', 'desc')->get();
+        $popularPosts = Post::published()
             ->withCount(['likes', 'comments'])
             ->orderByRaw('(likes_count + comments_count) DESC')
             ->orderByDesc('created_at')
             ->take(self::POPULAR_POSTS_COUNT)
             ->get();
-        $categories = Category::whereHas('posts', fn ($q) => $q->where('published', 1))->get();
-        $tags = Tag::whereHas('posts', fn ($q) => $q->where('published', 1))->get();
+        $categories = Category::whereHas('posts', fn ($q) => $q->published())->get();
+        $tags = Tag::whereHas('posts', fn ($q) => $q->published())->get();
         $title = 'Блог';
-        $description = 'Блог о разработке: новости, статьи и переводы материалов';
 
-        return view('main.index', compact('posts', 'categories', 'popularPosts', 'title', 'tags', 'description'));
+        return view('main.index', compact('posts', 'categories', 'popularPosts', 'title', 'tags'));
     }
 }

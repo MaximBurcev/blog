@@ -2,11 +2,9 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Tag;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
@@ -14,7 +12,7 @@ use Laravel\Scout\Searchable;
 
 class Post extends Model
 {
-    use SoftDeletes, Searchable;
+    use Searchable, SoftDeletes;
 
     protected $table = 'posts';
 
@@ -22,7 +20,8 @@ class Post extends Model
 
     protected $with = ['category'];
 
-    public function tags(){
+    public function tags()
+    {
         return $this->belongsToMany(Tag::class, 'post_tags', 'post_id', 'tag_id');
     }
 
@@ -55,5 +54,25 @@ class Post extends Model
         $text = html_entity_decode(strip_tags($this->content), ENT_QUOTES, 'UTF-8');
 
         return Str::limit(trim(preg_replace('/\s+/u', ' ', $text)), $length);
+    }
+
+    public function scopePublished(Builder $query): Builder
+    {
+        return $query->where('published', true);
+    }
+
+    public function scopeRelatedTo(Builder $query, Post $post, int $limit = 4): Builder
+    {
+        $tagIds = $post->tags->pluck('id');
+
+        return $query->where('id', '!=', $post->id)
+            ->published()
+            ->when($tagIds->isNotEmpty(), fn (Builder $q) => $q
+                ->withCount(['tags as shared_tags_count' => fn ($t) => $t->whereIn('tags.id', $tagIds)])
+                ->orderByDesc('shared_tags_count'))
+            ->when($post->category_id, fn (Builder $q) => $q
+                ->orderByRaw('category_id = ? DESC', [$post->category_id]))
+            ->orderByDesc('created_at')
+            ->limit($limit);
     }
 }
