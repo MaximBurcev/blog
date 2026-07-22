@@ -89,23 +89,6 @@ class ReleaseService
         }
     }
 
-    public function parsePostsUrl(string $url): array
-    {
-        $this->validateUrl($url);
-
-        try {
-            $html = $this->fetchHtmlContent($url);
-
-            return $this->extractLinksFromHtml($html);
-        } catch (\Exception $e) {
-            Log::error('Failed to parse posts from URL', [
-                'url' => $url,
-                'error' => $e->getMessage(),
-            ]);
-            throw $e;
-        }
-    }
-
     private function validateUrl(string $url): void
     {
         if (! filter_var($url, FILTER_VALIDATE_URL)) {
@@ -135,100 +118,6 @@ class ReleaseService
         }
 
         return $content;
-    }
-
-    private function extractLinksFromHtml(string $html): array
-    {
-        $dom = new \DOMDocument;
-        libxml_use_internal_errors(true);
-
-        if (! $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD)) {
-            throw new InvalidArgumentException('Failed to parse HTML content');
-        }
-
-        libxml_clear_errors();
-
-        $xpath = new \DOMXPath($dom);
-        $linkNodes = $xpath->query('//a[@href]');
-
-        $links = [];
-        foreach ($linkNodes as $linkNode) {
-            $href = $linkNode->getAttribute('href');
-            $text = trim($linkNode->textContent);
-
-            if ($this->isValidLink($href, $text)) {
-                $links[] = [
-                    'url' => $this->resolveUrl($href, $dom),
-                    'title' => $text ?: 'Untitled',
-                    'selector' => '.content',
-                ];
-            }
-        }
-
-        return $links;
-    }
-
-    private function isValidLink(string $href, string $text): bool
-    {
-        // Пропускаем пустые ссылки, якоря, javascript и mailto
-        if (empty($href) ||
-            str_starts_with($href, '#') ||
-            str_starts_with($href, 'javascript:') ||
-            str_starts_with($href, 'mailto:') ||
-            str_starts_with($href, 'tel:')) {
-            return false;
-        }
-
-        // Проверяем, что ссылка содержит текст или это не просто символ
-        if (empty($text) || strlen($text) < 2) {
-            return false;
-        }
-
-        // Проверяем домен, если указаны ограничения
-        if (! $this->isDomainAllowed($href)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private function isDomainAllowed(string $url): bool
-    {
-        $host = parse_url($url, PHP_URL_HOST);
-        if (! $host) {
-            return false;
-        }
-
-        // Проверяем заблокированные домены
-        foreach ($this->config['blocked_domains'] as $domain) {
-            if (str_contains($host, $domain)) {
-                return false;
-            }
-        }
-
-        // Если есть разрешенные домены, проверяем их
-        if (! empty($this->config['allowed_domains'])) {
-            foreach ($this->config['allowed_domains'] as $domain) {
-                if (str_contains($host, $domain)) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        return true;
-    }
-
-    private function resolveUrl(string $href, \DOMDocument $dom): string
-    {
-        // Если URL уже абсолютный, возвращаем как есть
-        if (filter_var($href, FILTER_VALIDATE_URL)) {
-            return $href;
-        }
-
-        // Для относительных URL нужно базовый URL, здесь упрощенная версия
-        return $href;
     }
 
     public function addPosts(string $url): array

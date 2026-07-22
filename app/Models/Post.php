@@ -16,7 +16,20 @@ class Post extends Model
 
     protected $table = 'posts';
 
-    protected $guarded = false;
+    protected $fillable = [
+        'title',
+        'content',
+        'content_orig',
+        'category_id',
+        'preview_image',
+        'main_image',
+        'code',
+        'published',
+        'url',
+        'selector',
+        'translate',
+        'translation_incomplete',
+    ];
 
     protected $with = ['category'];
 

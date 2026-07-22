@@ -18,15 +18,17 @@ class TranslateService
 
     private GoogleTranslate $googleTranslate;
 
-    public function __construct($data)
+    public function __construct(ContentImageService $imageService)
     {
-        $this->data = $data;
-        $this->imageService = new ContentImageService;
+        $this->imageService = $imageService;
         $this->googleTranslate = $this->makeGoogleTranslate();
     }
 
-    public function translate(): mixed
+    public function translate(mixed $data): mixed
     {
+        $this->data = $data;
+        $this->translationFallbacks = 0;
+
         try {
             $dom = new DOMDocument;
 

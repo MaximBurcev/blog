@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\UserRole;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,14 +18,12 @@ class User extends Authenticatable implements FilamentUser
 
     use SoftDeletes;
 
-    const ROLE_ADMIN = 0;
-    const ROLE_READER = 1;
-
-    public static function getRoles(){
-        return [
-          self::ROLE_ADMIN => 'Админ',
-          self::ROLE_READER => 'Читатель'
-        ];
+    /**
+     * @return array<int, string>
+     */
+    public static function getRoles(): array
+    {
+        return UserRole::options();
     }
 
     /**
@@ -57,10 +56,11 @@ class User extends Authenticatable implements FilamentUser
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'role' => UserRole::class,
     ];
 
     public function canAccessPanel(Panel $panel): bool
     {
-        return $this->role === self::ROLE_ADMIN;
+        return $this->role === UserRole::Admin;
     }
 }

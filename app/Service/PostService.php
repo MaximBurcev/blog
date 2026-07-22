@@ -2,12 +2,10 @@
 
 namespace App\Service;
 
-use App\Events\UserNotification;
+use App\DataTransferObjects\PostData;
+use App\Events\PostCreated;
+use App\Exceptions\PostPersistenceException;
 use App\Models\Post;
-use App\Models\User;
-use App\Notifications\PostCreatedNotification;
-use App\Service\CategoryDetectorService;
-use App\Service\TagDetectorService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -15,8 +13,16 @@ use Illuminate\Support\Str;
 
 class PostService
 {
-    public function store($data): void
+    public function __construct(
+        private readonly TranslateService $translateService,
+        private readonly CategoryDetectorService $categoryDetectorService,
+        private readonly TagDetectorService $tagDetectorService,
+    ) {
+    }
+
+    public function store(PostData $postData): void
     {
+        $data = $postData->toArray();
 
         Log::info('PostService::store', $data);
 
@@ -40,13 +46,12 @@ class PostService
             }
 
             if (($data['translate'] ?? null) == 'on') {
-                $translateService = new TranslateService($data);
-                $data = $translateService->translate();
+                $data = $this->translateService->translate($data);
                 $data['url'] = '';
             }
 
             if (empty($data['category_id'])) {
-                $data['category_id'] = (new CategoryDetectorService())->detect(
+                $data['category_id'] = $this->categoryDetectorService->detect(
                     $data['title'],
                     $data['url'] ?? '',
                     $data['content'] ?? ''
@@ -58,7 +63,7 @@ class PostService
             Log::info('$data', $data);
 
             if (empty($tagIds)) {
-                $tagIds = (new TagDetectorService())->detect($data['title'], $data['url'] ?? '', $data['content'] ?? '');
+                $tagIds = $this->tagDetectorService->detect($data['title'], $data['url'] ?? '', $data['content'] ?? '');
             }
 
             if (!empty($tagIds)) {
@@ -69,27 +74,15 @@ class PostService
         } catch (\Exception $exception) {
             DB::rollBack();
             Log::error('PostService::store failed', ['error' => $exception->getMessage()]);
-            abort(500);
+            throw new PostPersistenceException('Не удалось сохранить пост', previous: $exception);
         }
 
-        $message = 'Создан новый пост: ' . $post->title;
-        User::where('role', User::ROLE_ADMIN)->each(function (User $user) use ($post, $message) {
-            try {
-                UserNotification::dispatch($user, $message);
-            } catch (\Exception $e) {
-                Log::warning('UserNotification: broadcast failed', ['error' => $e->getMessage()]);
-            }
-            try {
-                $user->notify(new PostCreatedNotification($post));
-            } catch (\Exception $e) {
-                Log::warning('PostCreatedNotification: mail failed', ['error' => $e->getMessage()]);
-            }
-        });
+        PostCreated::dispatch($post);
     }
 
-    public function update($data, $post): Post
+    public function update(PostData $postData, $post): Post
     {
-
+        $data = $postData->toArray();
 
         try {
             DB::beginTransaction();
@@ -108,9 +101,7 @@ class PostService
             if (($data['translate'] ?? null) == 'on') {
                 $data['url'] = '';
                 $data['selector'] = '';
-                $translateService = new TranslateService($data);
-                $data = $translateService->translate();
-
+                $data = $this->translateService->translate($data);
             }
 
             $data['code'] = Str::slug($data['title'], '-', 'ru');
@@ -118,7 +109,7 @@ class PostService
             $data['content'] = str_replace('http://laravel.local', '', $data['content']);
 
             if (empty($data['category_id'])) {
-                $data['category_id'] = (new CategoryDetectorService())->detect(
+                $data['category_id'] = $this->categoryDetectorService->detect(
                     $data['title'],
                     $post->url ?? '',
                     $data['content'] ?? ''
@@ -126,7 +117,7 @@ class PostService
             }
 
             if (empty($tagIds)) {
-                $tagIds = (new TagDetectorService())->detect($data['title'], $post->url ?? '', $data['content'] ?? '');
+                $tagIds = $this->tagDetectorService->detect($data['title'], $post->url ?? '', $data['content'] ?? '');
             }
 
             if (empty($data['preview_image']) && !empty($data['content'])) {
@@ -143,7 +134,7 @@ class PostService
         } catch (\Exception $exception) {
             DB::rollBack();
             Log::error('PostService::update failed', ['error' => $exception->getMessage()]);
-            abort(500);
+            throw new PostPersistenceException('Не удалось обновить пост', previous: $exception);
         }
 
 

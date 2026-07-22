@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Post;
 
+use App\DataTransferObjects\PostData;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Post\UpdateRequest;
 use App\Models\Post;
@@ -14,7 +15,7 @@ class UpdateController extends BaseController
     {
         $data = $request->validated();
         //Log::info('data', $data);
-        $post = $this->service->update($data, $post);
+        $post = $this->service->update(PostData::fromArray($data), $post);
 
         return redirect()->route('admin.post.edit', compact('post'));
     }

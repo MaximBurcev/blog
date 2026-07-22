@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\DataTransferObjects\PostData;
 use App\Service\ContentImageService;
 use App\Service\ImageTranslatorService;
 use App\Service\PostService;
@@ -37,46 +38,20 @@ class StorePostJob implements ShouldQueue
     {
         //
         $this->data = $data;
-        $this->service = new PostService;
-        $this->imageService = new ContentImageService;
     }
 
-    public function handle(): void
+    public function handle(PostService $service, ContentImageService $imageService): void
     {
-        $googleTranslate = $this->makeGoogleTranslate();
+        $this->service = $service;
+        $this->imageService = $imageService;
+
+        $titleTranslator = $this->makeGoogleTranslate();
+
         try {
             $dom = new DOMDocument;
             Log::info('job:url', [$this->data['url']]);
-            if (! empty($this->data['html_file'])) {
-                $html = file_get_contents($this->data['html_file']);
-                Log::info('StorePostJob: reading from file', ['file' => $this->data['html_file']]);
-            } else {
-                $tmp = tempnam(sys_get_temp_dir(), 'curl_');
-                $url = escapeshellarg($this->data['url']);
-                $proxy = config('releases.curl_proxy') ? '--socks5 '.escapeshellarg(config('releases.curl_proxy')).' ' : '';
-                $impersonate = config('releases.curl_binary');
 
-                if ($impersonate) {
-                    // curl-impersonate сам выставляет TLS-отпечаток и заголовки Chrome —
-                    // свои не добавляем, чтобы не выдать себя дублями заголовков
-                    $command = escapeshellcmd($impersonate).' -s -L --max-time 30 '.
-                        $proxy.
-                        '--output '.escapeshellarg($tmp).' '.
-                        "{$url} 2>/dev/null";
-                } else {
-                    $command = '/usr/bin/curl -s -L --max-time 30 --http2 '.
-                        $proxy.
-                        "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' ".
-                        "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' ".
-                        "-H 'Accept-Language: en-US,en;q=0.9' ".
-                        '--output '.escapeshellarg($tmp).' '.
-                        "{$url} 2>/dev/null";
-                }
-
-                shell_exec($command);
-                $html = file_get_contents($tmp);
-                unlink($tmp);
-            }
+            $html = $this->fetchHtml();
 
             Log::info('StorePostJob: response', [
                 'length' => strlen((string) $html),
@@ -97,114 +72,12 @@ class StorePostJob implements ShouldQueue
 
             @$dom->loadHTML($html);
 
-            // Извлекаем OG-изображение статьи
-            if (empty($this->data['preview_image'])) {
-                $finder = new DomXPath($dom);
-                $ogImage = $finder->query("//meta[@property='og:image']/@content");
-                if ($ogImage->length > 0) {
-                    $ogImageUrl = $ogImage->item(0)->nodeValue;
-                    $imagePath = $this->imageService->downloadImage($ogImageUrl);
-                    if ($imagePath) {
-                        $this->data['preview_image'] = $imagePath;
-                        $this->data['main_image'] = $imagePath;
-                    }
-                }
-            }
+            $this->applyOgImage($dom);
 
-            $h1 = $dom->getElementsByTagName('h1');
-            if ($h1->length === 0) {
-                $titleTag = $dom->getElementsByTagName('title');
-                if ($titleTag->length > 0) {
-                    $rawTitle = $titleTag->item(0)->nodeValue;
-                    // Strip site name suffix (e.g. "Article Title | Site Name")
-                    $rawTitle = preg_replace('/\s*[|\-—]\s*[^|\-—]+$/', '', $rawTitle);
-                    $fakeH1 = $dom->createElement('h1', htmlspecialchars(trim($rawTitle)));
-                    $dom->documentElement->appendChild($fakeH1);
-                    $h1 = $dom->getElementsByTagName('h1');
-                }
-            }
+            $h1 = $this->resolveH1($dom);
+
             if ($h1->length > 0) {
-                $title = $this->selectArticleTitleNode($h1)->nodeValue;
-                $this->data['title'] = $googleTranslate->translate($title);
-
-                // Переводим текст на обложке, если картинка уже скачана
-                if (! empty($this->data['preview_image']) && ! empty($this->data['title'])) {
-                    try {
-                        $fullPath = Storage::disk('public')->path($this->data['preview_image']);
-                        (new ImageTranslatorService)->translateCoverImage($fullPath, $this->data['title']);
-                    } catch (\Throwable $e) {
-                        Log::warning('ImageTranslatorService: failed', ['error' => $e->getMessage()]);
-                    }
-                }
-
-                // Категория определяется позже, в PostService::store()/update() —
-                // там уже доступен полный текст статьи (см. CategoryDetectorService),
-                // а на этом этапе контент ещё не извлечён из DOM
-
-                Log::info('title', [$this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
-
-                $finder = new DomXPath($dom);
-
-                $panels = $finder->query("//div[contains(@class, 'highlight__panel') and contains(@class, 'js-actions-panel')]");
-
-                foreach ($panels as $panel) {
-                    $panel->parentNode->removeChild($panel);
-                }
-
-                $this->stripAccessibilityJunk($finder);
-                $this->stripMediumSubscribeWidget($finder);
-                $this->stripDuplicateTitleAndHero($finder);
-
-                $selector = $this->data['selector'];
-                if (str_starts_with($selector, '#')) {
-                    $xpathQuery = "//*[@id='".ltrim($selector, '#')."']";
-                } elseif (str_starts_with($selector, '.')) {
-                    $class = ltrim($selector, '.');
-                    $xpathQuery = "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$class} ')]";
-                } elseif (preg_match('/^[a-zA-Z][a-zA-Z0-9]*$/', $selector)) {
-                    $xpathQuery = "(//{$selector})[1]";
-                } else {
-                    $xpathQuery = "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$selector} ')]";
-                }
-                $nodes = $finder->query($xpathQuery);
-
-                Log::info('selector nodes found', ['selector' => $selector, 'xpath' => $xpathQuery, 'count' => $nodes->count()]);
-
-                // Сохраняем оригинальный контент до перевода
-                $contentOrig = '';
-                foreach ($nodes as $node) {
-                    $contentOrig .= $dom->saveHTML($node);
-                }
-
-                $this->googleTranslate = $this->makeGoogleTranslate();
-
-                foreach ($nodes as $node) {
-                    $this->processNode($node);
-                }
-
-                $postContent = '';
-                foreach ($nodes as $node) {
-                    $postContent .= $dom->saveHTML($node);
-                }
-
-                $postContent = $this->modifyContent($postContent);
-
-                $postContent = $this->imageService->replacePictureElements($postContent);
-                $postContent = $this->imageService->downloadAndReplaceImages($postContent);
-
-                if (! empty($postContent)) {
-                    $this->data['content'] = $postContent;
-                    $this->data['content_orig'] = $contentOrig;
-
-                    if (empty($this->data['preview_image'])) {
-                        $imagePath = $this->extractFirstImagePath($postContent);
-                        if ($imagePath) {
-                            $this->data['preview_image'] = $imagePath;
-                            $this->data['main_image'] = $imagePath;
-                        }
-                    }
-                }
-
+                $this->extractArticle($dom, $h1, $titleTranslator);
             }
         } catch (\Throwable $exception) {
             Log::error('StorePostJob error: '.$exception->getMessage(), [
@@ -230,7 +103,234 @@ class StorePostJob implements ShouldQueue
 
         $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
 
-        $this->service->store($this->data);
+        $this->service->store(PostData::fromArray($this->data));
+    }
+
+    /**
+     * Скачивает HTML статьи: из локального файла (если передан html_file,
+     * см. --html-file у post:parse), либо через curl/curl-impersonate
+     * (curl-impersonate — если задан config('releases.curl_binary'),
+     * чтобы обойти TLS-фингерпринтинг антибот-защит).
+     */
+    private function fetchHtml(): string|false
+    {
+        if (! empty($this->data['html_file'])) {
+            Log::info('StorePostJob: reading from file', ['file' => $this->data['html_file']]);
+
+            return file_get_contents($this->data['html_file']);
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'curl_');
+        $url = escapeshellarg($this->data['url']);
+        $proxy = config('releases.curl_proxy') ? '--socks5 '.escapeshellarg(config('releases.curl_proxy')).' ' : '';
+        $impersonate = config('releases.curl_binary');
+
+        if ($impersonate) {
+            // curl-impersonate сам выставляет TLS-отпечаток и заголовки Chrome —
+            // свои не добавляем, чтобы не выдать себя дублями заголовков
+            $command = escapeshellcmd($impersonate).' -s -L --max-time 30 '.
+                $proxy.
+                '--output '.escapeshellarg($tmp).' '.
+                "{$url} 2>/dev/null";
+        } else {
+            $command = '/usr/bin/curl -s -L --max-time 30 --http2 '.
+                $proxy.
+                "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' ".
+                "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' ".
+                "-H 'Accept-Language: en-US,en;q=0.9' ".
+                '--output '.escapeshellarg($tmp).' '.
+                "{$url} 2>/dev/null";
+        }
+
+        shell_exec($command);
+        $html = file_get_contents($tmp);
+        unlink($tmp);
+
+        return $html;
+    }
+
+    /**
+     * Извлекает OG-изображение статьи (meta og:image) и скачивает его,
+     * если превью ещё не задано другим способом.
+     */
+    private function applyOgImage(DOMDocument $dom): void
+    {
+        if (! empty($this->data['preview_image'])) {
+            return;
+        }
+
+        $finder = new DomXPath($dom);
+        $ogImage = $finder->query("//meta[@property='og:image']/@content");
+        if ($ogImage->length === 0) {
+            return;
+        }
+
+        $ogImageUrl = $ogImage->item(0)->nodeValue;
+        $imagePath = $this->imageService->downloadImage($ogImageUrl);
+        if ($imagePath) {
+            $this->data['preview_image'] = $imagePath;
+            $this->data['main_image'] = $imagePath;
+        }
+    }
+
+    /**
+     * Возвращает список <h1> статьи. Если на странице их нет, строит
+     * заглушку из <title> (обрезая суффикс вида " | Site Name"), чтобы
+     * дальнейшая экстракция заголовка не осталась совсем без кандидата.
+     */
+    private function resolveH1(DOMDocument $dom): DOMNodeList
+    {
+        $h1 = $dom->getElementsByTagName('h1');
+        if ($h1->length > 0) {
+            return $h1;
+        }
+
+        $titleTag = $dom->getElementsByTagName('title');
+        if ($titleTag->length === 0) {
+            return $h1;
+        }
+
+        $rawTitle = $titleTag->item(0)->nodeValue;
+        // Strip site name suffix (e.g. "Article Title | Site Name")
+        $rawTitle = preg_replace('/\s*[|\-—]\s*[^|\-—]+$/', '', $rawTitle);
+        $fakeH1 = $dom->createElement('h1', htmlspecialchars(trim($rawTitle)));
+        $dom->documentElement->appendChild($fakeH1);
+
+        return $dom->getElementsByTagName('h1');
+    }
+
+    /**
+     * Заполняет заголовок и контент поста из DOM статьи: выбирает
+     * заголовок среди кандидатов <h1>, переводит обложку, чистит
+     * интерфейсный мусор и переводит содержимое по CSS/ID-селектору.
+     */
+    private function extractArticle(DOMDocument $dom, DOMNodeList $h1, GoogleTranslate $titleTranslator): void
+    {
+        $title = $this->selectArticleTitleNode($h1)->nodeValue;
+        $this->data['title'] = $titleTranslator->translate($title);
+
+        $this->translateCoverImage();
+
+        // Категория определяется позже, в PostService::store()/update() —
+        // там уже доступен полный текст статьи (см. CategoryDetectorService),
+        // а на этом этапе контент ещё не извлечён из DOM
+        Log::info('title', [$this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
+
+        $finder = new DomXPath($dom);
+
+        $this->stripKnownJunk($finder);
+
+        $selector = $this->data['selector'];
+        $xpathQuery = $this->buildSelectorXPath($selector);
+        $nodes = $finder->query($xpathQuery);
+
+        Log::info('selector nodes found', ['selector' => $selector, 'xpath' => $xpathQuery, 'count' => $nodes->count()]);
+
+        $this->translateContentNodes($dom, $nodes);
+    }
+
+    /**
+     * Переводит текст на уже скачанной обложке статьи (если она есть
+     * и заголовок уже переведён).
+     */
+    private function translateCoverImage(): void
+    {
+        if (empty($this->data['preview_image']) || empty($this->data['title'])) {
+            return;
+        }
+
+        try {
+            $fullPath = Storage::disk('public')->path($this->data['preview_image']);
+            (new ImageTranslatorService)->translateCoverImage($fullPath, $this->data['title']);
+        } catch (\Throwable $e) {
+            Log::warning('ImageTranslatorService: failed', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Убирает панель действий Dev.to и известный интерфейсный мусор
+     * (см. stripAccessibilityJunk/stripMediumSubscribeWidget/stripDuplicateTitleAndHero)
+     * перед выбором контентных узлов по селектору.
+     */
+    private function stripKnownJunk(DOMXPath $finder): void
+    {
+        $panels = $finder->query("//div[contains(@class, 'highlight__panel') and contains(@class, 'js-actions-panel')]");
+
+        foreach ($panels as $panel) {
+            $panel->parentNode->removeChild($panel);
+        }
+
+        $this->stripAccessibilityJunk($finder);
+        $this->stripMediumSubscribeWidget($finder);
+        $this->stripDuplicateTitleAndHero($finder);
+    }
+
+    /**
+     * Переводит CSS/ID-подобный селектор (#id, .class, tag, или голое
+     * имя класса без точки) в XPath-запрос для поиска контентных узлов.
+     */
+    private function buildSelectorXPath(string $selector): string
+    {
+        if (str_starts_with($selector, '#')) {
+            return "//*[@id='".ltrim($selector, '#')."']";
+        }
+
+        if (str_starts_with($selector, '.')) {
+            $class = ltrim($selector, '.');
+
+            return "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$class} ')]";
+        }
+
+        if (preg_match('/^[a-zA-Z][a-zA-Z0-9]*$/', $selector)) {
+            return "(//{$selector})[1]";
+        }
+
+        return "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$selector} ')]";
+    }
+
+    /**
+     * Сохраняет оригинальный HTML найденных узлов, переводит их
+     * (TranslatesNodes::processNode) и записывает итоговый контент
+     * в $this->data, с фолбэком превью-картинки из первой локальной
+     * картинки контента, если своей ещё нет.
+     */
+    private function translateContentNodes(DOMDocument $dom, DOMNodeList $nodes): void
+    {
+        $contentOrig = '';
+        foreach ($nodes as $node) {
+            $contentOrig .= $dom->saveHTML($node);
+        }
+
+        $this->googleTranslate = $this->makeGoogleTranslate();
+
+        foreach ($nodes as $node) {
+            $this->processNode($node);
+        }
+
+        $postContent = '';
+        foreach ($nodes as $node) {
+            $postContent .= $dom->saveHTML($node);
+        }
+
+        $postContent = $this->modifyContent($postContent);
+
+        $postContent = $this->imageService->replacePictureElements($postContent);
+        $postContent = $this->imageService->downloadAndReplaceImages($postContent);
+
+        if (empty($postContent)) {
+            return;
+        }
+
+        $this->data['content'] = $postContent;
+        $this->data['content_orig'] = $contentOrig;
+
+        if (empty($this->data['preview_image'])) {
+            $imagePath = $this->extractFirstImagePath($postContent);
+            if ($imagePath) {
+                $this->data['preview_image'] = $imagePath;
+                $this->data['main_image'] = $imagePath;
+            }
+        }
     }
 
     /**
