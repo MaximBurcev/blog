@@ -4,7 +4,10 @@ namespace App\Service;
 
 use App\Jobs\StorePostJob;
 use App\Models\Release;
+use App\Support\UrlSafetyChecker;
 use GuzzleHttp\Client;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -20,10 +23,13 @@ class ReleaseService
 
     private const DEFAULT_TIMEOUT = 30;
 
+    private const MAX_REDIRECTS = 5;
+
     private array $config;
 
-    public function __construct()
-    {
+    public function __construct(
+        private readonly UrlSafetyChecker $urlSafetyChecker = new UrlSafetyChecker
+    ) {
         $this->config = [
             'selector' => config('releases.parser_selector', self::DEFAULT_SELECTOR),
             'max_links' => (int) config('releases.max_links', self::DEFAULT_MAX_LINKS),
@@ -96,6 +102,13 @@ class ReleaseService
         }
     }
 
+    /**
+     * Ссылка на релиз (дайджест) заводится вручную в админке, но 3xx-редирект
+     * на этой странице уже полностью управляется её хостером — поэтому
+     * следование редиректам отключено и каждый хоп ревалидируется через
+     * UrlSafetyChecker (защита от SSRF на localhost/внутреннюю сеть/
+     * метаданные облака).
+     */
     private function fetchHtmlContent(string $url): string
     {
         $client = new Client([
@@ -103,21 +116,37 @@ class ReleaseService
             'headers' => [
                 'User-Agent' => $this->config['user_agent'],
             ],
+            'allow_redirects' => false,
         ]);
 
-        $response = $client->get($url);
+        for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
+            if (! $this->urlSafetyChecker->isSafe($url)) {
+                throw new \RuntimeException("Blocked unsafe URL: {$url}");
+            }
 
-        if ($response->getStatusCode() !== 200) {
-            throw new \RuntimeException("HTTP {$response->getStatusCode()}: Failed to fetch content");
+            $response = $client->get($url);
+            $status = $response->getStatusCode();
+
+            if ($status >= 300 && $status < 400 && $response->hasHeader('Location')) {
+                $url = (string) UriResolver::resolve(new Uri($url), new Uri($response->getHeaderLine('Location')));
+
+                continue;
+            }
+
+            if ($status !== 200) {
+                throw new \RuntimeException("HTTP {$status}: Failed to fetch content");
+            }
+
+            $content = $response->getBody()->getContents();
+
+            if (empty($content)) {
+                throw new \RuntimeException('Empty content received from URL');
+            }
+
+            return $content;
         }
 
-        $content = $response->getBody()->getContents();
-
-        if (empty($content)) {
-            throw new \RuntimeException('Empty content received from URL');
-        }
-
-        return $content;
+        throw new \RuntimeException('Too many redirects');
     }
 
     public function addPosts(string $url): array

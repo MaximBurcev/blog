@@ -8,6 +8,7 @@
         "php": "^8.1",
         "ext-dom": "*",
         "doctrine/dbal": "^3.7",
+        "ezyang/htmlpurifier": "^4.19",
         "filament/filament": "^3.3",
         "flowframe/laravel-trend": "^0.4.0",
         "guzzlehttp/guzzle": "^7.9",

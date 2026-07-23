@@ -14,5 +14,5 @@ class Comment extends Model
 
     protected $table = 'comments';
 
-    protected $guarded = false;
+    protected $fillable = ['user_id', 'post_id', 'message'];
 }

@@ -10,9 +10,6 @@ use App\Livewire\Counter;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
-use App\Events\UserNotification;
-use App\Models\User;
-
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -58,7 +55,9 @@ Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
         Route::get('/add', 'App\Http\Controllers\Admin\Post\AddController')->name('admin.post.add');
 
         Route::prefix('add')->group(function () {
-            Route::post('/', 'App\Http\Controllers\Admin\Post\StoreAddController')->name('admin.post.store.add');
+            Route::post('/', 'App\Http\Controllers\Admin\Post\StoreAddController')
+                ->middleware('throttle:20,1')
+                ->name('admin.post.store.add');
         });
 
         Route::post('/', 'App\Http\Controllers\Admin\Post\StoreController')->name('admin.post.store');
@@ -116,7 +115,9 @@ Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
     Route::prefix('releases')->group(function () {
         Route::get('/', 'App\Http\Controllers\Admin\Release\IndexController')->name('admin.release.index');
         Route::get('/create', 'App\Http\Controllers\Admin\Release\CreateController')->name('admin.release.create');
-        Route::post('/', 'App\Http\Controllers\Admin\Release\StoreController')->name('admin.release.store');
+        Route::post('/', 'App\Http\Controllers\Admin\Release\StoreController')
+            ->middleware('throttle:10,1')
+            ->name('admin.release.store');
         Route::get('/{release}', 'App\Http\Controllers\Admin\Release\ShowController')->name('admin.release.show');
         Route::get('/{release}/edit', 'App\Http\Controllers\Admin\Release\EditController')->name('admin.release.edit');
         Route::patch('/{release}', 'App\Http\Controllers\Admin\Release\UpdateController')->name('admin.release.update');
@@ -128,26 +129,11 @@ Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
 
 Auth::routes();
 
-Route::post('/upload', UploadController::class)->name('upload');
-
-Route::get('phpinfo', function () {
-    phpinfo();
-})->name('phpinfo');
+Route::post('/upload', UploadController::class)->middleware(['auth', 'admin', 'throttle:60,1'])->name('upload');
 
 Route::get('/sitemap.xml', \App\Http\Controllers\Sitemap\XmlController::class)->name('sitemap.xml');
 
 Route::get('/feed.xml', \App\Http\Controllers\Feed\IndexController::class)->name('feed.index');
-
-Route::get('test', function () {
-
-
-    $user = User::find(Auth::user()->getAuthIdentifier());
-
-    dump($user->id);
-
-    broadcast(new UserNotification($user, time() . ': У вас новое уведомление!'));
-
-})->name('test');
 
 Route::get('/counter', Counter::class);
 

@@ -10,7 +10,6 @@ class StoreController extends Controller
     public function __invoke(Post $post, StoreRequest $request)
     {
         $data = $request->validated();
-        dd($data);
         $post->store($data);
 
         return redirect()->route('admin.post.index');

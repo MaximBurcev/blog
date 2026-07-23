@@ -68,7 +68,7 @@ class TranslateService
                 $this->data['content'] = $postContent;
             }
 
-            Log::info($this->data);
+            Log::info('TranslateService::translate: done', ['title' => $this->data['title'] ?? null]);
 
         } catch (\Exception $exception) {
             // Исключение до/во время перевода — контент остался (частично) непереведённым

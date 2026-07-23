@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\UserRole;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UploadRequest extends FormRequest
@@ -11,7 +12,7 @@ class UploadRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return true;
+        return $this->user()?->role === UserRole::Admin;
     }
 
     /**
@@ -22,7 +23,7 @@ class UploadRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file'  =>  'required|file'
+            'file' => 'required|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
         ];
     }
 }

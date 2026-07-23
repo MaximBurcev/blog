@@ -17,6 +17,7 @@ class PostService
         private readonly TranslateService $translateService,
         private readonly CategoryDetectorService $categoryDetectorService,
         private readonly TagDetectorService $tagDetectorService,
+        private readonly HtmlSanitizerService $htmlSanitizer,
     ) {
     }
 
@@ -24,7 +25,7 @@ class PostService
     {
         $data = $postData->toArray();
 
-        Log::info('PostService::store', $data);
+        Log::info('PostService::store', ['title' => $data['title'] ?? null, 'url' => $data['url'] ?? null]);
 
         $post = null;
 
@@ -58,9 +59,11 @@ class PostService
                 );
             }
 
+            $data['content'] = $this->htmlSanitizer->sanitize($data['content']);
+
             $post = Post::create($data);
 
-            Log::info('$data', $data);
+            Log::info('PostService::store: post created', ['id' => $post->id, 'title' => $post->title]);
 
             if (empty($tagIds)) {
                 $tagIds = $this->tagDetectorService->detect($data['title'], $data['url'] ?? '', $data['content'] ?? '');
@@ -107,6 +110,7 @@ class PostService
             $data['code'] = Str::slug($data['title'], '-', 'ru');
 
             $data['content'] = str_replace('http://laravel.local', '', $data['content']);
+            $data['content'] = $this->htmlSanitizer->sanitize($data['content']);
 
             if (empty($data['category_id'])) {
                 $data['category_id'] = $this->categoryDetectorService->detect(

@@ -6,11 +6,14 @@ use App\DataTransferObjects\PostData;
 use App\Service\ContentImageService;
 use App\Service\ImageTranslatorService;
 use App\Service\PostService;
+use App\Support\UrlSafetyChecker;
 use App\Traits\TranslatesNodes;
 use DOMDocument;
 use DOMElement;
 use DOMNodeList;
 use DOMXPath;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -24,6 +27,8 @@ class StorePostJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, TranslatesNodes;
 
+    private const MAX_REDIRECTS = 5;
+
     public int $timeout = 300;
 
     private $data;
@@ -34,16 +39,19 @@ class StorePostJob implements ShouldQueue
 
     private ContentImageService $imageService;
 
+    private UrlSafetyChecker $urlSafetyChecker;
+
     public function __construct($data)
     {
         //
         $this->data = $data;
     }
 
-    public function handle(PostService $service, ContentImageService $imageService): void
+    public function handle(PostService $service, ContentImageService $imageService, UrlSafetyChecker $urlSafetyChecker): void
     {
         $this->service = $service;
         $this->imageService = $imageService;
+        $this->urlSafetyChecker = $urlSafetyChecker;
 
         $titleTranslator = $this->makeGoogleTranslate();
 
@@ -111,6 +119,11 @@ class StorePostJob implements ShouldQueue
      * см. --html-file у post:parse), либо через curl/curl-impersonate
      * (curl-impersonate — если задан config('releases.curl_binary'),
      * чтобы обойти TLS-фингерпринтинг антибот-защит).
+     *
+     * URL статьи приходит из ссылок на странице релиза (чужого дайджеста),
+     * поэтому автоследование редиректов (-L) отключено — каждый хоп
+     * ревалидируется через UrlSafetyChecker, иначе 3xx со страницы-источника
+     * может увести fetch на localhost/внутреннюю сеть/метаданные облака (SSRF).
      */
     private function fetchHtml(): string|false
     {
@@ -120,33 +133,100 @@ class StorePostJob implements ShouldQueue
             return file_get_contents($this->data['html_file']);
         }
 
-        $tmp = tempnam(sys_get_temp_dir(), 'curl_');
-        $url = escapeshellarg($this->data['url']);
+        $url = $this->data['url'];
+
+        for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
+            if (! $this->urlSafetyChecker->isSafe($url)) {
+                Log::warning('StorePostJob: unsafe URL blocked', ['url' => $url, 'original_url' => $this->data['url']]);
+
+                return false;
+            }
+
+            $result = $this->curlFetchOnce($url);
+
+            if ($result['location'] === null) {
+                return $result['body'];
+            }
+
+            $url = (string) UriResolver::resolve(new Uri($url), new Uri($result['location']));
+        }
+
+        Log::warning('StorePostJob: too many redirects', ['url' => $this->data['url']]);
+
+        return false;
+    }
+
+    /**
+     * Выполняет один HTTP-запрос без автоследования редиректов: заголовки
+     * ответа пишутся в отдельный временный файл (-D), тело — в другой
+     * (--output), чтобы достать статус/Location без "-L".
+     *
+     * @return array{body: string|false, location: ?string}
+     */
+    private function curlFetchOnce(string $url): array
+    {
+        $tmpBody = tempnam(sys_get_temp_dir(), 'curl_body_');
+        $tmpHeaders = tempnam(sys_get_temp_dir(), 'curl_headers_');
+
+        $escapedUrl = escapeshellarg($url);
         $proxy = config('releases.curl_proxy') ? '--socks5 '.escapeshellarg(config('releases.curl_proxy')).' ' : '';
         $impersonate = config('releases.curl_binary');
+        $proto = "--proto '=http,https' --proto-redir '=http,https' ";
 
         if ($impersonate) {
             // curl-impersonate сам выставляет TLS-отпечаток и заголовки Chrome —
             // свои не добавляем, чтобы не выдать себя дублями заголовков
-            $command = escapeshellcmd($impersonate).' -s -L --max-time 30 '.
-                $proxy.
-                '--output '.escapeshellarg($tmp).' '.
-                "{$url} 2>/dev/null";
+            $command = escapeshellcmd($impersonate).' -s --max-time 30 '.
+                $proto.$proxy.
+                '-D '.escapeshellarg($tmpHeaders).' --output '.escapeshellarg($tmpBody).' '.
+                "{$escapedUrl} 2>/dev/null";
         } else {
-            $command = '/usr/bin/curl -s -L --max-time 30 --http2 '.
-                $proxy.
+            $command = '/usr/bin/curl -s --max-time 30 --http2 '.
+                $proto.$proxy.
                 "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' ".
                 "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' ".
                 "-H 'Accept-Language: en-US,en;q=0.9' ".
-                '--output '.escapeshellarg($tmp).' '.
-                "{$url} 2>/dev/null";
+                '-D '.escapeshellarg($tmpHeaders).' --output '.escapeshellarg($tmpBody).' '.
+                "{$escapedUrl} 2>/dev/null";
         }
 
         shell_exec($command);
-        $html = file_get_contents($tmp);
-        unlink($tmp);
 
-        return $html;
+        $body = file_get_contents($tmpBody);
+        $headers = (string) file_get_contents($tmpHeaders);
+        unlink($tmpBody);
+        unlink($tmpHeaders);
+
+        return [
+            'body' => $body,
+            'location' => $this->extractRedirectLocation($headers),
+        ];
+    }
+
+    /**
+     * Достаёт Location из последнего HTTP-ответа в заголовках curl
+     * (при проксировании/keep-alive заголовки могут содержать несколько
+     * блоков "HTTP/..." — берём последний) для статусов 3xx.
+     */
+    private function extractRedirectLocation(string $headers): ?string
+    {
+        $blocks = preg_split('/\r?\n\r?\n(?=HTTP\/)/', trim($headers));
+        $lastBlock = end($blocks);
+
+        if ($lastBlock === false || ! preg_match('/^HTTP\/\S+\s+(\d{3})/', $lastBlock, $statusMatch)) {
+            return null;
+        }
+
+        $status = (int) $statusMatch[1];
+        if ($status < 300 || $status >= 400) {
+            return null;
+        }
+
+        if (! preg_match('/^Location:\s*(\S+)/mi', $lastBlock, $locationMatch)) {
+            return null;
+        }
+
+        return trim($locationMatch[1]);
     }
 
     /**

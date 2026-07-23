@@ -2,6 +2,9 @@
 
 namespace App\Service;
 
+use App\Support\UrlSafetyChecker;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -9,6 +12,47 @@ use Illuminate\Support\Str;
 
 class ContentImageService
 {
+    private const MAX_REDIRECTS = 5;
+
+    public function __construct(
+        private readonly UrlSafetyChecker $urlSafetyChecker = new UrlSafetyChecker
+    ) {
+    }
+
+    /**
+     * Скачивает содержимое по URL, ревалидируя через UrlSafetyChecker
+     * перед каждым хопом редиректа — картинки в скрейпленном контенте
+     * ведут туда, куда их поставила чужая страница (SSRF-защита).
+     * Возвращает null, если URL небезопасен, редиректов слишком много
+     * или запрос не удался.
+     */
+    private function fetchBinary(string $url): ?string
+    {
+        $current = $url;
+
+        for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
+            if (! $this->urlSafetyChecker->isSafe($current)) {
+                Log::warning('ContentImageService: unsafe URL blocked', ['url' => $current, 'original_url' => $url]);
+
+                return null;
+            }
+
+            $response = Http::timeout(30)->retry(3, 500)->withOptions(['allow_redirects' => false])->get($current);
+
+            if ($response->redirect() && $response->header('Location')) {
+                $current = (string) UriResolver::resolve(new Uri($current), new Uri($response->header('Location')));
+
+                continue;
+            }
+
+            return $response->successful() ? $response->body() : null;
+        }
+
+        Log::warning('ContentImageService: too many redirects', ['url' => $url]);
+
+        return null;
+    }
+
     /**
      * Downloads images from external sources and replaces them with local paths.
      *
@@ -21,7 +65,10 @@ class ContentImageService
     public function downloadImage(string $url): ?string
     {
         try {
-            $imageContent = Http::timeout(30)->retry(3, 500)->get($url)->body();
+            $imageContent = $this->fetchBinary($url);
+            if ($imageContent === null) {
+                return null;
+            }
 
             $extension = pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION);
             $extension = $extension ?: 'jpg';
@@ -69,7 +116,10 @@ class ContentImageService
             }
 
             try {
-                $imageContent = Http::timeout(30)->retry(3, 500)->get($bestUrl)->throw()->body();
+                $imageContent = $this->fetchBinary($bestUrl);
+                if ($imageContent === null) {
+                    return $matches[0];
+                }
 
                 $extension = pathinfo(parse_url($bestUrl, PHP_URL_PATH), PATHINFO_EXTENSION);
                 $extension = $extension ?: 'jpg';
@@ -145,7 +195,10 @@ class ContentImageService
 
             // Download the image
             try {
-                $imageContent = Http::timeout(30)->retry(3, 500)->get($imageUrl)->body();
+                $imageContent = $this->fetchBinary($imageUrl);
+                if ($imageContent === null) {
+                    return $matches[0];
+                }
 
                 // Generate a unique filename
                 $extension = pathinfo($imageUrl, PATHINFO_EXTENSION);
