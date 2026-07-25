@@ -7,9 +7,10 @@ use App\Events\PostCreated;
 use App\Events\UserNotification;
 use App\Models\User;
 use App\Notifications\PostCreatedNotification;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 
-class SendPostCreatedNotifications
+class SendPostCreatedNotifications implements ShouldQueue
 {
     public function handle(PostCreated $event): void
     {

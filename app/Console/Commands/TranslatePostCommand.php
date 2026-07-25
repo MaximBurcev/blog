@@ -14,7 +14,7 @@ class TranslatePostCommand extends Command
 
     protected $description = 'Переводит заголовок и контент поста на русский язык';
 
-    public function handle(): int
+    public function handle(TranslateService $translateService): int
     {
         $post = Post::find($this->argument('id'));
 
@@ -34,8 +34,7 @@ class TranslatePostCommand extends Command
             'url'      => '',
         ];
 
-        $translateService = new TranslateService($data);
-        $data = $translateService->translate();
+        $data = $translateService->translate($data);
 
         $post->update([
             'title'   => $data['title'],

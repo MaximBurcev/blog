@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Admin\User;
 
+use App\Enums\UserRole;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateRequest extends FormRequest
 {
@@ -25,7 +27,7 @@ class UpdateRequest extends FormRequest
             'name' =>  'required|string',
             'email' =>  'required|email|unique:users,email,' . $this->user_id,
             'user_id'   => 'required|integer|exists:users,id',
-            'role'  =>  'required|integer',
+            'role'  =>  ['required', Rule::enum(UserRole::class)],
         ];
     }
 

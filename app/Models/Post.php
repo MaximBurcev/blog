@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Service\HtmlSanitizerService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -60,6 +61,20 @@ class Post extends Model
     public function likesCount()
     {
         return $this->likes()->count();
+    }
+
+    /**
+     * Content — чужой скрейпленный HTML, рендерится через {!! !!} на
+     * публичной странице и в Summernote в админке без экранирования.
+     * Санитайзинг вынесен на уровень мутатора модели (а не в PostService),
+     * чтобы его нельзя было обойти вторым путём записи — Filament-ресурсом
+     * PostResource, который сохраняет форму напрямую через Eloquent.
+     */
+    public function setContentAttribute(?string $value): void
+    {
+        $this->attributes['content'] = $value !== null
+            ? app(HtmlSanitizerService::class)->sanitize($value)
+            : $value;
     }
 
     public function excerpt(int $length = 160): string

@@ -12,13 +12,18 @@ namespace App\Support;
  * туда, куда его привела чужая страница — в том числе через 3xx-редирект.
  * Проверка должна выполняться перед КАЖДЫМ хопом, а не только перед
  * исходным URL.
+ *
+ * resolvePublicIp() возвращает конкретный IP, который нужно закрепить в
+ * HTTP-клиенте (curl --resolve / CURLOPT_RESOLVE), а не резолвить хост
+ * заново при самом запросе — иначе между проверкой и fetch'ем DNS-запись
+ * может смениться на приватный адрес (DNS rebinding, TOCTOU).
  */
 class UrlSafetyChecker
 {
-    public function isSafe(string $url): bool
+    public function resolvePublicIp(string $url): ?string
     {
         if (! filter_var($url, FILTER_VALIDATE_URL)) {
-            return false;
+            return null;
         }
 
         $parts = parse_url($url);
@@ -26,20 +31,20 @@ class UrlSafetyChecker
         $host = $parts['host'] ?? '';
 
         if (! in_array($scheme, ['http', 'https'], true) || $host === '') {
-            return false;
+            return null;
         }
 
         if (! $this->domainAllowed($host)) {
-            return false;
+            return null;
         }
 
-        return $this->resolvesToPublicIp($host);
+        return $this->resolveAndValidate($host);
     }
 
     private function domainAllowed(string $host): bool
     {
         foreach (config('releases.blocked_domains', []) as $domain) {
-            if ($domain !== '' && str_contains($host, $domain)) {
+            if ($domain !== '' && $this->hostMatchesDomain($host, $domain)) {
                 return false;
             }
         }
@@ -50,7 +55,7 @@ class UrlSafetyChecker
         }
 
         foreach ($allowList as $domain) {
-            if ($domain !== '' && str_contains($host, $domain)) {
+            if ($domain !== '' && $this->hostMatchesDomain($host, $domain)) {
                 return true;
             }
         }
@@ -59,26 +64,86 @@ class UrlSafetyChecker
     }
 
     /**
-     * Отсекает loopback/приватные/link-local/reserved адреса (127/8, 10/8,
-     * 172.16/12, 192.168/16, 169.254/16 — метаданные облака, ::1, fc00::/7
-     * и т.п.), чтобы редирект или DNS-резолв хоста не увёл fetch во
-     * внутреннюю сеть.
+     * Точное совпадение хоста с доменом либо поддомен с точкой-границей —
+     * substring-матчинг (str_contains) пропускал бы 'evil.com' для домена
+     * 'medium.com' как 'medium.com.evil.com', а блок-лист 'facebook.com'
+     * обходился бы поддоменом 'facebook.com.evil.com'.
      */
-    private function resolvesToPublicIp(string $host): bool
+    private function hostMatchesDomain(string $host, string $domain): bool
+    {
+        $host = strtolower($host);
+        $domain = strtolower(ltrim($domain, '.'));
+
+        return $host === $domain || str_ends_with($host, '.'.$domain);
+    }
+
+    /**
+     * Резолвит хост и проверяет ВСЕ A/AAAA-записи (не только первую) —
+     * если хотя бы одна указывает на приватный/loopback/link-local/reserved
+     * адрес (127/8, 10/8, 172.16/12, 192.168/16, 169.254/16 — метаданные
+     * облака, ::1, fc00::/7 и т.п.), хост целиком отклоняется.
+     */
+    private function resolveAndValidate(string $host): ?string
     {
         if (filter_var($host, FILTER_VALIDATE_IP)) {
-            $ip = $host;
-        } else {
-            $ip = gethostbyname($host);
-            if ($ip === $host) {
-                return false; // резолв не удался
+            return $this->isPublicIp($host) ? $host : null;
+        }
+
+        $records = @dns_get_record($host, DNS_A + DNS_AAAA);
+        if (empty($records)) {
+            return null;
+        }
+
+        $ips = [];
+        foreach ($records as $record) {
+            $ip = $record['ip'] ?? $record['ipv6'] ?? null;
+            if ($ip !== null) {
+                $ips[] = $ip;
             }
         }
+
+        if (empty($ips)) {
+            return null;
+        }
+
+        foreach ($ips as $ip) {
+            if (! $this->isPublicIp($ip)) {
+                return null;
+            }
+        }
+
+        return $ips[0];
+    }
+
+    private function isPublicIp(string $ip): bool
+    {
+        $ip = $this->unwrapIpv4MappedIpv6($ip) ?? $ip;
 
         return (bool) filter_var(
             $ip,
             FILTER_VALIDATE_IP,
             FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
         );
+    }
+
+    /**
+     * filter_var() с FILTER_FLAG_NO_PRIV_RANGE не разворачивает
+     * IPv4-mapped/compatible IPv6-литералы (::ffff:169.254.169.254) во
+     * вложенный IPv4 перед проверкой диапазона, поэтому такой адрес
+     * проходил бы как "публичный" и позволял обратиться к cloud metadata
+     * (169.254.169.254) или loopback в обход всей проверки.
+     */
+    private function unwrapIpv4MappedIpv6(string $ip): ?string
+    {
+        $packed = @inet_pton($ip);
+        if ($packed === false || strlen($packed) !== 16) {
+            return null;
+        }
+
+        if (substr($packed, 0, 12) !== "\0\0\0\0\0\0\0\0\0\0\xff\xff") {
+            return null;
+        }
+
+        return inet_ntop(substr($packed, 12));
     }
 }

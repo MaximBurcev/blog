@@ -12,7 +12,6 @@ class StoreController extends Controller
     public function __invoke(StoreRequest $request)
     {
         $data = $request->validated();
-        dd($data);
         $data['code'] = Str::slug($data['title']);
         Tag::create($data);
 

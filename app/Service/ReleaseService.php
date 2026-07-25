@@ -120,11 +120,17 @@ class ReleaseService
         ]);
 
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
-            if (! $this->urlSafetyChecker->isSafe($url)) {
+            $ip = $this->urlSafetyChecker->resolvePublicIp($url);
+            if ($ip === null) {
                 throw new \RuntimeException("Blocked unsafe URL: {$url}");
             }
 
-            $response = $client->get($url);
+            // IP закрепляется через CURLOPT_RESOLVE вместо повторного резолва
+            // хоста Guzzle'ом — иначе между проверкой и запросом DNS-запись
+            // могла бы смениться на приватный адрес (rebinding/TOCTOU)
+            $response = $client->get($url, [
+                'curl' => [CURLOPT_RESOLVE => [$this->hostPort($url).':'.$ip]],
+            ]);
             $status = $response->getStatusCode();
 
             if ($status >= 300 && $status < 400 && $response->hasHeader('Location')) {
@@ -147,6 +153,17 @@ class ReleaseService
         }
 
         throw new \RuntimeException('Too many redirects');
+    }
+
+    /**
+     * "host:port" в формате, который ожидает CURLOPT_RESOLVE.
+     */
+    private function hostPort(string $url): string
+    {
+        $parts = parse_url($url);
+        $port = $parts['port'] ?? (($parts['scheme'] ?? 'https') === 'https' ? 443 : 80);
+
+        return $parts['host'].':'.$port;
     }
 
     public function addPosts(string $url): array

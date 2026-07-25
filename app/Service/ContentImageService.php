@@ -31,13 +31,20 @@ class ContentImageService
         $current = $url;
 
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
-            if (! $this->urlSafetyChecker->isSafe($current)) {
+            $ip = $this->urlSafetyChecker->resolvePublicIp($current);
+            if ($ip === null) {
                 Log::warning('ContentImageService: unsafe URL blocked', ['url' => $current, 'original_url' => $url]);
 
                 return null;
             }
 
-            $response = Http::timeout(30)->retry(3, 500)->withOptions(['allow_redirects' => false])->get($current);
+            // IP закрепляется через CURLOPT_RESOLVE вместо повторного резолва
+            // хоста Guzzle'ом — иначе между проверкой и запросом DNS-запись
+            // могла бы смениться на приватный адрес (rebinding/TOCTOU)
+            $response = Http::timeout(30)->retry(3, 500)->withOptions([
+                'allow_redirects' => false,
+                'curl' => [CURLOPT_RESOLVE => [$this->hostPort($current).':'.$ip]],
+            ])->get($current);
 
             if ($response->redirect() && $response->header('Location')) {
                 $current = (string) UriResolver::resolve(new Uri($current), new Uri($response->header('Location')));
@@ -51,6 +58,17 @@ class ContentImageService
         Log::warning('ContentImageService: too many redirects', ['url' => $url]);
 
         return null;
+    }
+
+    /**
+     * "host:port" в формате, который ожидает CURLOPT_RESOLVE.
+     */
+    private function hostPort(string $url): string
+    {
+        $parts = parse_url($url);
+        $port = $parts['port'] ?? (($parts['scheme'] ?? 'https') === 'https' ? 443 : 80);
+
+        return $parts['host'].':'.$port;
     }
 
     /**

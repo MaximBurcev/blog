@@ -13,7 +13,10 @@ class IndexController extends Controller
 
     public function __invoke()
     {
-        $posts = Post::published()->orderBy('created_at', 'desc')->get();
+        $posts = Post::published()
+            ->select(['id', 'title', 'code', 'preview_image', 'category_id', 'created_at'])
+            ->orderBy('created_at', 'desc')
+            ->paginate(12);
         $popularPosts = Post::published()
             ->withCount(['likes', 'comments'])
             ->orderByRaw('(likes_count + comments_count) DESC')

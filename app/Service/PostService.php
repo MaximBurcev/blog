@@ -17,7 +17,6 @@ class PostService
         private readonly TranslateService $translateService,
         private readonly CategoryDetectorService $categoryDetectorService,
         private readonly TagDetectorService $tagDetectorService,
-        private readonly HtmlSanitizerService $htmlSanitizer,
     ) {
     }
 
@@ -59,9 +58,15 @@ class PostService
                 );
             }
 
-            $data['content'] = $this->htmlSanitizer->sanitize($data['content']);
-
-            $post = Post::create($data);
+            // Джоба скрейпинга не идемпотентна сама по себе (retry/redelivery
+            // повторяет весь handle()) — при непустом url привязываемся к
+            // нему как к естественному ключу, иначе retry создавал бы
+            // дубликат поста при каждом повторном запуске.
+            if (! empty($data['url'])) {
+                $post = Post::updateOrCreate(['url' => $data['url']], $data);
+            } else {
+                $post = Post::create($data);
+            }
 
             Log::info('PostService::store: post created', ['id' => $post->id, 'title' => $post->title]);
 
@@ -110,7 +115,6 @@ class PostService
             $data['code'] = Str::slug($data['title'], '-', 'ru');
 
             $data['content'] = str_replace('http://laravel.local', '', $data['content']);
-            $data['content'] = $this->htmlSanitizer->sanitize($data['content']);
 
             if (empty($data['category_id'])) {
                 $data['category_id'] = $this->categoryDetectorService->detect(

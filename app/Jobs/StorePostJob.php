@@ -31,6 +31,10 @@ class StorePostJob implements ShouldQueue
 
     public int $timeout = 300;
 
+    public int $tries = 3;
+
+    public array $backoff = [60, 300, 900];
+
     private $data;
 
     private PostService $service;
@@ -136,13 +140,14 @@ class StorePostJob implements ShouldQueue
         $url = $this->data['url'];
 
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
-            if (! $this->urlSafetyChecker->isSafe($url)) {
+            $ip = $this->urlSafetyChecker->resolvePublicIp($url);
+            if ($ip === null) {
                 Log::warning('StorePostJob: unsafe URL blocked', ['url' => $url, 'original_url' => $this->data['url']]);
 
                 return false;
             }
 
-            $result = $this->curlFetchOnce($url);
+            $result = $this->curlFetchOnce($url, $ip);
 
             if ($result['location'] === null) {
                 return $result['body'];
@@ -161,14 +166,20 @@ class StorePostJob implements ShouldQueue
      * ответа пишутся в отдельный временный файл (-D), тело — в другой
      * (--output), чтобы достать статус/Location без "-L".
      *
+     * $resolvedIp закрепляется через --resolve вместо того, чтобы curl
+     * резолвил хост самостоятельно — иначе между проверкой в
+     * UrlSafetyChecker и самим запросом DNS-запись могла бы смениться на
+     * приватный адрес (rebinding/TOCTOU).
+     *
      * @return array{body: string|false, location: ?string}
      */
-    private function curlFetchOnce(string $url): array
+    private function curlFetchOnce(string $url, string $resolvedIp): array
     {
         $tmpBody = tempnam(sys_get_temp_dir(), 'curl_body_');
         $tmpHeaders = tempnam(sys_get_temp_dir(), 'curl_headers_');
 
         $escapedUrl = escapeshellarg($url);
+        $resolve = '--resolve '.escapeshellarg($this->hostPort($url).':'.$resolvedIp).' ';
         $proxy = config('releases.curl_proxy') ? '--socks5 '.escapeshellarg(config('releases.curl_proxy')).' ' : '';
         $impersonate = config('releases.curl_binary');
         $proto = "--proto '=http,https' --proto-redir '=http,https' ";
@@ -177,12 +188,12 @@ class StorePostJob implements ShouldQueue
             // curl-impersonate сам выставляет TLS-отпечаток и заголовки Chrome —
             // свои не добавляем, чтобы не выдать себя дублями заголовков
             $command = escapeshellcmd($impersonate).' -s --max-time 30 '.
-                $proto.$proxy.
+                $proto.$resolve.$proxy.
                 '-D '.escapeshellarg($tmpHeaders).' --output '.escapeshellarg($tmpBody).' '.
                 "{$escapedUrl} 2>/dev/null";
         } else {
             $command = '/usr/bin/curl -s --max-time 30 --http2 '.
-                $proto.$proxy.
+                $proto.$resolve.$proxy.
                 "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' ".
                 "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' ".
                 "-H 'Accept-Language: en-US,en;q=0.9' ".
@@ -201,6 +212,17 @@ class StorePostJob implements ShouldQueue
             'body' => $body,
             'location' => $this->extractRedirectLocation($headers),
         ];
+    }
+
+    /**
+     * "host:port" в формате, который ожидает curl --resolve.
+     */
+    private function hostPort(string $url): string
+    {
+        $parts = parse_url($url);
+        $port = $parts['port'] ?? (($parts['scheme'] ?? 'https') === 'https' ? 443 : 80);
+
+        return $parts['host'].':'.$port;
     }
 
     /**
@@ -578,5 +600,13 @@ class StorePostJob implements ShouldQueue
             // The content to modify
             $postContent
         );
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        Log::error('StorePostJob permanently failed', [
+            'url' => $this->data['url'] ?? null,
+            'error' => $exception->getMessage(),
+        ]);
     }
 }

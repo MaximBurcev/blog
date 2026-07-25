@@ -32,7 +32,7 @@
 
                         </div>
 
-
+                        {{ $posts->links() }}
 
                     </section>
                 </div>

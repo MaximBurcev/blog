@@ -14,10 +14,10 @@ class IndexController extends Controller
     public function __invoke()
     {
         $data = [];
-        $data['usersCount'] = User::all()->count();
-        $data['postsCount'] = Post::all()->count();
-        $data['categoriesCount'] = Category::all()->count();
-        $data['tagsCount'] = Tag::all()->count();
+        $data['usersCount'] = User::count();
+        $data['postsCount'] = Post::count();
+        $data['categoriesCount'] = Category::count();
+        $data['tagsCount'] = Tag::count();
         return view('admin.main.index', compact('data'));
     }
 }
