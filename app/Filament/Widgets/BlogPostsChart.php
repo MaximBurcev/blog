@@ -4,13 +4,12 @@ namespace App\Filament\Widgets;
 
 use App\Models\Post;
 use Filament\Widgets\ChartWidget;
-
 use Flowframe\Trend\Trend;
 use Flowframe\Trend\TrendValue;
 
 class BlogPostsChart extends ChartWidget
 {
-    protected static ?string $heading = 'Blog posts';
+    protected static ?string $heading = 'Посты блога';
 
     protected function getData(): array
     {
@@ -25,7 +24,7 @@ class BlogPostsChart extends ChartWidget
         return [
             'datasets' => [
                 [
-                    'label' => 'Blog posts',
+                    'label' => 'Посты блога',
                     'data' => $data->map(fn (TrendValue $value) => $value->aggregate),
                 ],
             ],
