@@ -127,9 +127,14 @@ class ReleaseService
 
             // IP закрепляется через CURLOPT_RESOLVE вместо повторного резолва
             // хоста Guzzle'ом — иначе между проверкой и запросом DNS-запись
-            // могла бы смениться на приватный адрес (rebinding/TOCTOU)
+            // могла бы смениться на приватный адрес (rebinding/TOCTOU).
+            // CURLOPT_MAXFILESIZE_LARGE защищает от гигантского/бесконечного
+            // ответа со страницы релиза (DoS воркера по памяти/диску).
             $response = $client->get($url, [
-                'curl' => [CURLOPT_RESOLVE => [$this->hostPort($url).':'.$ip]],
+                'curl' => [
+                    CURLOPT_RESOLVE => [$this->hostPort($url).':'.$ip],
+                    CURLOPT_MAXFILESIZE_LARGE => (int) config('releases.max_content_length'),
+                ],
             ]);
             $status = $response->getStatusCode();
 

@@ -2,8 +2,10 @@
 
 namespace App\Providers;
 
+use App\Enums\UserRole;
 use Carbon\Carbon;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -24,6 +26,12 @@ class AppServiceProvider extends ServiceProvider
     {
         Carbon::setLocale('ru_RU');
         Paginator::useBootstrapFive();
+
+        // Без этого gate opcodesio/log-viewer вообще не проверяет доступ
+        // (LogViewerService::auth() — no-op при отсутствии и callback, и
+        // gate'а) — /log-viewer был бы открыт кому угодно, а логи содержат
+        // стектрейсы/SQL/payload'ы запросов.
+        Gate::define('viewLogViewer', fn ($user) => $user->role === UserRole::Admin);
 
         View::composer('layouts.main', function ($view) {
             $data = $view->getData();

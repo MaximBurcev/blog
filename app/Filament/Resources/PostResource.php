@@ -6,9 +6,7 @@ use App\Filament\Resources\PostResource\Pages;
 use App\Filament\Resources\PostResource\RelationManagers;
 use App\Models\Category;
 use App\Models\Post;
-use App\Models\Tag;
 use Filament\Forms;
-use Filament\Forms\Components\BelongsToSelect;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -16,7 +14,6 @@ use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Str;
 
 class PostResource extends Resource
@@ -25,7 +22,7 @@ class PostResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
 
-    protected static ?string $recordTitleAttribute  = 'title';
+    protected static ?string $recordTitleAttribute = 'title';
 
     protected static ?string $navigationGroup = 'Блог';
 
@@ -44,8 +41,12 @@ class PostResource extends Resource
                 Forms\Components\RichEditor::make('content')->required()->label('Контент'),
                 Forms\Components\Select::make('category_id')->relationship('category', 'title')->required()->options(Category::all()->pluck('title', 'id'))
                     ->searchable()->label('Категория'),
-                Forms\Components\FileUpload::make('preview_image')->nullable()->label('Превью-изображение'),
-                Forms\Components\FileUpload::make('main_image')->nullable()->label('Главное изображение'),
+                Forms\Components\FileUpload::make('preview_image')->nullable()->image()
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+                    ->maxSize(5120)->label('Превью-изображение'),
+                Forms\Components\FileUpload::make('main_image')->nullable()->image()
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+                    ->maxSize(5120)->label('Главное изображение'),
                 Forms\Components\Checkbox::make('published')->label('Опубликован'),
             ])->columns(1);
     }
@@ -73,7 +74,7 @@ class PostResource extends Resource
                     ->boolean()
                     ->sortable(),
                 TextColumn::make('created_at')->label('Дата создания')->dateTime('d.m.Y H:i')->sortable(),
-                //TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
+                // TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
             ])
             ->defaultSort('id', 'desc')
             ->filters([
@@ -82,10 +83,10 @@ class PostResource extends Resource
                     Forms\Components\DatePicker::make('created_from')->label('С'),
                     Forms\Components\DatePicker::make('created_until')->label('По'),
                 ])
-                ->query(function (Builder $query, array $data) {
-                    return $query->when($data['created_from'], fn($query) => $query->whereDate('created_at', '>=', $data['created_from']))
-                        ->when($data['created_until'], fn($query) => $query->whereDate('created_at', '<=', $data['created_until']));
-                }),
+                    ->query(function (Builder $query, array $data) {
+                        return $query->when($data['created_from'], fn ($query) => $query->whereDate('created_at', '>=', $data['created_from']))
+                            ->when($data['created_until'], fn ($query) => $query->whereDate('created_at', '<=', $data['created_until']));
+                    }),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
@@ -100,16 +101,16 @@ class PostResource extends Resource
     public static function getRelations(): array
     {
         return [
-            RelationManagers\TagsRelationManager::class
+            RelationManagers\TagsRelationManager::class,
         ];
     }
 
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListPosts::route('/'),
+            'index' => Pages\ListPosts::route('/'),
             'create' => Pages\CreatePost::route('/create'),
-            'edit'   => Pages\EditPost::route('/{record}/edit'),
+            'edit' => Pages\EditPost::route('/{record}/edit'),
         ];
     }
 

@@ -16,8 +16,7 @@ class ContentImageService
 
     public function __construct(
         private readonly UrlSafetyChecker $urlSafetyChecker = new UrlSafetyChecker
-    ) {
-    }
+    ) {}
 
     /**
      * Скачивает содержимое по URL, ревалидируя через UrlSafetyChecker
@@ -40,10 +39,17 @@ class ContentImageService
 
             // IP закрепляется через CURLOPT_RESOLVE вместо повторного резолва
             // хоста Guzzle'ом — иначе между проверкой и запросом DNS-запись
-            // могла бы смениться на приватный адрес (rebinding/TOCTOU)
+            // могла бы смениться на приватный адрес (rebinding/TOCTOU).
+            // CURLOPT_MAXFILESIZE_LARGE — источник по своей воле отдаёт
+            // ответ (og:image/src в чужом HTML), ничего не мешает вернуть
+            // гигабайты и положить воркер по памяти/диску; сработает, если
+            // сервер объявляет Content-Length заранее (обычный случай).
             $response = Http::timeout(30)->retry(3, 500)->withOptions([
                 'allow_redirects' => false,
-                'curl' => [CURLOPT_RESOLVE => [$this->hostPort($current).':'.$ip]],
+                'curl' => [
+                    CURLOPT_RESOLVE => [$this->hostPort($current).':'.$ip],
+                    CURLOPT_MAXFILESIZE_LARGE => (int) config('releases.max_content_length'),
+                ],
             ])->get($current);
 
             if ($response->redirect() && $response->header('Location')) {
@@ -200,11 +206,7 @@ class ContentImageService
         $pattern = '/<a[^>]+href="([^"]+)"[^>]*>.*?<img[^>]+src="([^"]+)"[^>]*>.*?<\/a>/i';
 
         return preg_replace_callback($pattern, function ($matches) {
-            $linkUrl = $matches[1];
             $imageUrl = $matches[2];
-
-            Log::info('linkUrl', [$linkUrl]);
-            Log::info('imageUrl', [$imageUrl]);
 
             // Skip local images
             if (! str_starts_with($imageUrl, 'http')) {
@@ -228,13 +230,11 @@ class ContentImageService
 
                 $newImageUrl = Storage::disk('public')->url($filename);
 
-                Log::info('$newImageUrl', [$newImageUrl]);
-
                 // Replace the image URL with the local path
                 return '<a href="'.$newImageUrl.'"><img src="'.$newImageUrl.'"></a>';
             } catch (\Exception $e) {
                 // If the download fails, leave the original URL
-                Log::info('Failed to download image', [$imageUrl, $e->getMessage()]);
+                Log::warning('ContentImageService: link image download failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
 
                 return $matches[0];
             }

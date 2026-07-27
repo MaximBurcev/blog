@@ -77,6 +77,19 @@ class Post extends Model
             : $value;
     }
 
+    /**
+     * content_orig нигде сейчас не рендерится, но хранится как обычный
+     * скрейпленный HTML — санитайзим по той же причине, что и content:
+     * мина для будущего diff/API-эндпоинта, который однажды выведет его как
+     * есть.
+     */
+    public function setContentOrigAttribute(?string $value): void
+    {
+        $this->attributes['content_orig'] = $value !== null
+            ? app(HtmlSanitizerService::class)->sanitize($value)
+            : $value;
+    }
+
     public function excerpt(int $length = 160): string
     {
         $text = html_entity_decode(strip_tags($this->content), ENT_QUOTES, 'UTF-8');

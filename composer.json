@@ -1,8 +1,8 @@
 {
-    "name": "laravel/laravel",
+    "name": "maxburcev/laravel-local-blog",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
+    "description": "Blog engine with a scraping/translation pipeline, custom AdminLTE admin panel and a Filament admin panel.",
+    "keywords": ["laravel", "blog"],
     "license": "MIT",
     "require": {
         "php": "^8.1",
@@ -25,7 +25,7 @@
         "livewire/livewire": "^3.6",
         "meilisearch/meilisearch-php": "^1.15",
         "opcodesio/log-viewer": "^3.1",
-        "predis/predis": "*",
+        "predis/predis": "^3.2",
         "rappasoft/laravel-livewire-tables": "^3.7",
         "spatie/laravel-backup": "^9.3",
         "spatie/laravel-html": "^3.12",

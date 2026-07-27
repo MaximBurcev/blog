@@ -22,16 +22,16 @@ class UpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'title'         => 'required|string',
-            'content'       => 'required|string',
-            'preview_image' => 'nullable|file',
-            'main_image'    => 'nullable|file',
-            'category_id'   => 'required|integer|exists:categories,id',
-            'tag_ids'       => 'nullable|array',
-            'tag_ids.*'     => 'nullable|integer|exists:tags,id',
-            'code'          => 'required|string',
-            'published'     =>  'boolean',
-            'translate'     =>  'nullable',
+            'title' => 'required|string',
+            'content' => 'required|string',
+            'preview_image' => 'nullable|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
+            'main_image' => 'nullable|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
+            'category_id' => 'required|integer|exists:categories,id',
+            'tag_ids' => 'nullable|array',
+            'tag_ids.*' => 'nullable|integer|exists:tags,id',
+            'code' => 'required|string',
+            'published' => 'boolean',
+            'translate' => 'nullable',
         ];
     }
 
@@ -39,7 +39,7 @@ class UpdateRequest extends FormRequest
     {
         return [
             'code.required' => 'Укажите символьный код',
-            'code.string'  =>  'Данные должны соответствовать строчному типу'
+            'code.string' => 'Данные должны соответствовать строчному типу',
         ];
     }
 }

@@ -22,14 +22,14 @@ class StoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'title'         => 'required|string',
-            'content'       => 'required|string',
-            'preview_image' => 'nullable|file',
-            'main_image'    => 'nullable|file',
-            'category_id'   => 'required|integer|exists:categories,id',
-            'tag_ids'       => 'required|array',
-            'tag_ids.*'     => 'nullable|integer|exists:tags,id',
-            'translate'     => 'nullable'
+            'title' => 'required|string',
+            'content' => 'required|string',
+            'preview_image' => 'nullable|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
+            'main_image' => 'nullable|image|mimes:jpg,jpeg,png,gif,webp|max:5120',
+            'category_id' => 'required|integer|exists:categories,id',
+            'tag_ids' => 'required|array',
+            'tag_ids.*' => 'nullable|integer|exists:tags,id',
+            'translate' => 'nullable',
         ];
     }
 
@@ -37,7 +37,7 @@ class StoreRequest extends FormRequest
     {
         return [
             'title.required' => 'Укажите название поста',
-            'title.string'   => 'Данные должны соответствовать строчному типу'
+            'title.string' => 'Данные должны соответствовать строчному типу',
         ];
     }
 }

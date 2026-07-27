@@ -34,11 +34,35 @@ class UrlSafetyChecker
             return null;
         }
 
+        $host = $this->normalizeHost($host);
+
         if (! $this->domainAllowed($host)) {
             return null;
         }
 
         return $this->resolveAndValidate($host);
+    }
+
+    /**
+     * Приводит host к канонической форме перед сравнением с блок/allow-листом
+     * и резолвингом: снимает завершающую точку FQDN-корня (`facebook.com.`
+     * иначе не матчился бы со строкой `facebook.com` в blocked_domains — то
+     * же самое доменное имя, синтаксически другая строка) и переводит IDN
+     * в ASCII/punycode, чтобы разные представления одного домена сравнивались
+     * одинаково.
+     */
+    private function normalizeHost(string $host): string
+    {
+        $host = strtolower(rtrim($host, '.'));
+
+        if (function_exists('idn_to_ascii') && preg_match('/[^\x20-\x7E]/', $host)) {
+            $ascii = idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+            if ($ascii !== false) {
+                $host = $ascii;
+            }
+        }
+
+        return $host;
     }
 
     private function domainAllowed(string $host): bool
@@ -115,15 +139,63 @@ class UrlSafetyChecker
         return $ips[0];
     }
 
+    /**
+     * Диапазоны, которые filter_var(FILTER_FLAG_NO_PRIV_RANGE|NO_RES_RANGE)
+     * не считает приватными/зарезервированными, но которые ведут на
+     * внутреннюю инфраструктуру: CGNAT (RFC 6598 — на нём отдаются метаданные
+     * Alibaba Cloud на 100.100.100.200), IETF protocol assignments,
+     * 6to4 relay anycast и NAT64 well-known prefix.
+     */
+    private const EXTRA_BLOCKED_CIDRS = [
+        '100.64.0.0/10',
+        '192.0.0.0/24',
+        '192.88.99.0/24',
+        '198.18.0.0/15',
+        '64:ff9b::/96',
+    ];
+
     private function isPublicIp(string $ip): bool
     {
         $ip = $this->unwrapIpv4MappedIpv6($ip) ?? $ip;
 
-        return (bool) filter_var(
-            $ip,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-        );
+        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return false;
+        }
+
+        foreach (self::EXTRA_BLOCKED_CIDRS as $cidr) {
+            if ($this->ipInCidr($ip, $cidr)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function ipInCidr(string $ip, string $cidr): bool
+    {
+        [$subnet, $bits] = explode('/', $cidr);
+
+        $ipBin = @inet_pton($ip);
+        $subnetBin = @inet_pton($subnet);
+        if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)) {
+            return false;
+        }
+
+        $bits = (int) $bits;
+        $bytes = intdiv($bits, 8);
+        $remainderBits = $bits % 8;
+
+        if ($bytes > 0 && substr($ipBin, 0, $bytes) !== substr($subnetBin, 0, $bytes)) {
+            return false;
+        }
+
+        if ($remainderBits === 0) {
+            return true;
+        }
+
+        $mask = chr(0xFF << (8 - $remainderBits) & 0xFF);
+
+        return (substr($ipBin, $bytes, 1) & $mask) === (substr($subnetBin, $bytes, 1) & $mask);
     }
 
     /**

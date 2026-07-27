@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\DataTransferObjects\PostData;
 use App\Service\ContentImageService;
-use App\Service\ImageTranslatorService;
+use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
 use App\Support\UrlSafetyChecker;
 use App\Traits\TranslatesNodes;
@@ -15,6 +15,7 @@ use DOMXPath;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -23,7 +24,17 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 
-class StorePostJob implements ShouldQueue
+/**
+ * ShouldBeUnique — PostService::store() делает updateOrCreate() по url, но
+ * это защита только от повторного handle() ОДНОЙ и той же джобы (retry).
+ * Без distributed lock две параллельные джобы по одному и тому же url (два
+ * воркера queue:work, либо повторный ParseReleaseJob до того как первая
+ * успела закоммититься) всё ещё могут одновременно пройти проверку
+ * "существует ли Post с таким url" и создать дубликат — updateOrCreate не
+ * атомарен без UNIQUE-индекса в БД, а его пока нет (см.
+ * docs/blog-improvements-plan.md — в данных уже есть дубли url).
+ */
+class StorePostJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, TranslatesNodes;
 
@@ -35,6 +46,12 @@ class StorePostJob implements ShouldQueue
 
     public array $backoff = [60, 300, 900];
 
+    /**
+     * Держим лок на весь возможный жизненный цикл джобы с учётом retry —
+     * timeout (300с) x tries (3) + максимальный backoff (900с), с запасом.
+     */
+    public int $uniqueFor = 3600;
+
     private $data;
 
     private PostService $service;
@@ -45,23 +62,36 @@ class StorePostJob implements ShouldQueue
 
     private UrlSafetyChecker $urlSafetyChecker;
 
+    private DiagramTranslatorService $diagramTranslator;
+
     public function __construct($data)
     {
         //
         $this->data = $data;
     }
 
-    public function handle(PostService $service, ContentImageService $imageService, UrlSafetyChecker $urlSafetyChecker): void
+    /**
+     * url — естественный ключ поста (см. PostService::store). Если его нет
+     * (ручная загрузка через html_file), дедуплицируем по самому html_file —
+     * иначе все такие джобы схлопнулись бы в один uniqueId и блокировали
+     * друг друга.
+     */
+    public function uniqueId(): string
+    {
+        return md5($this->data['url'] ?: ($this->data['html_file'] ?? serialize($this->data)));
+    }
+
+    public function handle(PostService $service, ContentImageService $imageService, UrlSafetyChecker $urlSafetyChecker, DiagramTranslatorService $diagramTranslator): void
     {
         $this->service = $service;
         $this->imageService = $imageService;
         $this->urlSafetyChecker = $urlSafetyChecker;
+        $this->diagramTranslator = $diagramTranslator;
 
         $titleTranslator = $this->makeGoogleTranslate();
 
         try {
             $dom = new DOMDocument;
-            Log::info('job:url', [$this->data['url']]);
 
             $html = $this->fetchHtml();
 
@@ -183,17 +213,21 @@ class StorePostJob implements ShouldQueue
         $proxy = config('releases.curl_proxy') ? '--socks5 '.escapeshellarg(config('releases.curl_proxy')).' ' : '';
         $impersonate = config('releases.curl_binary');
         $proto = "--proto '=http,https' --proto-redir '=http,https' ";
+        // Ни --max-time, ни сам факт allowed_domains не ограничивают ОБЪЁМ
+        // ответа — страница может отдавать гигабайты/бесконечный поток и
+        // положить воркер по памяти/диску.
+        $maxFilesize = '--max-filesize '.((int) config('releases.max_content_length')).' ';
 
         if ($impersonate) {
             // curl-impersonate сам выставляет TLS-отпечаток и заголовки Chrome —
             // свои не добавляем, чтобы не выдать себя дублями заголовков
             $command = escapeshellcmd($impersonate).' -s --max-time 30 '.
-                $proto.$resolve.$proxy.
+                $proto.$resolve.$proxy.$maxFilesize.
                 '-D '.escapeshellarg($tmpHeaders).' --output '.escapeshellarg($tmpBody).' '.
                 "{$escapedUrl} 2>/dev/null";
         } else {
             $command = '/usr/bin/curl -s --max-time 30 --http2 '.
-                $proto.$resolve.$proxy.
+                $proto.$resolve.$proxy.$maxFilesize.
                 "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' ".
                 "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' ".
                 "-H 'Accept-Language: en-US,en;q=0.9' ".
@@ -316,7 +350,7 @@ class StorePostJob implements ShouldQueue
         // Категория определяется позже, в PostService::store()/update() —
         // там уже доступен полный текст статьи (см. CategoryDetectorService),
         // а на этом этапе контент ещё не извлечён из DOM
-        Log::info('title', [$this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
+        Log::info('StorePostJob: extracting content', ['title' => $this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
 
         $finder = new DomXPath($dom);
 
@@ -332,20 +366,21 @@ class StorePostJob implements ShouldQueue
     }
 
     /**
-     * Переводит текст на уже скачанной обложке статьи (если она есть
-     * и заголовок уже переведён).
+     * Переводит текст, распознанный OCR прямо на уже скачанной обложке
+     * статьи (если она есть) — не зависит от найденного заголовка/
+     * расположения фона, в отличие от прежнего ImageTranslatorService.
      */
     private function translateCoverImage(): void
     {
-        if (empty($this->data['preview_image']) || empty($this->data['title'])) {
+        if (empty($this->data['preview_image'])) {
             return;
         }
 
         try {
             $fullPath = Storage::disk('public')->path($this->data['preview_image']);
-            (new ImageTranslatorService)->translateCoverImage($fullPath, $this->data['title']);
+            $this->diagramTranslator->translate($fullPath);
         } catch (\Throwable $e) {
-            Log::warning('ImageTranslatorService: failed', ['error' => $e->getMessage()]);
+            Log::warning('DiagramTranslatorService: cover image translate failed', ['error' => $e->getMessage()]);
         }
     }
 
@@ -370,24 +405,49 @@ class StorePostJob implements ShouldQueue
     /**
      * Переводит CSS/ID-подобный селектор (#id, .class, tag, или голое
      * имя класса без точки) в XPath-запрос для поиска контентных узлов.
+     * selector задаётся вручную в админке при добавлении поста/релиза —
+     * значение экранируется через xpathLiteral(), а не подставляется в
+     * запрос напрямую, иначе '] | //script | //*[@id=' сломало бы структуру
+     * XPath-выражения (XPath injection).
      */
     private function buildSelectorXPath(string $selector): string
     {
         if (str_starts_with($selector, '#')) {
-            return "//*[@id='".ltrim($selector, '#')."']";
+            return '//*[@id='.$this->xpathLiteral(ltrim($selector, '#')).']';
         }
 
         if (str_starts_with($selector, '.')) {
             $class = ltrim($selector, '.');
 
-            return "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$class} ')]";
+            return "//*[contains(concat(' ', normalize-space(@class), ' '), concat(' ', ".$this->xpathLiteral($class).", ' '))]";
         }
 
         if (preg_match('/^[a-zA-Z][a-zA-Z0-9]*$/', $selector)) {
             return "(//{$selector})[1]";
         }
 
-        return "//*[contains(concat(' ', normalize-space(@class), ' '), ' {$selector} ')]";
+        return "//*[contains(concat(' ', normalize-space(@class), ' '), concat(' ', ".$this->xpathLiteral($selector).", ' '))]";
+    }
+
+    /**
+     * Строит безопасный XPath string-литерал из произвольной строки. XPath
+     * 1.0 не умеет экранировать кавычку внутри строки того же типа — если
+     * значение содержит и одинарные, и двойные кавычки, единственный
+     * стандартный способ — склеить через concat().
+     */
+    private function xpathLiteral(string $value): string
+    {
+        if (! str_contains($value, "'")) {
+            return "'{$value}'";
+        }
+
+        if (! str_contains($value, '"')) {
+            return "\"{$value}\"";
+        }
+
+        $parts = array_map(fn ($part) => "'{$part}'", explode("'", $value));
+
+        return 'concat('.implode(', "\'", ', $parts).')';
     }
 
     /**
