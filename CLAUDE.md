@@ -69,12 +69,12 @@ All controllers are single-action classes — each HTTP action (index, show, sto
 ### Async Jobs (`app/Jobs/`)
 
 - **StorePostJob** — fetches an external URL, extracts content by CSS selector, translates text nodes to Russian via Google Translate (skipping `<code>` tags), downloads images via `ContentImageService`, then calls `PostService::store()`
-- **ParseLinksJob** — parses links from a release URL
+- **ParseReleaseJob** — parses links from a release URL
 - **StoreUserJob** — async user creation
 
 ### Models & Relationships
 
-- `Post` (secondary DB) — `belongsToMany(Tag)`, `belongsTo(Category)`, `hasMany(Comment)`, `hasMany(PostLike)`. Uses `SoftDeletes` and `Searchable` (Laravel Scout → Meilisearch)
+- `Post` — `belongsToMany(Tag)`, `belongsTo(Category)`, `hasMany(Comment)`, `hasMany(PostLike)`. Uses `SoftDeletes` and `Searchable` (Laravel Scout → Meilisearch)
 - `User` — roles: `ROLE_ADMIN = 0`, `ROLE_READER = 1`. Implements `FilamentUser` for Filament access
 - `Release` — stores source URLs for the scraper pipeline
 
