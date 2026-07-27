@@ -30,14 +30,18 @@ services:
     mysql:
         image: 'mysql/mysql-server:8.0'
         ports:
-            - '${FORWARD_DB_PORT:-3306}:3306'
+            # Только с localhost хост-машины — раньше 3306 торчал наружу на
+            # всех интерфейсах вместе с root без пароля (см. ниже).
+            - '127.0.0.1:${FORWARD_DB_PORT:-3306}:3306'
         environment:
             MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
-            MYSQL_ROOT_HOST: '%'
+            # root теперь логинится только изнутри контейнера — приложение
+            # ходит под DB_USERNAME (grant на '%' создаёт сам образ), root
+            # снаружи ему не нужен.
+            MYSQL_ROOT_HOST: 'localhost'
             MYSQL_DATABASE: '${DB_DATABASE}'
             MYSQL_USER: '${DB_USERNAME}'
             MYSQL_PASSWORD: '${DB_PASSWORD}'
-            MYSQL_ALLOW_EMPTY_PASSWORD: 1
         volumes:
             - 'sail-mysql:/var/lib/mysql'
             - './docker/mysql/create-testing-database.sh:/docker-entrypoint-initdb.d/10-create-testing-database.sh'
@@ -70,7 +74,10 @@ services:
         networks:
             - sail
         volumes:
-            - ./meilisearch-data:/meilisearch-data
+            # Образ хранит индекс в /meili_data (WORKDIR), не /meilisearch-data —
+            # старый путь монтировал пустой каталог, а реальные данные жили
+            # только внутри контейнера и терялись при пересоздании.
+            - ./meilisearch-data:/meili_data
 networks:
     sail:
         driver: bridge
