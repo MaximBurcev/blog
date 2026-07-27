@@ -23,9 +23,9 @@ class ParsePostCommand extends Command
         $this->info("Селектор: {$selector}");
 
         $data = [
-            'url'       => $url,
-            'selector'  => $selector,
-            'tag_ids'   => [],
+            'url' => $url,
+            'selector' => $selector,
+            'tag_ids' => [],
             'translate' => null,
         ];
 

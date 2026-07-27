@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Comment;
 
-use App\Http\Controllers\Controller;
 use App\Models\Comment;
-use App\Models\Post;
 
 class ShowController extends BaseController
 {

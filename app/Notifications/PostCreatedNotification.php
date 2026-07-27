@@ -20,13 +20,13 @@ class PostCreatedNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $url = url('/filament/posts/' . $this->post->id . '/edit');
+        $url = url('/filament/posts/'.$this->post->id.'/edit');
 
         return (new MailMessage)
-            ->subject('Новый пост: ' . $this->post->title)
+            ->subject('Новый пост: '.$this->post->title)
             ->line('Создан новый пост.')
-            ->line('**' . $this->post->title . '**')
+            ->line('**'.$this->post->title.'**')
             ->action('Открыть в админке', $url)
-            ->line('Категория: ' . ($this->post->category->title ?? '—'));
+            ->line('Категория: '.($this->post->category->title ?? '—'));
     }
 }

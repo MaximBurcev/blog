@@ -2,9 +2,9 @@
 
 namespace App\Livewire;
 
+use App\Models\User;
 use Rappasoft\LaravelLivewireTables\DataTableComponent;
 use Rappasoft\LaravelLivewireTables\Views\Column;
-use App\Models\User;
 use Rappasoft\LaravelLivewireTables\Views\Columns\LinkColumn;
 
 class UsersTable extends DataTableComponent
@@ -19,21 +19,21 @@ class UsersTable extends DataTableComponent
     public function columns(): array
     {
         return [
-            Column::make("Id", "id")
+            Column::make('Id', 'id')
                 ->sortable(),
-            Column::make("Имя", "name")
+            Column::make('Имя', 'name')
                 ->sortable(),
-            Column::make("Email", "email")
+            Column::make('Email', 'email')
                 ->sortable(),
-            Column::make("Role", "role")
+            Column::make('Role', 'role')
                 ->sortable(),
-            Column::make("Created at", "created_at")
+            Column::make('Created at', 'created_at')
                 ->sortable(),
-            Column::make("Updated at", "updated_at")
+            Column::make('Updated at', 'updated_at')
                 ->sortable(),
             LinkColumn::make('Action')
-                ->title(fn($row) => 'Edit')
-                ->location(fn($row) => route('admin.user.edit', $row)),
+                ->title(fn ($row) => 'Edit')
+                ->location(fn ($row) => route('admin.user.edit', $row)),
         ];
     }
 }

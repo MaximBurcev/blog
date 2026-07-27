@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin\Comment;
 
-use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\Tag;

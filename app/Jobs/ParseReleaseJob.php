@@ -24,9 +24,7 @@ class ParseReleaseJob implements ShouldQueue
 
     public int $tries = 2;
 
-    public function __construct(private readonly string $url)
-    {
-    }
+    public function __construct(private readonly string $url) {}
 
     public function handle(ReleaseService $service): void
     {

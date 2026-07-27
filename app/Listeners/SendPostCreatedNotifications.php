@@ -15,7 +15,7 @@ class SendPostCreatedNotifications implements ShouldQueue
     public function handle(PostCreated $event): void
     {
         $post = $event->post;
-        $message = 'Создан новый пост: ' . $post->title;
+        $message = 'Создан новый пост: '.$post->title;
 
         User::where('role', UserRole::Admin)->each(function (User $user) use ($post, $message) {
             try {

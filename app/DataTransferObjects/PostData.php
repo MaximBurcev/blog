@@ -24,8 +24,7 @@ class PostData
         public readonly ?string $code = null,
         public readonly ?bool $published = null,
         public readonly ?bool $translationIncomplete = null,
-    ) {
-    }
+    ) {}
 
     public static function fromArray(array $data): self
     {

@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin\Release;
 
-use App\Http\Controllers\Admin\Release\BaseController;
 use App\Http\Requests\Admin\Release\StoreRequest;
 use App\Jobs\ParseReleaseJob;
 use App\Service\ReleaseService;
@@ -11,13 +10,9 @@ use Illuminate\Support\Facades\Log;
 
 class StoreController extends BaseController
 {
-
     public function __construct(
         public ReleaseService $service
-    )
-    {
-
-    }
+    ) {}
 
     public function __invoke(StoreRequest $request): RedirectResponse
     {
@@ -31,9 +26,9 @@ class StoreController extends BaseController
                 ->route('admin.release.index')
                 ->with('success', 'Релиз создан, посты добавляются в фоне');
         } catch (\Exception $e) {
-            Log::error('Ошибка при создании релиза: ' . $e->getMessage(), [
-                'url'   => $request->url,
-                'error' => $e->getMessage()
+            Log::error('Ошибка при создании релиза: '.$e->getMessage(), [
+                'url' => $request->url,
+                'error' => $e->getMessage(),
             ]);
 
             return redirect()

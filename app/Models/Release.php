@@ -10,6 +10,6 @@ class Release extends Model
     use HasFactory;
 
     protected $fillable = [
-        'url'
+        'url',
     ];
 }

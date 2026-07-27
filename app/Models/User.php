@@ -15,7 +15,6 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable implements FilamentUser
 {
     use HasApiTokens, HasFactory, Notifiable;
-
     use SoftDeletes;
 
     /**
@@ -35,7 +34,7 @@ class User extends Authenticatable implements FilamentUser
         'name',
         'email',
         'password',
-        'role'
+        'role',
     ];
 
     /**

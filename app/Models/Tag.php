@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Tag extends Model
 {
     use HasFactory;
-
     use SoftDeletes;
 
     protected $connection = 'mysql';
@@ -18,7 +17,8 @@ class Tag extends Model
 
     protected $fillable = ['title', 'code'];
 
-    public function posts(){
-        return $this->belongsToMany(Post::class, 'post_tags', 'tag_id', 'post_id' );
+    public function posts()
+    {
+        return $this->belongsToMany(Post::class, 'post_tags', 'tag_id', 'post_id');
     }
 }

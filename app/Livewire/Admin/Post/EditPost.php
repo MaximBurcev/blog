@@ -2,28 +2,37 @@
 
 namespace App\Livewire\Admin\Post;
 
-use App\Models\Post;
 use App\Models\Category;
+use App\Models\Post;
 use App\Models\Tag;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithFileUploads;
-use Illuminate\Validation\Rule;
 
 class EditPost extends Component
 {
     use WithFileUploads;
 
     public $post;
+
     public $title;
+
     public $code;
+
     public $content;
+
     public $preview_image;
+
     public $main_image;
+
     public $category_id;
+
     public $tag_ids = [];
+
     public $published;
 
     public $showMessage = false;
+
     public $showSuccessMessage = false;
 
     protected $rules = [
@@ -64,7 +73,6 @@ class EditPost extends Component
                 Rule::unique('posts', 'code')->ignore($this->post->id),
             ],
         ]);
-
 
         $data = [
             'title' => $this->title,

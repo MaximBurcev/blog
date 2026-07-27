@@ -2,10 +2,9 @@
 
 namespace App\Livewire\Admin;
 
+use App\Models\Category as CategoryModel;
 use Livewire\Attributes\Validate;
 use Livewire\Component;
-
-use App\Models\Category as CategoryModel;
 
 class Category extends Component
 {
@@ -20,13 +19,15 @@ class Category extends Component
         return view('livewire.admin.category', ['categories' => CategoryModel::all()]);
     }
 
-    public function add(){
+    public function add()
+    {
         CategoryModel::create($this->validate());
 
-        $this->reset(['title','code']);
+        $this->reset(['title', 'code']);
     }
 
-    public function delete($category_id){
+    public function delete($category_id)
+    {
         CategoryModel::destroy($category_id);
     }
 }

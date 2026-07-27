@@ -3,11 +3,7 @@
 namespace App\Http\Controllers\Admin\Post;
 
 use App\DataTransferObjects\PostData;
-use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Post\StoreRequest;
-use App\Models\Post;
-use Illuminate\Support\Facades\Storage;
-use Relay\Exception;
 
 class StoreController extends BaseController
 {

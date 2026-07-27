@@ -11,8 +11,7 @@ class UpdateController extends BaseController
 {
     public function __construct(
         public ReleaseService $service
-    ) {
-    }
+    ) {}
 
     public function __invoke(UpdateRequest $request, Release $release): RedirectResponse
     {

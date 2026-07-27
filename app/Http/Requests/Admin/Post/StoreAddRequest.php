@@ -22,9 +22,9 @@ class StoreAddRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'url'      => 'required|url',
+            'url' => 'required|url',
             'selector' => 'required|string',
-            'tag_ids'  => 'array',
+            'tag_ids' => 'array',
         ];
     }
 
@@ -32,8 +32,8 @@ class StoreAddRequest extends FormRequest
     {
         return [
             'url.required' => 'Укажите URL',
-            'url.url'      => 'Укажите URL',
-            'selector'     => 'Укажите селектор'
+            'url.url' => 'Укажите URL',
+            'selector' => 'Укажите селектор',
         ];
     }
 }

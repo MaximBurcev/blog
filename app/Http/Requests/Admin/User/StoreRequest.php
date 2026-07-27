@@ -24,10 +24,10 @@ class StoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name'     => 'required|string',
-            'email'    => 'required|email|unique:users',
+            'name' => 'required|string',
+            'email' => 'required|email|unique:users',
             'password' => 'required|string',
-            'role'     => ['required', Rule::enum(UserRole::class)],
+            'role' => ['required', Rule::enum(UserRole::class)],
         ];
     }
 
@@ -35,9 +35,9 @@ class StoreRequest extends FormRequest
     {
         return [
             'name.required' => 'Укажите имя пользователя',
-            'email'         => 'Укажите email пользователя',
-            'password'      => 'Укажите пароль пользователя',
-            'email.unique'  => 'Email не уникален'
+            'email' => 'Укажите email пользователя',
+            'password' => 'Укажите пароль пользователя',
+            'email.unique' => 'Email не уникален',
         ];
     }
 }

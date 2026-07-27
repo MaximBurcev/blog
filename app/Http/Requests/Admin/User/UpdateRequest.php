@@ -24,10 +24,10 @@ class UpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' =>  'required|string',
-            'email' =>  'required|email|unique:users,email,' . $this->user_id,
-            'user_id'   => 'required|integer|exists:users,id',
-            'role'  =>  ['required', Rule::enum(UserRole::class)],
+            'name' => 'required|string',
+            'email' => 'required|email|unique:users,email,'.$this->user_id,
+            'user_id' => 'required|integer|exists:users,id',
+            'role' => ['required', Rule::enum(UserRole::class)],
         ];
     }
 
@@ -35,8 +35,8 @@ class UpdateRequest extends FormRequest
     {
         return [
             'name.required' => 'Укажите имя пользователя',
-            'email'         => 'Укажите email пользователя',
-            'email.unique'  => 'Email не уникален'
+            'email' => 'Укажите email пользователя',
+            'email.unique' => 'Email не уникален',
         ];
     }
 }

@@ -18,8 +18,9 @@ class TranslatePostCommand extends Command
     {
         $post = Post::find($this->argument('id'));
 
-        if (!$post) {
+        if (! $post) {
             $this->error("Пост с ID {$this->argument('id')} не найден.");
+
             return self::FAILURE;
         }
 
@@ -28,18 +29,18 @@ class TranslatePostCommand extends Command
         $content = $post->content_orig ?: $post->content;
 
         $data = [
-            'title'    => $post->title,
-            'content'  => $content,
+            'title' => $post->title,
+            'content' => $content,
             'selector' => '',
-            'url'      => '',
+            'url' => '',
         ];
 
         $data = $translateService->translate($data);
 
         $post->update([
-            'title'   => $data['title'],
+            'title' => $data['title'],
             'content' => $data['content'],
-            'code'    => Str::slug($data['title'], '-', 'ru'),
+            'code' => Str::slug($data['title'], '-', 'ru'),
         ]);
 
         $this->info("Готово: {$post->title}");

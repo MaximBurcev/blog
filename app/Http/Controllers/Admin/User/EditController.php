@@ -10,6 +10,7 @@ class EditController extends Controller
     public function __invoke(User $user)
     {
         $roles = User::getRoles();
+
         return view('admin.users.edit', compact('user', 'roles'));
     }
 }

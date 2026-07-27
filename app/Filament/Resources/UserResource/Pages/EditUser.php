@@ -21,23 +21,23 @@ class EditUser extends EditRecord
             Actions\DeleteAction::make(),
             Action::make(__('changePassword'))
                 ->form([
-                        TextInput::make('new_password')
-                            ->password()
-                            ->label(__('New password'))
-                            ->required()
-                            ->rule(Password::default())
-                            ->validationAttribute('new_password'),
-                        TextInput::make('new_password_confirmation')
-                            ->password()
-                            ->label(__('Confirm New password'))
-                            ->required()
-                            ->same('new_password')
-                            ->rule(Password::default())
-                            ->validationAttribute('new_password_confirmation'),
-                    ]
+                    TextInput::make('new_password')
+                        ->password()
+                        ->label(__('New password'))
+                        ->required()
+                        ->rule(Password::default())
+                        ->validationAttribute('new_password'),
+                    TextInput::make('new_password_confirmation')
+                        ->password()
+                        ->label(__('Confirm New password'))
+                        ->required()
+                        ->same('new_password')
+                        ->rule(Password::default())
+                        ->validationAttribute('new_password_confirmation'),
+                ]
                 )->action(function (array $data) {
                     $this->record->update([
-                        'password' => Hash::make($data['new_password'])
+                        'password' => Hash::make($data['new_password']),
                     ]);
 
                     Notification::make()
@@ -45,7 +45,7 @@ class EditUser extends EditRecord
                         ->title(__('user.password_updated'))
                         ->body(__('Your password has been changed.'))
                         ->send();
-                })
+                }),
         ];
     }
 }
