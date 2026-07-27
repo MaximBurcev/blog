@@ -30,6 +30,21 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
+        // Форма комментариев открыта гостям (auth не требуется), а honeypot
+        // ловит только примитивных ботов — короткий burst-лимит режет
+        // скриптовый спам, часовой добивает медленный/распределённый обход.
+        RateLimiter::for('comments', function (Request $request) {
+            $key = $request->user()?->id ?: $request->ip();
+
+            // Разные ->by()-ключи обязательны: одинаковый ключ у обоих
+            // лимитеров заставляет их делить один счётчик в кэше и удваивать
+            // друг друга при каждом запросе вместо независимой проверки.
+            return [
+                Limit::perMinute(3)->by('comments-minute:'.$key),
+                Limit::perHour(10)->by('comments-hour:'.$key),
+            ];
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

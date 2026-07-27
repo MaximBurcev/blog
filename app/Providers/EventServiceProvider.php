@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Events\CommentCreated;
 use App\Events\PostCreated;
+use App\Listeners\SendCommentCreatedNotification;
 use App\Listeners\SendPostCreatedNotifications;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
@@ -22,6 +24,9 @@ class EventServiceProvider extends ServiceProvider
         ],
         PostCreated::class => [
             SendPostCreatedNotifications::class,
+        ],
+        CommentCreated::class => [
+            SendCommentCreatedNotification::class,
         ],
     ];
 

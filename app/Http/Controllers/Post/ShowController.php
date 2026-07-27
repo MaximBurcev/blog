@@ -19,7 +19,11 @@ class ShowController extends Controller
 
         $relatedPosts = Post::relatedTo($post)->get();
 
+        $isLiked = auth()->check() && $post->likes()->where('user_id', auth()->id())->exists();
+
+        $comments = $post->comments()->published()->with('user')->latest()->get();
+
         return view('post.show',
-            compact('post', 'date', 'relatedPosts', 'title', 'description', 'ogImage', 'ogType'));
+            compact('post', 'date', 'relatedPosts', 'title', 'description', 'ogImage', 'ogType', 'isLiked', 'comments'));
     }
 }
