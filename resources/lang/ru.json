@@ -1,3 +1,7 @@
 {
-    "Showing :first to :last of :total results": "Показано с :first по :last из :total"
+    "Showing :first to :last of :total results": "Показано с :first по :last из :total",
+    "Showing": "Показано",
+    "to": "по",
+    "of": "из",
+    "results": "результатов"
 }
