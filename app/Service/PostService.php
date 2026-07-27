@@ -17,10 +17,9 @@ class PostService
         private readonly TranslateService $translateService,
         private readonly CategoryDetectorService $categoryDetectorService,
         private readonly TagDetectorService $tagDetectorService,
-    ) {
-    }
+    ) {}
 
-    public function store(PostData $postData): void
+    public function store(PostData $postData): Post
     {
         $data = $postData->toArray();
 
@@ -74,7 +73,7 @@ class PostService
                 $tagIds = $this->tagDetectorService->detect($data['title'], $data['url'] ?? '', $data['content'] ?? '');
             }
 
-            if (!empty($tagIds)) {
+            if (! empty($tagIds)) {
                 $post->tags()->attach($tagIds);
             }
 
@@ -86,6 +85,8 @@ class PostService
         }
 
         PostCreated::dispatch($post);
+
+        return $post;
     }
 
     public function update(PostData $postData, $post): Post
@@ -128,11 +129,11 @@ class PostService
                 $tagIds = $this->tagDetectorService->detect($data['title'], $post->url ?? '', $data['content'] ?? '');
             }
 
-            if (empty($data['preview_image']) && !empty($data['content'])) {
+            if (empty($data['preview_image']) && ! empty($data['content'])) {
                 $imagePath = $this->extractFirstImagePath($data['content']);
                 if ($imagePath) {
                     $data['preview_image'] = $imagePath;
-                    $data['main_image']    = $imagePath;
+                    $data['main_image'] = $imagePath;
                 }
             }
 
@@ -145,20 +146,19 @@ class PostService
             throw new PostPersistenceException('Не удалось обновить пост', previous: $exception);
         }
 
-
         return $post;
     }
 
     private function extractFirstImagePath(string $content): ?string
     {
-        if (!preg_match('/<img[^>]+src="([^"]+)"/i', $content, $matches)) {
+        if (! preg_match('/<img[^>]+src="([^"]+)"/i', $content, $matches)) {
             return null;
         }
 
-        $url        = $matches[1];
-        $storageUrl = rtrim(Storage::disk('public')->url(''), '/') . '/';
+        $url = $matches[1];
+        $storageUrl = rtrim(Storage::disk('public')->url(''), '/').'/';
 
-        if (!str_starts_with($url, $storageUrl)) {
+        if (! str_starts_with($url, $storageUrl)) {
             return null;
         }
 
