@@ -82,7 +82,10 @@ return [
                     'scheme' => env('REVERB_SCHEME', 'https'),
                     'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
                 ],
-                'allowed_origins' => ['*'],
+                // '*' пускал WebSocket handshake с любого origin (cross-site
+                // WebSocket hijacking) — по умолчанию только сам сайт,
+                // дополнительные origin'ы через REVERB_ALLOWED_ORIGINS (через запятую).
+                'allowed_origins' => array_filter(array_map('trim', explode(',', env('REVERB_ALLOWED_ORIGINS', env('APP_URL', ''))))),
                 'ping_interval' => env('REVERB_APP_PING_INTERVAL', 60),
                 'activity_timeout' => env('REVERB_APP_ACTIVITY_TIMEOUT', 30),
                 'max_connections' => env('REVERB_APP_MAX_CONNECTIONS'),

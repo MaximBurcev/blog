@@ -19,7 +19,11 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    // '*' пускал CORS-запросы (в т.ч. с credentials в других проектах) с
+    // любого origin — эндпоинтов api/* сейчас нет, но это дефолт на будущее.
+    // По умолчанию — только сам сайт (APP_URL); дополнительные origin'ы
+    // через CORS_ALLOWED_ORIGINS в .env (через запятую).
+    'allowed_origins' => array_filter(array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS', env('APP_URL', ''))))),
 
     'allowed_origins_patterns' => [],
 
