@@ -11,9 +11,14 @@ class XmlController extends Controller
 {
     public function __invoke()
     {
-        $posts = Post::published()->orderBy('updated_at', 'desc')->get();
-        $categories = Category::whereHas('posts', fn ($q) => $q->published())->get();
-        $tags = Tag::whereHas('posts', fn ($q) => $q->published())->get();
+        // without('category') — Post::$with грузит category на каждый запрос
+        // по умолчанию, тут она не нужна вообще; select() узких колонок
+        // вместо всего поста (в т.ч. большого content).
+        $posts = Post::published()->without('category')
+            ->select('id', 'code', 'updated_at')
+            ->orderBy('updated_at', 'desc')->get();
+        $categories = Category::whereHas('posts', fn ($q) => $q->published())->select('id', 'code')->get();
+        $tags = Tag::whereHas('posts', fn ($q) => $q->published())->select('id', 'code')->get();
 
         return response()
             ->view('sitemap.xml.sitemap', compact('posts', 'categories', 'tags'))

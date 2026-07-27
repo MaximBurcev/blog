@@ -9,7 +9,11 @@ class IndexController extends Controller
 {
     public function __invoke()
     {
-        $posts = Post::published()
+        // without('category') — не используется в feed.index; select() —
+        // только колонки, которые реально нужны шаблону (title/code/content
+        // для excerpt()/created_at), а не весь Post.
+        $posts = Post::published()->without('category')
+            ->select('id', 'title', 'code', 'content', 'created_at')
             ->orderBy('created_at', 'desc')
             ->take(30)
             ->get();
