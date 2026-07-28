@@ -15,6 +15,8 @@ class Post extends Model
 {
     use Searchable, SoftDeletes;
 
+    private const WORDS_PER_MINUTE = 200;
+
     protected $table = 'posts';
 
     protected $fillable = [
@@ -100,6 +102,36 @@ class Post extends Model
         $text = html_entity_decode(strip_tags($this->content), ENT_QUOTES, 'UTF-8');
 
         return Str::limit(trim(preg_replace('/\s+/u', ' ', $text)), $length);
+    }
+
+    public function readingTimeMinutes(): int
+    {
+        $wordCount = preg_match_all('/[\p{L}\p{N}]+/u', strip_tags((string) $this->content));
+
+        return max(1, (int) ceil($wordCount / self::WORDS_PER_MINUTE));
+    }
+
+    public function readingTimeLabel(): string
+    {
+        $minutes = $this->readingTimeMinutes();
+
+        return $minutes.' '.$this->pluralMinutes($minutes).' чтения';
+    }
+
+    private function pluralMinutes(int $count): string
+    {
+        $mod10 = $count % 10;
+        $mod100 = $count % 100;
+
+        if ($mod10 === 1 && $mod100 !== 11) {
+            return 'минута';
+        }
+
+        if (in_array($mod10, [2, 3, 4], true) && ! in_array($mod100, [12, 13, 14], true)) {
+            return 'минуты';
+        }
+
+        return 'минут';
     }
 
     public function scopePublished(Builder $query): Builder

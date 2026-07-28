@@ -6,7 +6,7 @@
             <h1 class="edica-page-title" data-aos="fade-up">{{ $post->title }}</h1>
             <p class="edica-blog-post-meta" data-aos="fade-up"
                data-aos-delay="200">{{ $date->translatedFormat('F') }} {{ $date->day }}, {{ $date->year }}
-                • {{ $date->format('H:i') }} • {{ $comments->count() }} Комментария</p>
+                • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $comments->count() }} Комментария</p>
             <section class="blog-post-featured-img" data-aos="fade-up" data-aos-delay="300">
                 @if($post->main_image)
                     <img src="{{ asset('storage/' . $post->main_image) }}" alt="featured image" class="w-100">
