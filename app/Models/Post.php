@@ -30,6 +30,11 @@ class Post extends Model
         'selector',
         'translate',
         'translation_incomplete',
+        // Дата публикации оригинальной статьи (StorePostJob вытаскивает её
+        // со страницы-источника) — created_at должен отражать, когда пост
+        // вышел у источника, а не когда его сюда затащил скрейпер. Без
+        // явного присвоения Eloquent молча подставил бы now() при insert.
+        'created_at',
     ];
 
     protected $with = ['category'];

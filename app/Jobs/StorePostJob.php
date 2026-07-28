@@ -8,6 +8,7 @@ use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
 use App\Support\UrlSafetyChecker;
 use App\Traits\TranslatesNodes;
+use Carbon\Carbon;
 use DOMDocument;
 use DOMElement;
 use DOMNodeList;
@@ -115,6 +116,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             @$dom->loadHTML($html);
 
             $this->applyOgImage($dom);
+            $this->applyPublishedDate($dom);
 
             $h1 = $this->resolveH1($dom);
 
@@ -307,6 +309,115 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             $this->data['preview_image'] = $imagePath;
             $this->data['main_image'] = $imagePath;
         }
+    }
+
+    /**
+     * created_at поста должен отражать, когда статья вышла у источника,
+     * а не когда её сюда затащил скрейпер (иначе дата на публичной
+     * странице/RSS не соответствует реальной дате публикации оригинала).
+     * Источник даты ищется в порядке убывания надёжности: структурированный
+     * JSON-LD, article:published_time, itemprop/name meta, <time datetime>.
+     */
+    private function applyPublishedDate(DOMDocument $dom): void
+    {
+        $raw = $this->extractPublishedDateRaw($dom);
+        if ($raw === null) {
+            return;
+        }
+
+        try {
+            $date = Carbon::parse($raw);
+        } catch (\Throwable $e) {
+            Log::warning('StorePostJob: failed to parse published date', ['raw' => $raw, 'error' => $e->getMessage()]);
+
+            return;
+        }
+
+        // Защита от мусора в разметке источника (пустая/дефолтная дата,
+        // будущее число) — в этом случае лучше оставить обычный now().
+        if ($date->isFuture() || $date->year < 2000) {
+            Log::warning('StorePostJob: implausible published date, ignoring', ['raw' => $raw]);
+
+            return;
+        }
+
+        $this->data['created_at'] = $date->toDateTimeString();
+    }
+
+    private function extractPublishedDateRaw(DOMDocument $dom): ?string
+    {
+        $finder = new DomXPath($dom);
+
+        return $this->findJsonLdDatePublished($dom)
+            ?? $this->firstAttributeValue($finder, "//meta[@property='article:published_time']/@content")
+            ?? $this->firstAttributeValue($finder, "//meta[@itemprop='datePublished']/@content")
+            ?? $this->firstAttributeValue($finder, "//meta[@name='date']/@content")
+            ?? $this->firstAttributeValue($finder, '//time[@datetime]/@datetime');
+    }
+
+    private function firstAttributeValue(DOMXPath $finder, string $query): ?string
+    {
+        $nodes = $finder->query($query);
+        if ($nodes === false || $nodes->length === 0) {
+            return null;
+        }
+
+        $value = trim($nodes->item(0)->nodeValue);
+
+        return $value !== '' ? $value : null;
+    }
+
+    /**
+     * datePublished из JSON-LD (<script type="application/ld+json">) —
+     * структурированные данные (Article/BlogPosting), которые сайты обычно
+     * пишут для Google и которые надёжнее человекочитаемой разметки.
+     * Формат — либо один объект, либо массив объектов, либо {"@graph": [...]}.
+     */
+    private function findJsonLdDatePublished(DOMDocument $dom): ?string
+    {
+        foreach ($dom->getElementsByTagName('script') as $script) {
+            if (strtolower($script->getAttribute('type')) !== 'application/ld+json') {
+                continue;
+            }
+
+            $json = json_decode($script->nodeValue, true);
+            if (! is_array($json)) {
+                continue;
+            }
+
+            $nodes = array_is_list($json) ? $json : [$json];
+
+            foreach ($nodes as $node) {
+                $date = $this->datePublishedFromJsonLdNode($node);
+                if ($date !== null) {
+                    return $date;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function datePublishedFromJsonLdNode(mixed $node): ?string
+    {
+        if (! is_array($node)) {
+            return null;
+        }
+
+        if (isset($node['datePublished']) && is_string($node['datePublished'])) {
+            return $node['datePublished'];
+        }
+
+        if (isset($node['@graph']) && is_array($node['@graph'])) {
+            foreach ($node['@graph'] as $graphNode) {
+                $date = $this->datePublishedFromJsonLdNode($graphNode);
+                if ($date !== null) {
+                    return $date;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

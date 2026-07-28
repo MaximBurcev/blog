@@ -24,6 +24,7 @@ class PostData
         public readonly ?string $code = null,
         public readonly ?bool $published = null,
         public readonly ?bool $translationIncomplete = null,
+        public readonly ?string $publishedAt = null,
     ) {}
 
     public static function fromArray(array $data): self
@@ -43,6 +44,7 @@ class PostData
             code: $data['code'] ?? null,
             published: isset($data['published']) ? (bool) $data['published'] : null,
             translationIncomplete: isset($data['translation_incomplete']) ? (bool) $data['translation_incomplete'] : null,
+            publishedAt: $data['created_at'] ?? null,
         );
     }
 
@@ -63,6 +65,7 @@ class PostData
             'code' => $this->code,
             'published' => $this->published,
             'translation_incomplete' => $this->translationIncomplete,
+            'created_at' => $this->publishedAt,
         ], fn ($value) => $value !== null);
     }
 }

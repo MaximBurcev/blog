@@ -99,4 +99,36 @@ class PostServiceTest extends TestCase
 
         $this->assertSame(2, Post::whereIn('code', ['manual-post-one', 'manual-post-two'])->count());
     }
+
+    /**
+     * created_at должен отражать дату публикации оригинальной статьи
+     * (StorePostJob вытаскивает её со страницы-источника), а не момент
+     * сохранения в БД — иначе Eloquent молча подставил бы now() при insert.
+     */
+    public function test_store_uses_original_published_date_as_created_at(): void
+    {
+        $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+
+        $post = Post::withoutSyncingToSearch(fn () => app(PostService::class)->store(PostData::fromArray([
+            'title' => 'Old Article',
+            'content' => 'content',
+            'category_id' => $category->id,
+            'created_at' => '2020-03-15 09:00:00',
+        ])));
+
+        $this->assertSame('2020-03-15 09:00:00', $post->fresh()->created_at->toDateTimeString());
+    }
+
+    public function test_store_without_published_date_defaults_to_now(): void
+    {
+        $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+
+        $post = Post::withoutSyncingToSearch(fn () => app(PostService::class)->store(PostData::fromArray([
+            'title' => 'Fresh Article',
+            'content' => 'content',
+            'category_id' => $category->id,
+        ])));
+
+        $this->assertTrue($post->fresh()->created_at->isToday());
+    }
 }
