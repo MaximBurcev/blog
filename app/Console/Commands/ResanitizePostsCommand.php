@@ -36,7 +36,12 @@ class ResanitizePostsCommand extends Command
                     $this->line("Изменён контент поста #{$post->id} ({$post->code})");
 
                     if (! $dryRun) {
-                        $post->save();
+                        // Backfill — это не авторская правка: не бампаем updated_at
+                        // и не поднимаем события/Scout-реиндексацию (saveQuietly).
+                        // XSS-вектор — только рендер content из БД на странице поста,
+                        // поиск HTML не выводит, поэтому реиндекс здесь не нужен.
+                        $post->timestamps = false;
+                        $post->saveQuietly();
                     }
                 }
             }
