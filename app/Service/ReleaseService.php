@@ -78,7 +78,10 @@ class ReleaseService
             if ($release) {
                 $release->update($releaseData);
             } else {
-                $release = Release::create($releaseData);
+                // firstOrCreate, а не create: релиз идемпотентен по url — повторный
+                // release:parse того же дайджеста не плодит дубли (wasRecentlyCreated
+                // остаётся корректным для вывода в команде).
+                $release = Release::firstOrCreate(['url' => $releaseData['url']]);
             }
 
             DB::commit();

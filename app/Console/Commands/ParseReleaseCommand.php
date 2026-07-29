@@ -18,7 +18,14 @@ class ParseReleaseCommand extends Command
         $this->info("Парсинг: {$url}");
 
         try {
-            $links = $service->addPosts($url);
+            // Сохраняем сам релиз (идемпотентно по url), затем парсим ссылки —
+            // так же, как админский флоу Admin\Release\StoreController.
+            $release = $service->store(['url' => $url]);
+            $this->info($release->wasRecentlyCreated
+                ? "Релиз #{$release->id} создан."
+                : "Релиз #{$release->id} уже существует.");
+
+            $links = $service->addPosts($release->url);
         } catch (\Exception $e) {
             $this->error($e->getMessage());
 
