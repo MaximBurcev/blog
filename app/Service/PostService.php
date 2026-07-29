@@ -74,7 +74,10 @@ class PostService
             }
 
             if (! empty($tagIds)) {
-                $post->tags()->attach($tagIds);
+                // sync, а не attach: store() идемпотентен по url (updateOrCreate),
+                // повторный StorePostJob для существующего поста с attach() плодил
+                // дубли в post_tags. sync выставляет ровно нужный набор тегов.
+                $post->tags()->sync($tagIds);
             }
 
             DB::commit();
