@@ -46,7 +46,9 @@ class PostService
 
             if (($data['translate'] ?? null) == 'on') {
                 $data = $this->translateService->translate($data);
-                $data['url'] = '';
+                // url НЕ обнуляем: это естественный ключ дедупа скрейпленной
+                // статьи (updateOrCreate ниже). Раньше обнуление уводило
+                // переведённые посты в Post::create → дубль на каждый ре-парсинг.
             }
 
             if (empty($data['category_id'])) {
@@ -87,7 +89,11 @@ class PostService
             throw new PostPersistenceException('Не удалось сохранить пост', previous: $exception);
         }
 
-        PostCreated::dispatch($post);
+        // Только для реально созданных постов: при ре-парсинге updateOrCreate
+        // обновляет существующий пост — повторно рассылать уведомления не нужно.
+        if ($post->wasRecentlyCreated) {
+            PostCreated::dispatch($post);
+        }
 
         return $post;
     }
@@ -111,7 +117,7 @@ class PostService
             }
 
             if (($data['translate'] ?? null) == 'on') {
-                $data['url'] = '';
+                // url сохраняем как ключ дедупа/атрибуции (см. store()).
                 $data['selector'] = '';
                 $data = $this->translateService->translate($data);
             }
