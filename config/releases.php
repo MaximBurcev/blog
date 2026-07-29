@@ -97,6 +97,13 @@ return [
         'christoph-rumpel.com' => 'article',
         'cakedc.com' => 'article',
         'thephp.foundation' => '.leading-8',
+        // Блог JetBrains (PhpStorm/WebStorm и т.д.): тело статьи лежит в
+        // div.content.js-toc-content внутри section.article-section. Голый
+        // класс 'content' брать нельзя — он же у блока комментариев ниже,
+        // поэтому цепляемся за js-toc-content. Хвост этого блока (теги,
+        // кнопки шаринга, пагинация, форма подписки) и шапку автора
+        // вырезает StorePostJob::stripJetBrainsChrome().
+        'blog.jetbrains.com' => '.js-toc-content',
     ],
 
     /*

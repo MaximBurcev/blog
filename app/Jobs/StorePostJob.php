@@ -510,7 +510,42 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
         $this->stripAccessibilityJunk($finder);
         $this->stripMediumSubscribeWidget($finder);
+        $this->stripJetBrainsChrome($finder);
         $this->stripDuplicateTitleAndHero($finder);
+    }
+
+    /**
+     * Убирает обвязку блога JetBrains из тела статьи. В div.js-toc-content
+     * (единственный контейнер, который вообще оборачивает текст статьи)
+     * лежит не только сам текст: сверху — ссылки на категории и шапка автора
+     * (аватар, имя, дата), снизу — список тегов с кнопками шаринга,
+     * пагинация «Prev/Next post» и форма подписки на рассылку. Всё это
+     * интерфейс, а не контент, и в переводе выглядит мусором.
+     */
+    private function stripJetBrainsChrome(DOMXPath $finder): void
+    {
+        $junkClasses = [
+            'author-post',        // аватар + имя автора + дата публикации
+            'content__row',       // теги статьи + кнопки «Поделиться»
+            'content__pagination', // ссылки на предыдущий/следующий пост
+            'content__form',      // форма подписки на рассылку
+        ];
+
+        foreach ($junkClasses as $class) {
+            $nodes = $finder->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' {$class} ')]");
+
+            foreach (iterator_to_array($nodes) as $node) {
+                $node->parentNode?->removeChild($node);
+            }
+        }
+
+        // Ссылки на разделы блога (<a class="tag">Community</a>) идут прямо
+        // перед заголовком статьи, вне какой-либо обёртки — удаляем точечно.
+        $tags = $finder->query("//a[contains(concat(' ', normalize-space(@class), ' '), ' tag ') and contains(@href, '/category/')]");
+
+        foreach (iterator_to_array($tags) as $tag) {
+            $tag->parentNode?->removeChild($tag);
+        }
     }
 
     /**
