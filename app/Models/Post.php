@@ -70,6 +70,39 @@ class Post extends Model
         return $this->likes()->count();
     }
 
+    public function views(): HasMany
+    {
+        return $this->hasMany(PostView::class);
+    }
+
+    public function viewsCount(): int
+    {
+        return $this->views()->count();
+    }
+
+    public function viewsLabel(?int $count = null): string
+    {
+        $count ??= $this->viewsCount();
+
+        return $count.' '.$this->pluralViews($count);
+    }
+
+    private function pluralViews(int $count): string
+    {
+        $mod10 = $count % 10;
+        $mod100 = $count % 100;
+
+        if ($mod10 === 1 && $mod100 !== 11) {
+            return 'просмотр';
+        }
+
+        if (in_array($mod10, [2, 3, 4], true) && ! in_array($mod100, [12, 13, 14], true)) {
+            return 'просмотра';
+        }
+
+        return 'просмотров';
+    }
+
     /**
      * Content — чужой скрейпленный HTML, рендерится через {!! !!} на
      * публичной странице и в Summernote в админке без экранирования.

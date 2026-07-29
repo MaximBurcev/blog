@@ -18,7 +18,10 @@ class IndexController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate(12);
         $popularPosts = Post::published()
-            ->withCount(['likes', 'comments'])
+            ->withCount(['views', 'likes', 'comments'])
+            // Ранжируем по просмотрам; лайки+комментарии и свежесть — тай-брейкеры,
+            // чтобы порядок оставался осмысленным, пока просмотры ещё набираются.
+            ->orderByDesc('views_count')
             ->orderByRaw('(likes_count + comments_count) DESC')
             ->orderByDesc('created_at')
             ->take(self::POPULAR_POSTS_COUNT)

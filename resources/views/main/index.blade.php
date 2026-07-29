@@ -1,6 +1,14 @@
 @extends('layouts.main')
 
 @section('content')
+    <style>
+        .widget-post-list .post-views-meta {
+            display: block;
+            margin-top: 2px;
+            font-size: 0.78rem;
+            color: #9aa0a6;
+        }
+    </style>
     <main class="blog">
         <div class="container">
             <h1 class="edica-page-title" data-aos="fade-up">Блог</h1>
@@ -72,6 +80,7 @@
                                         @endif
                                         <div class="media-body">
                                             <h6 class="post-title">{{ $post->title }}</h6>
+                                            <span class="post-views-meta">{{ $post->viewsLabel($post->views_count) }}</span>
                                         </div>
                                     </a>
                                 </li>

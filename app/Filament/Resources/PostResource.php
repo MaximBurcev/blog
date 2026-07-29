@@ -74,6 +74,7 @@ class PostResource extends Resource
                     ->boolean()
                     ->sortable(),
                 TextColumn::make('created_at')->label('Дата создания')->dateTime('d.m.Y H:i')->sortable(),
+                TextColumn::make('views_count')->label('Просмотры')->counts('views')->sortable(),
                 // TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
             ])
             ->defaultSort('id', 'desc')
