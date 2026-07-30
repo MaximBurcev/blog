@@ -36,11 +36,17 @@
 @endstory
 
 @task('releases_clean')
-    purging=$(ls -dt {{$dirReleases}}/* | tail -n +{{$releaseRotate}});
+    # Сортировка по имени (каталоги — таймстемпы), а не по mtime: у mtime
+    # порядок сбивается от любой записи внутрь релиза, вплоть до того что
+    # «самым свежим» становится недоудалённый старый каталог.
+    purging=$(ls -d {{$dirReleases}}/* | sort -r | tail -n +{{$releaseRotate}});
 
     if [ "$purging" != "" ]; then
         echo "# Purging old releases: $purging;"
-        rm -rf $purging;
+        # sudo обязателен: внутри релиза Apache (www-data) насоздавал файлов
+        # кэша в storage/framework/cache, у deployer нет прав их удалить —
+        # без sudo шаг падал и весь деплой отчитывался ошибкой.
+        sudo rm -rf $purging;
     else
         echo "# No releases found for purging at this time";
     fi
