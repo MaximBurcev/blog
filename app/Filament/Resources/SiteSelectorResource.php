@@ -39,6 +39,7 @@ class SiteSelectorResource extends Resource
                     ->required()
                     ->maxLength(255)
                     ->unique(ignoreRecord: true)
+                    ->validationMessages(['unique' => 'Правило для этого домена уже есть — отредактируйте существующее.'])
                     ->placeholder('example.com')
                     ->helperText('Достаточно части хоста: правило example.com сработает и для www.example.com. Можно вставить целиком ссылку на статью — домен вытащится сам.')
                     ->dehydrateStateUsing(fn (?string $state): string => SiteSelector::normalizeDomain($state)),
