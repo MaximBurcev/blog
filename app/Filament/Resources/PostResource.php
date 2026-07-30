@@ -114,7 +114,13 @@ class PostResource extends Resource
             ])
             ->defaultSort('id', 'desc')
             ->filters([
-                Tables\Filters\Filter::make('published')->label('Опубликован'),
+                // Был Filter::make('published') без ->query() — чекбокс ничего
+                // не фильтровал. Тернарный фильтр даёт оба состояния сразу.
+                Tables\Filters\TernaryFilter::make('published')
+                    ->label('Публикация')
+                    ->placeholder('Все')
+                    ->trueLabel('Опубликован')
+                    ->falseLabel('Не опубликован'),
                 Tables\Filters\Filter::make('parse_failed')
                     ->label('С ошибкой парсинга')
                     ->query(fn (Builder $query): Builder => $query->parseFailed())
