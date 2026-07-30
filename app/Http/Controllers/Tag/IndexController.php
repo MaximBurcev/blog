@@ -10,7 +10,9 @@ class IndexController extends Controller
     public function __invoke()
     {
         $tags = Tag::all();
+        $title = 'Теги';
+        $description = 'Все теги блога: технологии, языки и инструменты, о которых есть статьи';
 
-        return view('tags.index', compact('tags'));
+        return view('tags.index', compact('tags', 'title', 'description'));
     }
 }

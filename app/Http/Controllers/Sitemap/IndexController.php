@@ -15,6 +15,9 @@ class IndexController extends Controller
         $categories = Category::all();
         $tags = Tag::all();
 
-        return view('sitemap.index', compact('posts', 'categories', 'tags'));
+        $title = 'Карта сайта';
+        $description = 'Все разделы, категории, теги и статьи блога на одной странице';
+
+        return view('sitemap.index', compact('posts', 'categories', 'tags', 'title', 'description'));
     }
 }

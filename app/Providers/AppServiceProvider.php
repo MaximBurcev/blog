@@ -36,11 +36,42 @@ class AppServiceProvider extends ServiceProvider
         View::composer('layouts.main', function ($view) {
             $data = $view->getData();
 
-            $view->with('title', $data['title'] ?? config('seo.default_title'));
+            $pageTitle = $data['title'] ?? null;
+
+            $view->with('title', $this->documentTitle($pageTitle));
+            // og:title без имени сайта и без «страница N» — в соцсетях
+            // название ресурса и так выводится отдельной строкой.
+            $view->with('ogTitle', $pageTitle ?? config('seo.default_title'));
             $view->with('description', $data['description'] ?? config('seo.default_description'));
             $view->with('ogImage', $data['ogImage'] ?? asset(config('seo.default_image')));
             $view->with('ogType', $data['ogType'] ?? 'website');
             $view->with('ogUrl', $data['ogUrl'] ?? url()->current());
+            // url()->current() отбрасывает query-строку — это нужное поведение
+            // для /search?q=…, но листинги обязаны канонизироваться на свою
+            // страницу пагинации, иначе страницы 2+ схлопнутся в первую.
+            // Такие контроллеры передают $canonical явно.
+            $view->with('canonical', $data['canonical'] ?? url()->current());
+            $view->with('robots', $data['robots'] ?? null);
+            $view->with('articleMeta', $data['articleMeta'] ?? null);
         });
+    }
+
+    /**
+     * Заголовок вкладки: «Название страницы — Имя сайта», плюс номер
+     * страницы для пагинации — иначе ?page=2 и далее уходят в индекс с
+     * точно таким же title, как первая страница листинга.
+     */
+    private function documentTitle(?string $pageTitle): string
+    {
+        $siteName = config('app.name');
+
+        if ($pageTitle === null || $pageTitle === $siteName) {
+            return $siteName;
+        }
+
+        $page = (int) request()->query('page', 1);
+        $suffix = $page > 1 ? " — страница {$page}" : '';
+
+        return $pageTitle.$suffix.' — '.$siteName;
     }
 }

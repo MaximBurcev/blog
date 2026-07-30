@@ -3,6 +3,7 @@
 use App\Http\Controllers\Main\IndexController;
 use App\Http\Controllers\Main\SearchController;
 use App\Http\Controllers\Post\Comment\StoreController;
+use App\Http\Controllers\Post\IndexController as PostIndexController;
 use App\Http\Controllers\Post\Like\StoreController as PostLikeStoreController;
 use App\Http\Controllers\Post\ShowController;
 use App\Http\Controllers\UploadController;
@@ -28,7 +29,10 @@ Route::get('/search', SearchController::class)->name('main.search');
 Route::get('/sitemap', [\App\Http\Controllers\Sitemap\IndexController::class, 'index'])->name('sitemap.index');
 
 Route::prefix('posts')->group(function () {
-    Route::get('/', IndexController::class)->name('posts.index');
+    // Отдельного листинга у /posts нет — раньше сюда был подвешен
+    // Main\IndexController, и адрес отдавал полную копию главной (дубль в
+    // индексе). Теперь это 301 на «/» (Post\IndexController).
+    Route::get('/', PostIndexController::class)->name('posts.index');
     Route::post('/{post}/comments', StoreController::class)->name('post.comment.store')->middleware('throttle:comments');
     Route::get('/{post}', ShowController::class)->name('post.show');
     Route::post('/{post}/like', [PostLikeStoreController::class, 'like'])->middleware('auth');

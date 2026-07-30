@@ -1,18 +1,61 @@
 @extends('layouts.main')
 
+@push('schema')
+    @include('partials.json-ld', ['data' => [
+        '@context' => 'https://schema.org',
+        '@graph' => [
+            [
+                '@type' => 'BlogPosting',
+                '@id' => route('post.show', $post->code).'#article',
+                'mainEntityOfPage' => ['@type' => 'WebPage', '@id' => route('post.show', $post->code)],
+                'headline' => Str::limit($post->title, 110, ''),
+                'description' => $post->excerpt(),
+                'image' => $post->main_image ? asset('storage/'.$post->main_image) : asset(config('seo.default_image')),
+                'datePublished' => $post->created_at?->toIso8601String(),
+                'dateModified' => $post->updated_at?->toIso8601String(),
+                'inLanguage' => 'ru-RU',
+                'wordCount' => str_word_count(strip_tags($post->content)),
+                'author' => ['@id' => url('/').'#organization'],
+                'publisher' => ['@id' => url('/').'#organization'],
+                'articleSection' => $post->category?->title,
+                'keywords' => $post->tags->pluck('title')->implode(', '),
+                // isBasedOn — честная отметка, что это перевод чужого
+                // материала, а не оригинальная публикация.
+                'isBasedOn' => $post->url ?: null,
+            ],
+            [
+                '@type' => 'BreadcrumbList',
+                'itemListElement' => array_values(array_filter([
+                    ['@type' => 'ListItem', 'position' => 1, 'name' => 'Главная', 'item' => url('/')],
+                    $post->category ? ['@type' => 'ListItem', 'position' => 2, 'name' => $post->category->title, 'item' => route('category.show', $post->category->code)] : null,
+                    ['@type' => 'ListItem', 'position' => $post->category ? 3 : 2, 'name' => $post->title],
+                ])),
+            ],
+        ],
+    ]])
+@endpush
+
 @section('content')
     <main class="blog-post">
         <div class="container">
+            <nav aria-label="Хлебные крошки" class="edica-breadcrumbs">
+                <a href="{{ route('main.index') }}">Главная</a>
+                @if($post->category)
+                    <span aria-hidden="true">/</span>
+                    <a href="{{ route('category.show', $post->category->code) }}">{{ $post->category->title }}</a>
+                @endif
+            </nav>
             <h1 class="edica-page-title" data-aos="fade-up">{{ $post->title }}</h1>
             <p class="edica-blog-post-meta" data-aos="fade-up"
                data-aos-delay="200">{{ $date->translatedFormat('F') }} {{ $date->day }}, {{ $date->year }}
                 • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $comments->count() }} Комментария</p>
             <section class="blog-post-featured-img" data-aos="fade-up" data-aos-delay="300">
-                @if($post->main_image)
-                    <img src="{{ asset('storage/' . $post->main_image) }}" alt="featured image" class="w-100">
-                @else
-                    <img src="{{ asset('storage/images/laravel.jpg') }}" alt="featured image" class="w-100">
-                @endif
+                {{-- Обложка — LCP-элемент страницы: грузим её приоритетно и
+                     не откладываем, в отличие от картинок в листингах. --}}
+                <img src="{{ $post->main_image ? asset('storage/'.$post->main_image) : asset(config('seo.default_image')) }}"
+                     alt="{{ $post->title }}" class="w-100"
+                     loading="eager" fetchpriority="high" decoding="async"
+                     width="1200" height="630">
 
             </section>
             <section class="post-content">
@@ -21,6 +64,23 @@
 
             @if($post->url)
                 <p class="post-original-source">Оригинал: <a href="{{ $post->url }}" target="_blank" rel="noopener noreferrer nofollow">{{ $post->url }}</a></p>
+            @endif
+
+            {{-- Ссылки на категорию и теги: без них страница поста была
+                 тупиком — ни посетителю, ни краулеру идти отсюда некуда. --}}
+            @if($post->category || $post->tags->isNotEmpty())
+                <p class="post-taxonomy">
+                    @if($post->category)
+                        <span class="post-taxonomy-label">Категория:</span>
+                        <a href="{{ route('category.show', $post->category->code) }}">{{ $post->category->title }}</a>
+                    @endif
+                    @if($post->tags->isNotEmpty())
+                        <span class="post-taxonomy-label">Теги:</span>
+                        @foreach($post->tags as $tag)
+                            <a href="{{ route('tag.show', $tag->code) }}">{{ $tag->title }}</a>{{ $loop->last ? '' : ',' }}
+                        @endforeach
+                    @endif
+                </p>
             @endif
 
             @auth()
@@ -106,6 +166,11 @@
                 </style>
             @endauth()
 
+            @auth
+            {{-- Скрипт лайков только для авторизованных: у гостя нет ни кнопки
+                 (#like-btn отсутствует → likeBtn.querySelector падал с
+                 TypeError и ронял весь обработчик DOMContentLoaded), ни
+                 авторизации на приватный канал Echo. --}}
             <script>
                 document.addEventListener('DOMContentLoaded', () => {
                     // Подключение Echo (после сборки Vite или через script)
@@ -153,6 +218,7 @@
                     });
                 });
             </script>
+            @endauth
             <div class="row">
                 <div class="col-12">
                     @if($relatedPosts->count())
@@ -161,13 +227,14 @@
                             <div class="row">
                                 @foreach($relatedPosts as $relatedPost)
                                     <div class="col-md-3" data-aos="fade-right" data-aos-delay="100">
-                                        <img src="{{ $relatedPost->preview_image ? asset('storage/' . $relatedPost->preview_image) : asset('storage/images/laravel.jpg') }}"
-                                             alt="related post" class="post-thumbnail">
+                                        <img src="{{ $relatedPost->preview_image ? asset('storage/'.$relatedPost->preview_image) : asset(config('seo.default_image')) }}"
+                                             alt="{{ $relatedPost->title }}" class="post-thumbnail"
+                                             loading="lazy" decoding="async" width="270" height="180">
                                         @if($relatedPost->category)
                                             <p class="post-category">{{ $relatedPost->category->title }}</p>
                                         @endif
-                                        <a href="{{ route('post.show', $relatedPost->code) }}"><h5
-                                                    class="post-title">{{ $relatedPost->title }}</h5></a>
+                                        <a href="{{ route('post.show', $relatedPost->code) }}"><h3
+                                                    class="post-title">{{ $relatedPost->title }}</h3></a>
                                     </div>
                                 @endforeach
                             </div>

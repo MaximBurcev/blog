@@ -35,7 +35,7 @@ class PostService
             // Пост от неудавшегося парсинга может остаться без осмысленного
             // заголовка — code участвует в публичном URL, пустым он быть не
             // должен.
-            $data['code'] = Str::slug($data['title']) ?: 'post-'.Str::random(8);
+            $data['code'] = $this->makeCode($data['title']);
             $data['selector'] = '';
             $data['content'] = $data['content'] ?? '';
 
@@ -67,7 +67,9 @@ class PostService
             // нему как к естественному ключу, иначе retry создавал бы
             // дубликат поста при каждом повторном запуске.
             if (! empty($data['url'])) {
-                $data = $this->keepExistingContent($data, Post::where('url', $data['url'])->first());
+                $existing = Post::where('url', $data['url'])->first();
+                $data = $this->keepExistingContent($data, $existing);
+                $data = $this->keepExistingCode($data, $existing);
                 $post = Post::updateOrCreate(['url' => $data['url']], $data);
             } else {
                 $post = Post::create($data);
@@ -100,6 +102,33 @@ class PostService
         }
 
         return $post;
+    }
+
+    /**
+     * Символьный код (участвует в публичном URL) из заголовка. Локаль 'ru'
+     * задана явно: без неё Str::slug транслитерирует кириллицу другой
+     * таблицей («Цикл жизни» → cikl-zizni вместо tsikl-zhizni), и один и тот
+     * же заголовок давал разные адреса в store() и update().
+     */
+    private function makeCode(?string $title): string
+    {
+        return Str::slug((string) $title, '-', 'ru') ?: 'post-'.Str::random(8);
+    }
+
+    /**
+     * URL уже существующего поста менять нельзя. Заголовок приходит из
+     * машинного перевода и от прогона к прогону гуляет, поэтому пересчёт
+     * code при каждом ре-парсинге уводил бы статью на новый адрес, а старый
+     * начинал отдавать 404 — вместе с накопленными позициями и внешними
+     * ссылками. Переименование остаётся ручной операцией через админку.
+     */
+    private function keepExistingCode(array $data, ?Post $existing): array
+    {
+        if ($existing !== null && filled($existing->code)) {
+            $data['code'] = $existing->code;
+        }
+
+        return $data;
     }
 
     /**
@@ -148,7 +177,11 @@ class PostService
                 $data = $this->translateService->translate($data);
             }
 
-            $data['code'] = Str::slug($data['title'], '-', 'ru');
+            // Адрес уже существующего поста сохраняем: правка заголовка (в том
+            // числе автоматическая, при переводе) не должна уводить статью на
+            // новый URL и оставлять 404 на старом. Сменить адрес осознанно
+            // по-прежнему можно — поле «Код (slug)» в админке правится руками.
+            $data['code'] = filled($post->code) ? $post->code : $this->makeCode($data['title']);
 
             $data['content'] = str_replace('http://laravel.local', '', $data['content']);
 

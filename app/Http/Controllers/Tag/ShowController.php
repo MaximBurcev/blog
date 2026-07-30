@@ -13,7 +13,10 @@ class ShowController extends Controller
         $posts = $tag->posts()->published()->paginate(6);
         $title = 'Посты с тегом '.$tag->title;
         $description = 'Посты с тегом «'.$tag->title.'»';
+        $canonical = $posts->currentPage() > 1
+            ? $posts->url($posts->currentPage())
+            : url()->current();
 
-        return view('tags.show', compact('posts', 'tag', 'title', 'description'));
+        return view('tags.show', compact('posts', 'tag', 'title', 'description', 'canonical'));
     }
 }

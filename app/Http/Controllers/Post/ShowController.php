@@ -12,7 +12,7 @@ class ShowController extends Controller
 {
     public function __invoke(string $code, Request $request, PostViewService $postViewService)
     {
-        $post = Post::where('code', $code)->published()->firstOrFail();
+        $post = Post::where('code', $code)->published()->with(['category', 'tags'])->firstOrFail();
 
         $postViewService->record($post, $request);
 
@@ -21,6 +21,14 @@ class ShowController extends Controller
         $description = $post->excerpt();
         $ogImage = $post->main_image ? asset('storage/'.$post->main_image) : null;
         $ogType = 'article';
+        // og:type=article требует своих полей: без них Facebook/LinkedIn не
+        // показывают дату и раздел материала.
+        $articleMeta = [
+            'published_time' => $post->created_at?->toIso8601String(),
+            'modified_time' => $post->updated_at?->toIso8601String(),
+            'section' => $post->category?->title,
+            'tags' => $post->tags->pluck('title')->all(),
+        ];
         $viewsCount = $post->viewsCount();
 
         $relatedPosts = Post::relatedTo($post)->get();
@@ -30,6 +38,6 @@ class ShowController extends Controller
         $comments = $post->comments()->published()->with('user')->latest()->get();
 
         return view('post.show',
-            compact('post', 'date', 'relatedPosts', 'title', 'description', 'ogImage', 'ogType', 'isLiked', 'comments', 'viewsCount'));
+            compact('post', 'date', 'relatedPosts', 'title', 'description', 'ogImage', 'ogType', 'articleMeta', 'isLiked', 'comments', 'viewsCount'));
     }
 }

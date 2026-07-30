@@ -21,11 +21,11 @@
                                 <div class="col-md-4 fetured-post blog-post" data-aos="fade-up">
                                     <a href="{{ route('post.show', $post->code) }}">
                                         <div class="blog-post-thumbnail-wrapper">
-                                            @if($post->preview_image)
-                                                <img src="{{ 'storage/'. $post->preview_image }}" alt="{{ $post->title }}">
-                                            @else
-                                                <img src="{{ 'storage/images/laravel.jpg' }}" alt="{{ $post->title }}">
-                                            @endif
+                                            {{-- asset(), а не относительный путь: без ведущего слэша
+                                                 ссылка ломалась бы на любом URL с сегментом. --}}
+                                            <img src="{{ $post->preview_image ? asset('storage/'.$post->preview_image) : asset(config('seo.default_image')) }}"
+                                                 alt="{{ $post->title }}" loading="lazy" decoding="async"
+                                                 width="370" height="240">
 
                                         </div>
                                     </a>
@@ -33,7 +33,7 @@
                                         <a href="{{ route('category.show', $post->category->code) }}"><p class="blog-post-category">{{ $post->category->title }}</p></a>
                                     @endif
                                     <a href="{{ route('post.show', $post->code) }}" class="blog-post-permalink">
-                                        <h6 class="blog-post-title">{{ $post->title }}</h6>
+                                        <h2 class="blog-post-title">{{ $post->title }}</h2>
                                     </a>
                                 </div>
                             @endforeach
@@ -73,11 +73,9 @@
                             @foreach($popularPosts as $post)
                                 <li class="post">
                                     <a href="{{ route('post.show', $post->code) }}" class="post-permalink media">
-                                        @if($post->preview_image)
-                                            <img src="{{ 'storage/' . $post->preview_image }}" alt="{{ $post->title }}">
-                                        @else
-                                            <img src="{{ 'storage/images/laravel.jpg' }}" alt="{{ $post->title }}">
-                                        @endif
+                                        <img src="{{ $post->preview_image ? asset('storage/'.$post->preview_image) : asset(config('seo.default_image')) }}"
+                                             alt="{{ $post->title }}" loading="lazy" decoding="async"
+                                             width="80" height="80">
                                         <div class="media-body">
                                             <h6 class="post-title">{{ $post->title }}</h6>
                                             <span class="post-views-meta">{{ $post->viewsLabel($post->views_count) }}</span>

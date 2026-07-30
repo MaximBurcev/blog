@@ -1,2 +1,8 @@
 User-agent: *
-Disallow:
+Disallow: /search
+Disallow: /filament
+Disallow: /login
+Disallow: /register
+Disallow: /log-viewer
+
+Sitemap: https://maxburcev.ru/sitemap.xml

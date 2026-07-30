@@ -67,6 +67,10 @@ class Post extends Model
 
     protected $casts = [
         'translation_incomplete' => 'boolean',
+        // Без каста в индекс Meilisearch уходит целочисленная 1, и фильтр
+        // Post::search(...)->where('published', true) не находит ничего
+        // (сравнение с булевым true не совпадает с числом).
+        'published' => 'boolean',
         'parsed_at' => 'datetime',
     ];
 
@@ -81,13 +85,14 @@ class Post extends Model
     }
 
     /**
-     * Посты-заглушки от неудавшегося парсинга (контента нет, только url и
-     * причина сбоя) не должны попадать в поисковый индекс Meilisearch —
-     * в выдаче это пустая карточка без текста.
+     * В индекс идут только опубликованные посты с контентом. Черновики
+     * попадать в поиск не должны по двум причинам: их публичный URL отдаёт
+     * 404 (Post\ShowController фильтрует published), а заглушки от
+     * неудавшегося парсинга — это пустая карточка без текста.
      */
     public function shouldBeSearchable(): bool
     {
-        return filled($this->content);
+        return (bool) $this->published && filled($this->content);
     }
 
     public function scopeParseFailed(Builder $query): Builder
@@ -167,11 +172,31 @@ class Post extends Model
             : $value;
     }
 
+    /**
+     * Короткое описание статьи для meta description, og:description и RSS.
+     *
+     * Из текста выбрасываются блоки кода и таблицы: без этого в описание
+     * попадали куски листингов («…воссоздадим оператор ниже:$paymentS…»).
+     * Теги заменяются пробелом, а не удаляются, иначе соседние блоки
+     * слипались («появилось в PHP 8.Ключевое слово»). Обрезка — по границе
+     * слова, а не посреди него.
+     */
     public function excerpt(int $length = 160): string
     {
-        $text = html_entity_decode(strip_tags($this->content), ENT_QUOTES, 'UTF-8');
+        $html = preg_replace('#<(pre|code|table)\b[^>]*>.*?</\1>#is', ' ', (string) $this->content) ?? '';
+        $text = html_entity_decode(preg_replace('/<[^>]+>/u', ' ', $html), ENT_QUOTES, 'UTF-8');
+        $text = trim(preg_replace('/\s+/u', ' ', $text));
 
-        return Str::limit(trim(preg_replace('/\s+/u', ' ', $text)), $length);
+        if (mb_strlen($text) <= $length) {
+            return $text;
+        }
+
+        // Str::limit(preserveWords:) появился только в Laravel 11 — режем сами
+        // по последнему пробелу, попутно убирая повисшую пунктуацию.
+        $cut = mb_substr($text, 0, $length);
+        $lastSpace = mb_strrpos($cut, ' ');
+
+        return rtrim($lastSpace ? mb_substr($cut, 0, $lastSpace) : $cut, " \t\n\r\0\x0B,.;:—–-").'…';
     }
 
     public function readingTimeMinutes(): int

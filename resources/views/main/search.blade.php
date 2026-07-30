@@ -42,13 +42,9 @@
                                         <div class="col-md-4 fetured-post blog-post" data-aos="fade-up">
                                             <a href="{{ route('post.show', $post->code) }}">
                                                 <div class="blog-post-thumbnail-wrapper">
-                                                    @if($post->preview_image)
-                                                        <img src="{{ 'storage/'. $post->preview_image }}"
-                                                             alt="{{ $post->title }}">
-                                                    @else
-                                                        <img src="{{ 'storage/images/laravel.jpg' }}"
-                                                             alt="{{ $post->title }}">
-                                                    @endif
+                                                    <img src="{{ $post->preview_image ? asset('storage/'.$post->preview_image) : asset(config('seo.default_image')) }}"
+                                                         alt="{{ $post->title }}" loading="lazy" decoding="async"
+                                                         width="370" height="240">
 
                                                 </div>
                                             </a>
@@ -57,7 +53,7 @@
                                                         class="blog-post-category">{{ $post->category->title }}</p></a>
                                             @endif
                                             <a href="{{ route('post.show', $post->code) }}" class="blog-post-permalink">
-                                                <h6 class="blog-post-title">{{ $post->title }}</h6>
+                                                <h2 class="blog-post-title">{{ $post->title }}</h2>
                                             </a>
                                         </div>
                                     @endforeach
