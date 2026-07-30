@@ -1,0 +1,20 @@
+{
+    "name": "Блог Максима Бурцева",
+    "short_name": "МБ",
+    "icons": [
+        {
+            "src": "/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ],
+    "theme_color": "#2E937A",
+    "background_color": "#ffffff",
+    "display": "browser",
+    "start_url": "/"
+}

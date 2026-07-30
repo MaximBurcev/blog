@@ -28,6 +28,7 @@ class FilamentPanelProvider extends PanelProvider
             ->id('filament')
             ->path('filament')
             ->login()
+            ->favicon(asset('favicon.svg'))
             // По умолчанию Filament ограничивает контент 7xl (80rem) — широкая
             // таблица постов из-за этого уезжала в горизонтальный скролл.
             ->maxContentWidth(MaxWidth::Full)

@@ -13,6 +13,8 @@
 
     <title>{{ $title }}</title>
 
+    @include('partials.favicon')
+
     <meta name="description" content="{{ $description }}">
 
     {{-- Каноническая ссылка склеивает дубли: сайт доступен и по http, и по
