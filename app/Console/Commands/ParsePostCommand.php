@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\StorePostJob;
+use App\Support\ContentSelectorResolver;
 use Illuminate\Console\Command;
 
 class ParsePostCommand extends Command
@@ -48,14 +49,6 @@ class ParsePostCommand extends Command
 
     private function getSelectorForUrl(string $url): string
     {
-        $host = parse_url($url, PHP_URL_HOST) ?? '';
-
-        foreach (config('releases.domain_selectors', []) as $domain => $selector) {
-            if (str_contains($host, $domain)) {
-                return $selector;
-            }
-        }
-
-        return config('releases.post_selector', 'article-body');
+        return app(ContentSelectorResolver::class)->resolve($url);
     }
 }

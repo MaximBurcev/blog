@@ -4,11 +4,14 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\PostResource\Pages;
 use App\Filament\Resources\PostResource\RelationManagers;
+use App\Jobs\StorePostJob;
 use App\Models\Category;
 use App\Models\Post;
+use App\Support\ContentSelectorResolver;
 use Filament\Forms;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
@@ -119,12 +122,57 @@ class PostResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                self::reparseAction(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    /**
+     * Перезапуск парсинга статьи по её url — типовой сценарий после того,
+     * как для домена завели селектор в SiteSelectorResource: сам селектор
+     * на посте не хранится (PostService затирает его при сохранении), поэтому
+     * определяем его заново по url через ContentSelectorResolver.
+     *
+     * Джоба уходит в очередь: скачивание + перевод статьи занимают десятки
+     * секунд, в HTTP-запросе админки это ждать нельзя.
+     */
+    public static function reparseAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('reparse')
+            ->label('Перепарсить')
+            ->icon('heroicon-o-arrow-path')
+            ->color('gray')
+            ->visible(fn (Post $record): bool => filled($record->url))
+            ->requiresConfirmation()
+            ->modalHeading('Перепарсить статью')
+            ->modalDescription('Страница будет заново скачана и разобрана в фоне. Если разбор снова не удастся, уже сохранённый контент не потеряется — обновится только причина сбоя.')
+            ->modalSubmitActionLabel('Отправить в очередь')
+            ->action(fn (Post $record) => self::dispatchReparse($record));
+    }
+
+    /**
+     * Общее тело действия «Перепарсить» для табличного экшена и для
+     * заголовка страницы редактирования (у Filament это разные классы
+     * Action — Tables\Actions и Actions соответственно).
+     */
+    public static function dispatchReparse(Post $post): void
+    {
+        StorePostJob::dispatch([
+            'url' => $post->url,
+            'selector' => app(ContentSelectorResolver::class)->resolve($post->url),
+            'tag_ids' => [],
+            'translate' => null,
+        ]);
+
+        Notification::make()
+            ->title('Статья отправлена на перепарсинг')
+            ->body('Результат появится в колонке «Парсинг» после обработки очереди.')
+            ->success()
+            ->send();
     }
 
     public static function getRelations(): array

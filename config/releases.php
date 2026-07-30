@@ -84,6 +84,12 @@ return [
     | to find the content block. If a URL matches a domain key,
     | that selector is used; otherwise 'post_selector' is used as fallback.
     |
+    | ВНИМАНИЕ: основное место для новых правил — админка
+    | (Настройки → Селекторы сайтов, таблица site_selectors); её значения
+    | имеют приоритет. Этот список остался фолбэком для доменов, которых в
+    | таблице нет, и источником данных для первичного наполнения — см.
+    | ContentSelectorResolver и миграцию create_site_selectors_table.
+    |
     */
     'domain_selectors' => [
         'dev.to' => '#article-body',
@@ -104,6 +110,12 @@ return [
         // кнопки шаринга, пагинация, форма подписки) и шапку автора
         // вырезает StorePostJob::stripJetBrainsChrome().
         'blog.jetbrains.com' => '.js-toc-content',
+        // Личный блог на Tailwind: семантического <article> на странице нет,
+        // единственный контейнер текста статьи — div.post-content.
+        'wendelladriel.com' => '.post-content',
+        // WordPress: тело записи в div.entry-content внутри <article>. Сам
+        // <article> брать нельзя — в него входит шапка с датой/категориями.
+        'exakat.io' => '.entry-content',
     ],
 
     /*
