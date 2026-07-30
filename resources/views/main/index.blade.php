@@ -51,6 +51,7 @@
                             <ul>
                                 @foreach($categories as $category)
                                     <li><a href="{{ route('category.show', $category->code) }}">{{ $category->title }}</a>
+                                        ({{ $category->posts_count }})
                                     </li>
                                 @endforeach
                             </ul>
@@ -62,6 +63,7 @@
                             <ul>
                                 @foreach($tags as $tag)
                                     <li><a href="{{ route('tag.show', $tag->code) }}">{{ $tag->title }}</a>
+                                        ({{ $tag->posts_count }})
                                     </li>
                                 @endforeach
                             </ul>

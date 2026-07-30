@@ -26,8 +26,12 @@ class IndexController extends Controller
             ->orderByDesc('created_at')
             ->take(self::POPULAR_POSTS_COUNT)
             ->get();
-        $categories = Category::whereHas('posts', fn ($q) => $q->published())->get();
-        $tags = Tag::whereHas('posts', fn ($q) => $q->published())->get();
+        $categories = Category::whereHas('posts', fn ($q) => $q->published())
+            ->withCount(['posts' => fn ($q) => $q->published()])
+            ->get();
+        $tags = Tag::whereHas('posts', fn ($q) => $q->published())
+            ->withCount(['posts' => fn ($q) => $q->published()])
+            ->get();
         // Описательный, а не «Блог»: имя сайта в <title> дописывается
         // отдельно (AppServiceProvider::documentTitle), и выходило
         // тавтологичное «Блог — Блог Максима Бурцева». На <h1> страницы это
