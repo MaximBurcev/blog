@@ -7,6 +7,7 @@ use App\Models\Post;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
+use App\Support\PinnedTarget;
 use App\Support\UrlSafetyChecker;
 use App\Traits\TranslatesNodes;
 use Carbon\Carbon;
@@ -242,15 +243,31 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         $url = $this->data['url'];
 
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
-            $ip = $this->urlSafetyChecker->resolvePublicIp($url);
-            if ($ip === null) {
+            $target = $this->urlSafetyChecker->resolveTarget($url);
+            if ($target === null) {
                 Log::warning('StorePostJob: unsafe URL blocked', ['url' => $url, 'original_url' => $this->data['url']]);
                 $this->fetchError = "Ссылка заблокирована проверкой безопасности: {$url} (недоступный DNS либо приватный адрес)";
 
                 return false;
             }
 
-            $result = $this->curlFetchOnce($url, $ip);
+            $url = $target->url;
+            $result = $this->curlFetchOnce($target);
+
+            // Соединение ушло не на тот адрес, который прошёл проверку —
+            // значит пиннинг не сработал (например, --resolve не смэтчился
+            // и curl сделал собственный резолв), и ответ пришёл неизвестно
+            // откуда: доверять ему нельзя.
+            if ($result['remote_ip'] !== null && ! $target->ipMatches($result['remote_ip'])) {
+                Log::warning('StorePostJob: connection IP does not match pinned IP', [
+                    'url' => $url,
+                    'pinned_ip' => $target->ip,
+                    'remote_ip' => $result['remote_ip'],
+                ]);
+                $this->fetchError = "Соединение ушло на непроверенный адрес {$result['remote_ip']} вместо {$target->ip}: {$url}";
+
+                return false;
+            }
 
             if ($result['location'] !== null) {
                 $url = (string) UriResolver::resolve(new Uri($url), new Uri($result['location']));
@@ -284,20 +301,29 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
      * ответа пишутся в отдельный временный файл (-D), тело — в другой
      * (--output), чтобы достать статус/Location без "-L".
      *
-     * $resolvedIp закрепляется через --resolve вместо того, чтобы curl
+     * IP цели закрепляется через --resolve вместо того, чтобы curl
      * резолвил хост самостоятельно — иначе между проверкой в
      * UrlSafetyChecker и самим запросом DNS-запись могла бы смениться на
-     * приватный адрес (rebinding/TOCTOU).
+     * приватный адрес (rebinding/TOCTOU). Сам пиннинг молчалив: если запись
+     * --resolve не совпадёт с хостом (расхождение нормализации между
+     * parse_url и libcurl), curl просто сделает свой резолв — поэтому
+     * фактический адрес соединения возвращается через -w '%{remote_ip}'
+     * и сверяется вызывающим кодом.
      *
-     * @return array{body: string|false, location: ?string, status: ?int}
+     * @return array{body: string|false, location: ?string, status: ?int, remote_ip: ?string}
      */
-    private function curlFetchOnce(string $url, string $resolvedIp): array
+    private function curlFetchOnce(PinnedTarget $target): array
     {
         $tmpBody = tempnam(sys_get_temp_dir(), 'curl_body_');
         $tmpHeaders = tempnam(sys_get_temp_dir(), 'curl_headers_');
 
+        $url = $target->url;
         $escapedUrl = escapeshellarg($url);
-        $resolve = '--resolve '.escapeshellarg($this->hostPort($url).':'.$resolvedIp).' ';
+        $resolveEntry = $target->resolveEntry();
+        $resolve = $resolveEntry !== null ? '--resolve '.escapeshellarg($resolveEntry).' ' : '';
+        // Тело уходит в --output, заголовки в -D, поэтому stdout свободен
+        // под адрес соединения
+        $writeOut = "-w '%{remote_ip}' ";
         $proxy = config('releases.curl_proxy') ? '--socks5 '.escapeshellarg(config('releases.curl_proxy')).' ' : '';
         $impersonate = config('releases.curl_binary');
         $proto = "--proto '=http,https' --proto-redir '=http,https' ";
@@ -310,12 +336,12 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             // curl-impersonate сам выставляет TLS-отпечаток и заголовки Chrome —
             // свои не добавляем, чтобы не выдать себя дублями заголовков
             $command = escapeshellcmd($impersonate).' -s --max-time 30 '.
-                $proto.$resolve.$proxy.$maxFilesize.
+                $proto.$resolve.$proxy.$maxFilesize.$writeOut.
                 '-D '.escapeshellarg($tmpHeaders).' --output '.escapeshellarg($tmpBody).' '.
                 "{$escapedUrl} 2>/dev/null";
         } else {
             $command = '/usr/bin/curl -s --max-time 30 --http2 '.
-                $proto.$resolve.$proxy.$maxFilesize.
+                $proto.$resolve.$proxy.$maxFilesize.$writeOut.
                 "-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' ".
                 "-H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' ".
                 "-H 'Accept-Language: en-US,en;q=0.9' ".
@@ -323,7 +349,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
                 "{$escapedUrl} 2>/dev/null";
         }
 
-        shell_exec($command);
+        $remoteIp = trim((string) shell_exec($command));
 
         $body = file_get_contents($tmpBody);
         $headers = (string) file_get_contents($tmpHeaders);
@@ -334,18 +360,13 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             'body' => $body,
             'location' => $this->extractRedirectLocation($headers),
             'status' => $this->extractStatus($headers),
+            // Пусто, если соединение не состоялось вовсе (таймаут, DNS, TLS).
+            // Через SOCKS5-прокси сверять нечего: curl соединяется с прокси, и
+            // %{remote_ip} показывает его адрес, а не адрес цели. Пиннинг при
+            // этом продолжает работать — --socks5 (в отличие от --socks5h)
+            // резолвит хост локально, то есть через запись --resolve.
+            'remote_ip' => $proxy === '' && $remoteIp !== '' ? $remoteIp : null,
         ];
-    }
-
-    /**
-     * "host:port" в формате, который ожидает curl --resolve.
-     */
-    private function hostPort(string $url): string
-    {
-        $parts = parse_url($url);
-        $port = $parts['port'] ?? (($parts['scheme'] ?? 'https') === 'https' ? 443 : 80);
-
-        return $parts['host'].':'.$port;
     }
 
     /**

@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use GuzzleHttp\Psr7\Uri;
+
 /**
  * Проверяет URL перед любым исходящим fetch во внешний источник
  * (StorePostJob, ReleaseService, ContentImageService) — защита от SSRF.
@@ -13,14 +15,20 @@ namespace App\Support;
  * Проверка должна выполняться перед КАЖДЫМ хопом, а не только перед
  * исходным URL.
  *
- * resolvePublicIp() возвращает конкретный IP, который нужно закрепить в
+ * resolveTarget() возвращает конкретный IP, который нужно закрепить в
  * HTTP-клиенте (curl --resolve / CURLOPT_RESOLVE), а не резолвить хост
  * заново при самом запросе — иначе между проверкой и fetch'ем DNS-запись
  * может смениться на приватный адрес (DNS rebinding, TOCTOU).
  */
 class UrlSafetyChecker
 {
-    public function resolvePublicIp(string $url): ?string
+    /**
+     * Проверяет URL и возвращает цель для пиннинга: URL с нормализованным
+     * хостом (чтобы HTTP-клиент разбирал ровно тот хост, который проверялся
+     * и попал в --resolve) и IP, к которому должно уйти соединение.
+     * null — URL небезопасен.
+     */
+    public function resolveTarget(string $url): ?PinnedTarget
     {
         if (! filter_var($url, FILTER_VALIDATE_URL)) {
             return null;
@@ -28,19 +36,60 @@ class UrlSafetyChecker
 
         $parts = parse_url($url);
         $scheme = strtolower($parts['scheme'] ?? '');
-        $host = $parts['host'] ?? '';
+        $rawHost = $parts['host'] ?? '';
 
-        if (! in_array($scheme, ['http', 'https'], true) || $host === '') {
+        if (! in_array($scheme, ['http', 'https'], true) || $rawHost === '') {
             return null;
         }
 
-        $host = $this->normalizeHost($host);
+        $host = $this->normalizeHost($rawHost);
 
         if (! $this->domainAllowed($host)) {
             return null;
         }
 
-        return $this->resolveAndValidate($host);
+        $ip = $this->resolveAndValidate($host);
+
+        if ($ip === null) {
+            return null;
+        }
+
+        $hostIsIpLiteral = (bool) filter_var($host, FILTER_VALIDATE_IP);
+        $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+        $canonicalUrl = $this->canonicalUrl($url, $rawHost, $host, $hostIsIpLiteral);
+
+        if ($canonicalUrl === null) {
+            return null;
+        }
+
+        return new PinnedTarget($canonicalUrl, $host, $port, $ip, $hostIsIpLiteral);
+    }
+
+    public function resolvePublicIp(string $url): ?string
+    {
+        return $this->resolveTarget($url)?->ip;
+    }
+
+    /**
+     * Подставляет в URL нормализованный хост, чтобы HTTP-клиент разбирал ровно
+     * ту строку хоста, которая проверялась и попала в --resolve.
+     *
+     * IP-литерал остаётся как есть: DNS в таком запросе не участвует, пиннинг
+     * не нужен, а обратная сборка URL из IPv6 требовала бы возни со скобками.
+     * Если URL не пересобирается — null (fail closed), чтобы клиент не ушёл
+     * по непроверенной строке.
+     */
+    private function canonicalUrl(string $url, string $rawHost, string $host, bool $hostIsIpLiteral): ?string
+    {
+        if ($hostIsIpLiteral || $host === $rawHost) {
+            return $url;
+        }
+
+        try {
+            return (string) (new Uri($url))->withHost($host);
+        } catch (\InvalidArgumentException) {
+            return null;
+        }
     }
 
     /**
@@ -50,10 +99,19 @@ class UrlSafetyChecker
      * же самое доменное имя, синтаксически другая строка) и переводит IDN
      * в ASCII/punycode, чтобы разные представления одного домена сравнивались
      * одинаково.
+     *
+     * Отдельно снимаются скобки IPv6-литерала: parse_url отдаёт host как
+     * `[::1]`, и без их снятия адрес не распознаётся как IP — проверка
+     * диапазонов не применяется, а хост уходит в DNS-ветку как «имя»
+     * (отклоняется лишь потому, что такой DNS-запрос не резолвится).
      */
     private function normalizeHost(string $host): string
     {
         $host = strtolower(rtrim($host, '.'));
+
+        if (str_starts_with($host, '[') && str_ends_with($host, ']')) {
+            $host = substr($host, 1, -1);
+        }
 
         if (function_exists('idn_to_ascii') && preg_match('/[^\x20-\x7E]/', $host)) {
             $ascii = idn_to_ascii($host, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);

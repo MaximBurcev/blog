@@ -9,6 +9,7 @@ use App\Support\UrlSafetyChecker;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriResolver;
+use GuzzleHttp\TransferStats;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -124,10 +125,13 @@ class ReleaseService
         ]);
 
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
-            $ip = $this->urlSafetyChecker->resolvePublicIp($url);
-            if ($ip === null) {
+            $target = $this->urlSafetyChecker->resolveTarget($url);
+            if ($target === null) {
                 throw new \RuntimeException("Blocked unsafe URL: {$url}");
             }
+
+            $url = $target->url;
+            $connectedIp = null;
 
             // IP закрепляется через CURLOPT_RESOLVE вместо повторного резолва
             // хоста Guzzle'ом — иначе между проверкой и запросом DNS-запись
@@ -135,11 +139,25 @@ class ReleaseService
             // CURLOPT_MAXFILESIZE_LARGE защищает от гигантского/бесконечного
             // ответа со страницы релиза (DoS воркера по памяти/диску).
             $response = $client->get($url, [
-                'curl' => [
-                    CURLOPT_RESOLVE => [$this->hostPort($url).':'.$ip],
+                'on_stats' => function (TransferStats $stats) use (&$connectedIp) {
+                    $connectedIp = $stats->getHandlerStats()['primary_ip'] ?? null;
+                },
+                'curl' => array_filter([
+                    CURLOPT_RESOLVE => $target->resolveEntry() !== null ? [$target->resolveEntry()] : null,
                     CURLOPT_MAXFILESIZE_LARGE => (int) config('releases.max_content_length'),
-                ],
+                ]),
             ]);
+
+            // CURLOPT_RESOLVE молчит, если запись не смэтчилась с хостом
+            // (расхождение нормализации между parse_url и libcurl) — тогда
+            // curl резолвит сам, и пиннинг превращается в фикцию. Сверяем
+            // фактический адрес соединения с проверенным.
+            if ($connectedIp !== null && ! $target->ipMatches($connectedIp)) {
+                throw new \RuntimeException(
+                    "Connection went to unverified IP {$connectedIp} instead of pinned {$target->ip}: {$url}"
+                );
+            }
+
             $status = $response->getStatusCode();
 
             if ($status >= 300 && $status < 400 && $response->hasHeader('Location')) {
@@ -162,17 +180,6 @@ class ReleaseService
         }
 
         throw new \RuntimeException('Too many redirects');
-    }
-
-    /**
-     * "host:port" в формате, который ожидает CURLOPT_RESOLVE.
-     */
-    private function hostPort(string $url): string
-    {
-        $parts = parse_url($url);
-        $port = $parts['port'] ?? (($parts['scheme'] ?? 'https') === 'https' ? 443 : 80);
-
-        return $parts['host'].':'.$port;
     }
 
     public function addPosts(string $url): array

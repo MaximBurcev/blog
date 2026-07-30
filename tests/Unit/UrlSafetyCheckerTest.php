@@ -185,4 +185,71 @@ class UrlSafetyCheckerTest extends TestCase
 
         return $method->invoke(new UrlSafetyChecker, $host);
     }
+
+    /**
+     * parse_url отдаёт IPv6-литерал в скобках ('[::1]'), поэтому без их
+     * снятия адрес не распознавался как IP: проверка диапазонов к нему не
+     * применялась вообще, и отклонялся он лишь побочно — тем, что DNS-запрос
+     * по такому «имени» не резолвится.
+     */
+    public function test_normalize_host_strips_ipv6_brackets(): void
+    {
+        $this->assertSame('::1', $this->normalizeHost('[::1]'));
+        $this->assertSame('2001:db8::1', $this->normalizeHost('[2001:DB8::1]'));
+    }
+
+    /**
+     * Пиннинг работает только если HTTP-клиент разберёт ровно тот хост,
+     * который проверялся и попал в --resolve. parse_url и libcurl нормализуют
+     * по-разному (trailing dot, IDN, регистр) — при расхождении запись
+     * пиннинга молча не матчится и curl делает собственный live-резолв,
+     * возвращая окно rebinding/TOCTOU (MAJ-2). Поэтому URL отдаётся фетчеру
+     * уже с нормализованным хостом.
+     */
+    public function test_canonical_url_substitutes_normalized_host(): void
+    {
+        $this->assertSame(
+            'http://medium.com/p?q=1#x',
+            $this->canonicalUrl('http://MEDIUM.COM./p?q=1#x', 'MEDIUM.COM.', 'medium.com', false)
+        );
+        $this->assertSame(
+            'https://xn--d1acpjx3f.xn--p1ai:8443/a',
+            $this->canonicalUrl('https://яндекс.рф:8443/a', 'яндекс.рф', 'xn--d1acpjx3f.xn--p1ai', false)
+        );
+    }
+
+    /**
+     * У IP-литерала пиннинг не нужен (DNS не участвует), а пересборка URL из
+     * IPv6 ломалась бы на скобках — URL остаётся как есть.
+     */
+    public function test_canonical_url_leaves_ip_literal_untouched(): void
+    {
+        $this->assertSame(
+            'http://[2001:db8::1]:8080/x',
+            $this->canonicalUrl('http://[2001:db8::1]:8080/x', '[2001:db8::1]', '2001:db8::1', true)
+        );
+    }
+
+    private function canonicalUrl(string $url, string $rawHost, string $host, bool $isIpLiteral): ?string
+    {
+        $method = new ReflectionMethod(UrlSafetyChecker::class, 'canonicalUrl');
+        $method->setAccessible(true);
+
+        return $method->invoke(new UrlSafetyChecker, $url, $rawHost, $host, $isIpLiteral);
+    }
+
+    public function test_resolve_target_marks_ip_literal_host(): void
+    {
+        $target = (new UrlSafetyChecker)->resolveTarget('http://8.8.8.8/x');
+
+        $this->assertNotNull($target);
+        $this->assertTrue($target->hostIsIpLiteral);
+        $this->assertNull($target->resolveEntry());
+        $this->assertSame('8.8.8.8', $target->ip);
+    }
+
+    public function test_resolve_target_returns_null_for_unsafe_url(): void
+    {
+        $this->assertNull((new UrlSafetyChecker)->resolveTarget('http://127.0.0.1/admin'));
+    }
 }

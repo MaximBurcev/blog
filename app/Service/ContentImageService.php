@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Support\UrlSafetyChecker;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriResolver;
+use GuzzleHttp\TransferStats;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -30,12 +31,15 @@ class ContentImageService
         $current = $url;
 
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
-            $ip = $this->urlSafetyChecker->resolvePublicIp($current);
-            if ($ip === null) {
+            $target = $this->urlSafetyChecker->resolveTarget($current);
+            if ($target === null) {
                 Log::warning('ContentImageService: unsafe URL blocked', ['url' => $current, 'original_url' => $url]);
 
                 return null;
             }
+
+            $current = $target->url;
+            $connectedIp = null;
 
             // IP закрепляется через CURLOPT_RESOLVE вместо повторного резолва
             // хоста Guzzle'ом — иначе между проверкой и запросом DNS-запись
@@ -46,11 +50,28 @@ class ContentImageService
             // сервер объявляет Content-Length заранее (обычный случай).
             $response = Http::timeout(30)->retry(3, 500)->withOptions([
                 'allow_redirects' => false,
-                'curl' => [
-                    CURLOPT_RESOLVE => [$this->hostPort($current).':'.$ip],
+                'on_stats' => function (TransferStats $stats) use (&$connectedIp) {
+                    $connectedIp = $stats->getHandlerStats()['primary_ip'] ?? null;
+                },
+                'curl' => array_filter([
+                    CURLOPT_RESOLVE => $target->resolveEntry() !== null ? [$target->resolveEntry()] : null,
                     CURLOPT_MAXFILESIZE_LARGE => (int) config('releases.max_content_length'),
-                ],
+                ]),
             ])->get($current);
+
+            // CURLOPT_RESOLVE молчит, если запись не смэтчилась с хостом
+            // (расхождение нормализации между parse_url и libcurl) — тогда
+            // curl резолвит сам, и пиннинг превращается в фикцию. Сверяем
+            // фактический адрес соединения с проверенным.
+            if ($connectedIp !== null && ! $target->ipMatches($connectedIp)) {
+                Log::warning('ContentImageService: connection IP does not match pinned IP', [
+                    'url' => $current,
+                    'pinned_ip' => $target->ip,
+                    'remote_ip' => $connectedIp,
+                ]);
+
+                return null;
+            }
 
             if ($response->redirect() && $response->header('Location')) {
                 $current = (string) UriResolver::resolve(new Uri($current), new Uri($response->header('Location')));
@@ -64,17 +85,6 @@ class ContentImageService
         Log::warning('ContentImageService: too many redirects', ['url' => $url]);
 
         return null;
-    }
-
-    /**
-     * "host:port" в формате, который ожидает CURLOPT_RESOLVE.
-     */
-    private function hostPort(string $url): string
-    {
-        $parts = parse_url($url);
-        $port = $parts['port'] ?? (($parts['scheme'] ?? 'https') === 'https' ? 443 : 80);
-
-        return $parts['host'].':'.$port;
     }
 
     /**
