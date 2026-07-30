@@ -17,6 +17,7 @@ use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 
 class PostResource extends Resource
@@ -37,6 +38,17 @@ class PostResource extends Resource
     {
         return $form
             ->schema([
+                // Пост, заведённый парсером, без этой ссылки не отличить от
+                // написанного руками: сам url в форме больше нигде не виден.
+                Forms\Components\Placeholder::make('source_url')
+                    ->label('Источник')
+                    ->content(fn (?Post $record): HtmlString => new HtmlString(
+                        sprintf(
+                            '<a href="%1$s" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline dark:text-primary-400">%1$s</a>',
+                            e($record?->url)
+                        )
+                    ))
+                    ->visible(fn (?Post $record): bool => filled($record?->url)),
                 TextInput::make('title')->required()->reactive()->afterStateUpdated(function ($set, $state) {
                     $set('code', Str::slug($state));
                 })->label('Заголовок'),
@@ -66,7 +78,19 @@ class PostResource extends Resource
             ->columns([
                 TextColumn::make('id')->label('ID')->sortable(),
                 Tables\Columns\ImageColumn::make('preview_image')->label('Превью'),
-                TextColumn::make('title')->label('Заголовок')->sortable()->wrap(),
+                TextColumn::make('title')->label('Заголовок')->sortable()->wrap()
+                    // Домен источника прямо под заголовком: в списке важно
+                    // отличить спарсенные посты от заведённых вручную.
+                    ->description(fn (Post $record): ?string => $record->url
+                        ? parse_url($record->url, PHP_URL_HOST)
+                        : null),
+                TextColumn::make('url')
+                    ->label('Источник')
+                    ->url(fn (Post $record): ?string => $record->url)
+                    ->openUrlInNewTab()
+                    ->placeholder('—')
+                    ->wrap()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\IconColumn::make('translation_incomplete')
                     ->boolean()
                     ->trueIcon('heroicon-o-exclamation-triangle')
