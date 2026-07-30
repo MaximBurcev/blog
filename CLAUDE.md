@@ -43,13 +43,11 @@ npm run build # Production build
 
 ## Architecture Overview
 
-### Two Admin Interfaces
+### Admin Interface
 
-The project has **two separate admin panels** that coexist:
+**Filament Panel** at `/filament` — the only admin panel. Built with Filament 3, auto-discovers resources in `app/Filament/Resources/`. Configured in `app/Providers/Filament/FilamentPanelProvider.php`; access is gated by `User::canAccessPanel()` (role `UserRole::Admin`).
 
-1. **Custom Admin** at `/admin` — built with AdminLTE + Blade templates, protected by `auth` + `admin` middleware. Controllers are single-action classes under `app/Http/Controllers/Admin/`.
-
-2. **Filament Panel** at `/filament` — modern admin built with Filament 3, auto-discovers resources in `app/Filament/Resources/`. Configured in `app/Providers/Filament/FilamentPanelProvider.php`.
+The former custom AdminLTE admin at `/admin` was disabled on 2026-07-27 and removed on 2026-07-30 together with its controllers, form requests, Blade views, Livewire components and the `jeroennoten/laravel-adminlte` package — everything had moved to Filament. The `admin` middleware alias (`AdminMiddleware`) is kept for future protected routes, though nothing uses it right now.
 
 ### Database
 
@@ -57,7 +55,7 @@ Single MySQL database, default `mysql` connection (`config/database.php`), confi
 
 ### Controller Pattern
 
-All controllers are single-action classes — each HTTP action (index, show, store, etc.) has its own dedicated controller class. Example: `Admin/Post/StoreController.php`, `Admin/Post/UpdateController.php`.
+All controllers are single-action classes — each HTTP action (index, show, store, etc.) has its own dedicated controller class. Example: `Post/ShowController.php`, `Category/IndexController.php`.
 
 ### Services (`app/Service/`)
 
@@ -88,7 +86,7 @@ Laravel Scout with **Meilisearch** backend (container on port 7720→7700). Meil
 
 ### Frontend
 
-Blade templates with **AdminLTE** (admin), standard layouts (public). **Livewire 3** components in `app/Livewire/` for interactive elements (`Counter`, `UsersTable`, admin forms). Vite for asset bundling.
+Blade templates for the public site; the admin UI is Filament's own. **Livewire 3** powers Filament and the standalone `app/Livewire/Counter`. Vite for asset bundling.
 
 ### Deployment
 

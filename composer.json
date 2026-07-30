@@ -13,7 +13,6 @@
         "flowframe/laravel-trend": "^0.4.0",
         "guzzlehttp/guzzle": "^7.9",
         "imangazaliev/didom": "^2.0",
-        "jeroennoten/laravel-adminlte": "^3.9",
         "laravel/envoy": "^2.10",
         "laravel/framework": "^10.10",
         "laravel/reverb": "^1.6",
