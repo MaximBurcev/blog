@@ -32,7 +32,10 @@ class PostService
             $tagIds = $data['tag_ids'] ?? [];
             unset($data['tag_ids'], $data['html_file']);
 
-            $data['code'] = Str::slug($data['title']);
+            // Пост от неудавшегося парсинга может остаться без осмысленного
+            // заголовка — code участвует в публичном URL, пустым он быть не
+            // должен.
+            $data['code'] = Str::slug($data['title']) ?: 'post-'.Str::random(8);
             $data['selector'] = '';
             $data['content'] = $data['content'] ?? '';
 
@@ -64,6 +67,7 @@ class PostService
             // нему как к естественному ключу, иначе retry создавал бы
             // дубликат поста при каждом повторном запуске.
             if (! empty($data['url'])) {
+                $data = $this->keepExistingContent($data, Post::where('url', $data['url'])->first());
                 $post = Post::updateOrCreate(['url' => $data['url']], $data);
             } else {
                 $post = Post::create($data);
@@ -96,6 +100,28 @@ class PostService
         }
 
         return $post;
+    }
+
+    /**
+     * Неудачный ре-парсинг существующего поста не должен затирать статью,
+     * добытую прошлой успешной попыткой: updateOrCreate по url записал бы
+     * поверх неё пустой контент и служебный заголовок-заглушку. От новой
+     * попытки в этом случае берём только отметку о сбое (parse_status /
+     * parse_error / parsed_at).
+     */
+    private function keepExistingContent(array $data, ?Post $existing): array
+    {
+        if ($existing === null || filled($data['content'] ?? null) || blank($existing->content)) {
+            return $data;
+        }
+
+        unset($data['content'], $data['content_orig'], $data['preview_image'], $data['main_image']);
+
+        $data['title'] = $existing->title;
+        $data['code'] = $existing->code;
+        $data['category_id'] = $existing->category_id ?: ($data['category_id'] ?? null);
+
+        return $data;
     }
 
     public function update(PostData $postData, $post): Post

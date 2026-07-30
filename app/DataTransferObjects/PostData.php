@@ -25,6 +25,11 @@ class PostData
         public readonly ?bool $published = null,
         public readonly ?bool $translationIncomplete = null,
         public readonly ?string $publishedAt = null,
+        public readonly ?string $parseStatus = null,
+        // Пустая строка — осмысленное значение: «прошлая ошибка снята»
+        // (toArray() отбрасывает только null, см. array_filter ниже).
+        public readonly ?string $parseError = null,
+        public readonly ?string $parsedAt = null,
     ) {}
 
     public static function fromArray(array $data): self
@@ -45,6 +50,9 @@ class PostData
             published: isset($data['published']) ? (bool) $data['published'] : null,
             translationIncomplete: isset($data['translation_incomplete']) ? (bool) $data['translation_incomplete'] : null,
             publishedAt: $data['created_at'] ?? null,
+            parseStatus: $data['parse_status'] ?? null,
+            parseError: $data['parse_error'] ?? null,
+            parsedAt: $data['parsed_at'] ?? null,
         );
     }
 
@@ -66,6 +74,9 @@ class PostData
             'published' => $this->published,
             'translation_incomplete' => $this->translationIncomplete,
             'created_at' => $this->publishedAt,
+            'parse_status' => $this->parseStatus,
+            'parse_error' => $this->parseError,
+            'parsed_at' => $this->parsedAt,
         ], fn ($value) => $value !== null);
     }
 }

@@ -17,6 +17,12 @@ class Post extends Model
 
     private const WORDS_PER_MINUTE = 200;
 
+    /** Контент статьи успешно извлечён. */
+    public const PARSE_STATUS_OK = 'ok';
+
+    /** Пост создан, но контент вытащить не удалось — причина в parse_error. */
+    public const PARSE_STATUS_FAILED = 'failed';
+
     protected $table = 'posts';
 
     protected $fillable = [
@@ -32,6 +38,9 @@ class Post extends Model
         'selector',
         'translate',
         'translation_incomplete',
+        'parse_status',
+        'parse_error',
+        'parsed_at',
         // Дата публикации оригинальной статьи (StorePostJob вытаскивает её
         // со страницы-источника) — created_at должен отражать, когда пост
         // вышел у источника, а не когда его сюда затащил скрейпер. Без
@@ -58,7 +67,35 @@ class Post extends Model
 
     protected $casts = [
         'translation_incomplete' => 'boolean',
+        'parsed_at' => 'datetime',
     ];
+
+    /**
+     * Имя намеренно отличается от скоупа parseFailed(): одноимённый метод
+     * экземпляра перехватывал бы статический вызов Post::parseFailed()
+     * до Eloquent-скоупа (PHP звал бы его статически и падал).
+     */
+    public function hasParseError(): bool
+    {
+        return $this->parse_status === self::PARSE_STATUS_FAILED;
+    }
+
+    /**
+     * Посты-заглушки от неудавшегося парсинга (контента нет, только url и
+     * причина сбоя) не должны попадать в поисковый индекс Meilisearch —
+     * в выдаче это пустая карточка без текста.
+     */
+    public function shouldBeSearchable(): bool
+    {
+        return filled($this->content);
+    }
+
+    public function scopeParseFailed(Builder $query): Builder
+    {
+        // qualifyColumn — список постов в админке джойнится с categories,
+        // неквалифицированное имя колонки там неоднозначно читается.
+        return $query->where($query->qualifyColumn('parse_status'), self::PARSE_STATUS_FAILED);
+    }
 
     public function likes()
     {

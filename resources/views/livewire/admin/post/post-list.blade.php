@@ -11,7 +11,11 @@
                 </select>
             </div>
 
-            <div>
+            <div class="d-flex align-items-center">
+                <div class="custom-control custom-checkbox mr-3">
+                    <input type="checkbox" class="custom-control-input" id="only-parse-failed" wire:model.live="onlyParseFailed">
+                    <label class="custom-control-label" for="only-parse-failed">Только с ошибкой парсинга</label>
+                </div>
                 <input type="text" class="form-control" id="search" placeholder="Search..." wire:model.live.debounce.300ms="search">
             </div>
         </div>
@@ -40,6 +44,7 @@
                         <th wire:click="changeOrder('posts.code')" style="cursor:pointer;">
                             <x-sort-arrows fieldName="Символьный код" :orderByField="$orderByField" :orderByDirection="$orderByDirection" :orderByFieldList="$orderByFieldList"/>
                         </th>
+                        <th>Парсинг</th>
                         <th colspan="3" class="text-center">Действие</th>
                     </tr>
                     </thead>
@@ -50,6 +55,16 @@
                             <td><a  href="{{ route('admin.post.edit', $post->id) }}">{{ $post->title }}</a></td>
                             <td>{{ $post->category_name }}</td>
                             <td>{{ $post->code }}</td>
+                            <td style="white-space: normal; max-width: 320px;">
+                                @if($post->hasParseError())
+                                    <span class="badge badge-danger">Ошибка</span>
+                                    <div class="small text-danger">{{ $post->parse_error }}</div>
+                                @elseif($post->parse_status)
+                                    <span class="badge badge-success">Разобран</span>
+                                @else
+                                    <span class="text-muted">—</span>
+                                @endif
+                            </td>
                             <td class="text-center">
                                 <a  href="{{ route('admin.post.show', $post->id) }}"><i class="far fa-eye">Смотреть</i></a>
                             </td>

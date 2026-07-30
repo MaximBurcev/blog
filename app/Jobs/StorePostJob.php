@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\DataTransferObjects\PostData;
+use App\Models\Post;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
@@ -23,6 +24,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 
 /**
@@ -65,6 +67,13 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
     private DiagramTranslatorService $diagramTranslator;
 
+    /**
+     * Причина, по которой не удалось скачать страницу — заполняется внутри
+     * fetchHtml(), чтобы handle() мог записать её в parse_error поста, а не
+     * только в лог.
+     */
+    private ?string $fetchError = null;
+
     public function __construct($data)
     {
         //
@@ -91,6 +100,8 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
         $titleTranslator = $this->makeGoogleTranslate();
 
+        $failure = null;
+
         try {
             $dom = new DOMDocument;
 
@@ -101,53 +112,106 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
                 'has_crayons_article' => str_contains((string) $html, 'crayons-article__body'),
             ]);
 
-            if (empty($html)) {
-                Log::warning('StorePostJob: empty response', ['url' => $this->data['url']]);
+            if ($html === false) {
+                $failure = $this->fetchError ?? 'Не удалось скачать страницу статьи';
+            } elseif (empty($html)) {
+                $failure = 'Источник вернул пустой ответ';
+            } elseif ($this->isChallengePage($html)) {
+                $failure = 'Вместо статьи отдана антибот-заглушка (Cloudflare)';
+            } else {
+                @$dom->loadHTML($html);
 
-                return;
-            }
+                $this->applyOgImage($dom);
+                $this->applyPublishedDate($dom);
 
-            if ($this->isChallengePage($html)) {
-                Log::warning('StorePostJob: anti-bot challenge page, skipping', ['url' => $this->data['url']]);
+                $h1 = $this->resolveH1($dom);
 
-                return;
-            }
-
-            @$dom->loadHTML($html);
-
-            $this->applyOgImage($dom);
-            $this->applyPublishedDate($dom);
-
-            $h1 = $this->resolveH1($dom);
-
-            if ($h1->length > 0) {
-                $this->extractArticle($dom, $h1, $titleTranslator);
+                if ($h1->length > 0) {
+                    $this->extractArticle($dom, $h1, $titleTranslator);
+                }
             }
         } catch (\Throwable $exception) {
             Log::error('StorePostJob error: '.$exception->getMessage(), [
                 'class' => get_class($exception),
                 'line' => $exception->getLine(),
             ]);
+
+            $failure = 'Ошибка при разборе страницы: '.$exception->getMessage();
         }
 
-        if (empty($this->data['title'])) {
-            Log::warning('StorePostJob: skipping, no title found', ['url' => $this->data['url']]);
-
-            return;
+        if ($failure === null && empty($this->data['title'])) {
+            $failure = 'На странице не найден заголовок статьи (<h1>/<title>)';
         }
 
-        if (empty($this->data['content'])) {
-            Log::warning('StorePostJob: skipping, no content extracted', [
-                'url' => $this->data['url'],
-                'selector' => $this->data['selector'] ?? null,
-            ]);
-
-            return;
+        if ($failure === null && empty($this->data['content'])) {
+            $failure = sprintf(
+                'Не удалось извлечь контент по селектору «%s» — вероятно, у источника другая вёрстка',
+                $this->data['selector'] ?? ''
+            );
         }
+
+        // Пост создаётся в любом случае: неразобранная ссылка должна быть
+        // видна в админке (с причиной сбоя), а не теряться в laravel.log.
+        // Публикации это не мешает — published по умолчанию false.
+        $this->applyParseResult($failure);
 
         $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
 
         $this->service->store(PostData::fromArray($this->data));
+    }
+
+    /**
+     * Записывает исход парсинга в данные поста: причину сбоя (или её
+     * снятие, если на этот раз всё разобралось) и время попытки.
+     */
+    private function applyParseResult(?string $failure): void
+    {
+        $this->data['parsed_at'] = now()->toDateTimeString();
+
+        if ($failure === null) {
+            $this->data['parse_status'] = Post::PARSE_STATUS_OK;
+            // Пустая строка, а не null: PostData::toArray() отбрасывает null,
+            // и ошибка от прошлой неудачной попытки осталась бы на посте.
+            $this->data['parse_error'] = '';
+
+            return;
+        }
+
+        Log::warning('StorePostJob: parse failed', [
+            'url' => $this->data['url'] ?? null,
+            'reason' => $failure,
+        ]);
+
+        $this->data['parse_status'] = Post::PARSE_STATUS_FAILED;
+        $this->data['parse_error'] = $failure;
+
+        if (empty($this->data['title'])) {
+            $this->data['title'] = $this->fallbackTitle();
+        }
+    }
+
+    /**
+     * Заголовок для поста, у которого не удалось разобрать страницу:
+     * текст ссылки со страницы релиза, иначе — читаемый огрызок URL
+     * (title в БД NOT NULL, а пустой заголовок в списке админки
+     * невозможно опознать).
+     */
+    private function fallbackTitle(): string
+    {
+        if (! empty($this->data['link_text'])) {
+            return Str::limit(trim($this->data['link_text']), 250, '');
+        }
+
+        $url = (string) ($this->data['url'] ?? '');
+
+        if ($url === '') {
+            return Str::limit('Не разобрано: '.basename((string) ($this->data['html_file'] ?? 'без источника')), 250, '');
+        }
+
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        $slug = trim(str_replace(['-', '_', '/'], ' ', (string) parse_url($url, PHP_URL_PATH)));
+
+        return Str::limit(trim($host.' '.$slug) ?: $url, 250, '');
     }
 
     /**
@@ -166,7 +230,13 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         if (! empty($this->data['html_file'])) {
             Log::info('StorePostJob: reading from file', ['file' => $this->data['html_file']]);
 
-            return file_get_contents($this->data['html_file']);
+            $contents = @file_get_contents($this->data['html_file']);
+
+            if ($contents === false) {
+                $this->fetchError = 'Не удалось прочитать файл '.$this->data['html_file'];
+            }
+
+            return $contents;
         }
 
         $url = $this->data['url'];
@@ -175,20 +245,36 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             $ip = $this->urlSafetyChecker->resolvePublicIp($url);
             if ($ip === null) {
                 Log::warning('StorePostJob: unsafe URL blocked', ['url' => $url, 'original_url' => $this->data['url']]);
+                $this->fetchError = "Ссылка заблокирована проверкой безопасности: {$url} (недоступный DNS либо приватный адрес)";
 
                 return false;
             }
 
             $result = $this->curlFetchOnce($url, $ip);
 
-            if ($result['location'] === null) {
-                return $result['body'];
+            if ($result['location'] !== null) {
+                $url = (string) UriResolver::resolve(new Uri($url), new Uri($result['location']));
+
+                continue;
             }
 
-            $url = (string) UriResolver::resolve(new Uri($url), new Uri($result['location']));
+            if ($result['status'] === null) {
+                $this->fetchError = "Источник не ответил: {$url} (таймаут, обрыв соединения либо превышен лимит размера ответа)";
+
+                return false;
+            }
+
+            if ($result['status'] >= 400) {
+                $this->fetchError = "Источник вернул HTTP {$result['status']}: {$url}";
+
+                return false;
+            }
+
+            return $result['body'];
         }
 
         Log::warning('StorePostJob: too many redirects', ['url' => $this->data['url']]);
+        $this->fetchError = 'Слишком много редиректов (>'.self::MAX_REDIRECTS.')';
 
         return false;
     }
@@ -203,7 +289,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
      * UrlSafetyChecker и самим запросом DNS-запись могла бы смениться на
      * приватный адрес (rebinding/TOCTOU).
      *
-     * @return array{body: string|false, location: ?string}
+     * @return array{body: string|false, location: ?string, status: ?int}
      */
     private function curlFetchOnce(string $url, string $resolvedIp): array
     {
@@ -247,6 +333,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         return [
             'body' => $body,
             'location' => $this->extractRedirectLocation($headers),
+            'status' => $this->extractStatus($headers),
         ];
     }
 
@@ -268,23 +355,39 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
      */
     private function extractRedirectLocation(string $headers): ?string
     {
-        $blocks = preg_split('/\r?\n\r?\n(?=HTTP\/)/', trim($headers));
-        $lastBlock = end($blocks);
+        $status = $this->extractStatus($headers);
 
-        if ($lastBlock === false || ! preg_match('/^HTTP\/\S+\s+(\d{3})/', $lastBlock, $statusMatch)) {
+        if ($status === null || $status < 300 || $status >= 400) {
             return null;
         }
 
-        $status = (int) $statusMatch[1];
-        if ($status < 300 || $status >= 400) {
-            return null;
-        }
-
-        if (! preg_match('/^Location:\s*(\S+)/mi', $lastBlock, $locationMatch)) {
+        if (! preg_match('/^Location:\s*(\S+)/mi', $this->lastHeaderBlock($headers), $locationMatch)) {
             return null;
         }
 
         return trim($locationMatch[1]);
+    }
+
+    /**
+     * HTTP-статус последнего ответа. null означает, что заголовков нет
+     * вообще — то есть запрос не состоялся (таймаут, обрыв, ошибка TLS),
+     * и это отдельная от "4xx/5xx" причина сбоя в parse_error.
+     */
+    private function extractStatus(string $headers): ?int
+    {
+        if (! preg_match('/^HTTP\/\S+\s+(\d{3})/', $this->lastHeaderBlock($headers), $statusMatch)) {
+            return null;
+        }
+
+        return (int) $statusMatch[1];
+    }
+
+    private function lastHeaderBlock(string $headers): string
+    {
+        $blocks = preg_split('/\r?\n\r?\n(?=HTTP\/)/', trim($headers));
+        $lastBlock = end($blocks);
+
+        return $lastBlock === false ? '' : $lastBlock;
     }
 
     /**

@@ -349,6 +349,10 @@ class ReleaseService
                     'selector' => $this->getSelectorForUrl($link['url']),
                     'tag_ids' => [],
                     'translate' => null,
+                    // Текст ссылки в дайджесте — запасной заголовок, если
+                    // страницу статьи разобрать не удастся (пост всё равно
+                    // будет создан, с причиной сбоя).
+                    'link_text' => $link['text'] ?? null,
                 ]);
             } catch (\Exception $e) {
                 Log::error('Failed to dispatch job for link', [

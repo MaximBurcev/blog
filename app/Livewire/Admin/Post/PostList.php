@@ -21,6 +21,9 @@ class PostList extends Component
     #[Url]
     public string $search = '';
 
+    /** Показывать только посты, у которых парсер не смог разобрать страницу. */
+    public bool $onlyParseFailed = false;
+
     public string $orderByField = 'posts.id';
 
     public string $orderByDirection = 'desc';
@@ -53,7 +56,7 @@ class PostList extends Component
 
     public function updating($property, $value)
     {
-        if ($property == 'search') {
+        if (in_array($property, ['search', 'onlyParseFailed'], true)) {
             $this->resetPage();
         }
 
@@ -116,8 +119,16 @@ class PostList extends Component
     public function render()
     {
         $posts = Post::query()
-            ->select('posts.id', 'posts.title', 'posts.code', 'categories.title as category_name')
+            ->select(
+                'posts.id',
+                'posts.title',
+                'posts.code',
+                'posts.parse_status',
+                'posts.parse_error',
+                'categories.title as category_name'
+            )
             ->leftJoin('categories', 'posts.category_id', '=', 'categories.id')
+            ->when($this->onlyParseFailed, fn (Builder $query) => $query->parseFailed())
             ->when($this->search, function (Builder $query) {
                 $query->where(function (Builder $q) {
                     $q->where('posts.title', 'like', '%'.$this->search.'%')

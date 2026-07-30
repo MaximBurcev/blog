@@ -48,6 +48,12 @@ class PostResource extends Resource
                     ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
                     ->maxSize(5120)->label('Главное изображение'),
                 Forms\Components\Checkbox::make('published')->label('Опубликован'),
+                // Пост, который не удалось разобрать парсером, всё равно
+                // заводится — здесь видно, почему он пустой.
+                Forms\Components\Placeholder::make('parse_error_note')
+                    ->label('Ошибка парсинга')
+                    ->content(fn (?Post $record): string => (string) $record?->parse_error)
+                    ->visible(fn (?Post $record): bool => filled($record?->parse_error)),
             ])->columns(1);
     }
 
@@ -69,6 +75,24 @@ class PostResource extends Resource
                         ? 'Часть блоков осталась без перевода — требует ревью'
                         : null)
                     ->sortable(),
+                TextColumn::make('parse_status')
+                    ->label('Парсинг')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        Post::PARSE_STATUS_OK => 'Разобран',
+                        Post::PARSE_STATUS_FAILED => 'Ошибка',
+                        default => 'Вручную',
+                    })
+                    ->color(fn (?string $state): string => match ($state) {
+                        Post::PARSE_STATUS_OK => 'success',
+                        Post::PARSE_STATUS_FAILED => 'danger',
+                        default => 'gray',
+                    })
+                    // Причина сбоя выводится текстом под бейджем, а не в
+                    // тултипе: смысл фичи — увидеть её сразу в списке.
+                    ->description(fn (Post $record): ?string => $record->parse_error ?: null)
+                    ->wrap()
+                    ->sortable(),
                 Tables\Columns\IconColumn::make('published')
                     ->label('Опубликовано')
                     ->boolean()
@@ -80,6 +104,10 @@ class PostResource extends Resource
             ->defaultSort('id', 'desc')
             ->filters([
                 Tables\Filters\Filter::make('published')->label('Опубликован'),
+                Tables\Filters\Filter::make('parse_failed')
+                    ->label('С ошибкой парсинга')
+                    ->query(fn (Builder $query): Builder => $query->parseFailed())
+                    ->toggle(),
                 Tables\Filters\Filter::make('created_at')->label('Дата создания')->form([
                     Forms\Components\DatePicker::make('created_from')->label('С'),
                     Forms\Components\DatePicker::make('created_until')->label('По'),
