@@ -101,6 +101,14 @@ class PostResource extends Resource
                     ->boolean()
                     ->sortable(),
                 TextColumn::make('created_at')->label('Дата создания')->dateTime('d.m.Y H:i')->sortable(),
+                // Когда пост последний раз прогоняли через парсер — в отличие
+                // от created_at, который хранит дату публикации оригинала.
+                TextColumn::make('parsed_at')
+                    ->label('Спарсен')
+                    ->dateTime('d.m.Y H:i')
+                    ->placeholder('—')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('views_count')->label('Просмотры')->counts('views')->sortable(),
                 // TextColumn::make('category.title')->label('Category')->sortable()->url(fn(Post $record) => CategoryResource::getUrl('edit', ['record' => $record->category])),
             ])
