@@ -16,7 +16,8 @@ class ContentImageService
     private const MAX_REDIRECTS = 5;
 
     public function __construct(
-        private readonly UrlSafetyChecker $urlSafetyChecker = new UrlSafetyChecker
+        private readonly UrlSafetyChecker $urlSafetyChecker = new UrlSafetyChecker,
+        private readonly WebpConverterService $webpConverter = new WebpConverterService
     ) {}
 
     /**
@@ -104,14 +105,7 @@ class ContentImageService
                 return null;
             }
 
-            $extension = pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION);
-            $extension = $extension ?: 'jpg';
-            // Strip query params from extension
-            $extension = strtolower(preg_replace('/[^a-zA-Z].*/', '', $extension));
-            $extension = $extension ?: 'jpg';
-
-            $filename = 'images/content/'.Str::random(40).'.'.$extension;
-            Storage::disk('public')->put($filename, $imageContent);
+            $filename = $this->storeImage($imageContent, $url);
 
             Log::info('ContentImageService: downloaded', ['url' => $url, 'path' => $filename]);
 
@@ -155,12 +149,7 @@ class ContentImageService
                     return $matches[0];
                 }
 
-                $extension = pathinfo(parse_url($bestUrl, PHP_URL_PATH), PATHINFO_EXTENSION);
-                $extension = $extension ?: 'jpg';
-                $extension = strtolower(preg_replace('/[^a-zA-Z].*/', '', $extension)) ?: 'jpg';
-
-                $filename = 'images/content/'.Str::random(40).'.'.$extension;
-                Storage::disk('public')->put($filename, $imageContent);
+                $filename = $this->storeImage($imageContent, $bestUrl);
                 $newImageUrl = Storage::disk('public')->url($filename);
 
                 Log::info('ContentImageService: picture replaced', ['url' => $bestUrl, 'path' => $filename]);
@@ -172,6 +161,36 @@ class ContentImageService
                 return $matches[0];
             }
         }, $content);
+    }
+
+    /**
+     * Кладёт скачанную картинку в storage и возвращает относительный путь.
+     *
+     * Растровые оригиналы по пути перекодируются в WebP: обложки статей
+     * приезжают PNG'ами по 150-300 КБ, в WebP тот же кадр в разы легче.
+     * Если конвертация не применима (GIF-анимация, SVG, битый файл) или
+     * не даёт выигрыша — сохраняется оригинал.
+     *
+     * Расширение берётся из пути URL, а не из строки целиком: раньше в
+     * downloadAndReplaceImages() query-параметры попадали прямо в имя файла
+     * (в хранилище лежат артефакты вида «.png?format=48x48»).
+     */
+    private function storeImage(string $binary, string $sourceUrl): string
+    {
+        $webp = $this->webpConverter->convert($binary);
+
+        if ($webp !== null) {
+            $binary = $webp;
+            $extension = 'webp';
+        } else {
+            $extension = pathinfo((string) parse_url($sourceUrl, PHP_URL_PATH), PATHINFO_EXTENSION);
+            $extension = strtolower(preg_replace('/[^a-zA-Z].*/', '', $extension)) ?: 'jpg';
+        }
+
+        $filename = 'images/content/'.Str::random(40).'.'.$extension;
+        Storage::disk('public')->put($filename, $binary);
+
+        return $filename;
     }
 
     /**
@@ -230,14 +249,7 @@ class ContentImageService
                     return $matches[0];
                 }
 
-                // Generate a unique filename
-                $extension = pathinfo($imageUrl, PATHINFO_EXTENSION);
-                $extension = $extension ?: 'jpg';
-                $filename = 'images/content/'.Str::random(40).'.'.$extension;
-
-                // Save the image to the public storage
-                Storage::disk('public')->put($filename, $imageContent);
-
+                $filename = $this->storeImage($imageContent, $imageUrl);
                 $newImageUrl = Storage::disk('public')->url($filename);
 
                 // Replace the image URL with the local path
