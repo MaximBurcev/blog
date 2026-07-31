@@ -30,9 +30,12 @@ class GenerateImageVariantsCommand extends Command
         $disk = Storage::disk('public');
 
         $paths = Post::withTrashed()
-            ->whereNotNull('preview_image')
-            ->distinct()
-            ->pluck('preview_image')
+            ->select(['preview_image', 'main_image'])
+            ->get()
+            ->flatMap(fn (Post $post) => [$post->preview_image, $post->main_image])
+            ->filter()
+            ->unique()
+            ->values()
             ->all();
 
         // Заглушка стоит в карточках постов без обложки, ей варианты нужны

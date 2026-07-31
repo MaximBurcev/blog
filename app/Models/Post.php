@@ -83,11 +83,14 @@ class Post extends Model
     protected static function booted(): void
     {
         static::saved(function (self $post) {
-            if (! $post->wasChanged('preview_image') || blank($post->preview_image)) {
-                return;
+            // main_image обычно тот же файл, что и preview_image, но в
+            // админке их можно задать разными — тогда обложке статьи нужны
+            // свои варианты.
+            foreach (['preview_image', 'main_image'] as $field) {
+                if ($post->wasChanged($field) && filled($post->$field)) {
+                    app(ImageVariantService::class)->generate($post->$field);
+                }
             }
-
-            app(ImageVariantService::class)->generate($post->preview_image);
         });
     }
 

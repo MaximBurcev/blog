@@ -82,11 +82,14 @@
                 • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $comments->count() }} Комментария</p>
             <section class="blog-post-featured-img" data-aos="fade-up" data-aos-delay="300">
                 {{-- Обложка — LCP-элемент страницы: грузим её приоритетно и
-                     не откладываем, в отличие от картинок в листингах. --}}
-                <img src="{{ $post->main_image ? asset('storage/'.$post->main_image) : asset(config('seo.default_image')) }}"
-                     alt="{{ $post->title }}" class="w-100"
-                     loading="eager" fetchpriority="high" decoding="async"
-                     width="1200" height="630">
+                     не откладываем, в отличие от картинок в листингах.
+                     Колонка статьи — 760 px на десктопе, на телефоне ширина
+                     экрана минус отступы; оригинал остаётся в srcset самым
+                     широким кандидатом для ретины. --}}
+                <x-post-image :path="$post->main_image" :alt="$post->title" class="w-100"
+                              :width="1200" :height="630"
+                              loading="eager" fetchpriority="high"
+                              sizes="(max-width: 767px) calc(100vw - 30px), 760px"/>
 
             </section>
             <section class="post-content">
