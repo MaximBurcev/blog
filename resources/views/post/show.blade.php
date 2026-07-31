@@ -83,13 +83,14 @@
             <section class="blog-post-featured-img" data-aos="fade-up" data-aos-delay="300">
                 {{-- Обложка — LCP-элемент страницы: грузим её приоритетно и
                      не откладываем, в отличие от картинок в листингах.
-                     Колонка статьи — 760 px на десктопе, на телефоне ширина
-                     экрана минус отступы; оригинал остаётся в srcset самым
-                     широким кандидатом для ретины. --}}
+                     Обложка идёт во всю ширину контейнера: 1110 px при
+                     контейнере bootstrap 1140 и уже на средних экранах.
+                     Ширины взяты по брейкпоинтам, иначе браузер выбирает
+                     вариант уже контейнера и растягивает его. --}}
                 <x-post-image :path="$post->main_image" :alt="$post->title" class="w-100"
                               :width="1200" :height="630"
                               loading="eager" fetchpriority="high"
-                              sizes="(max-width: 767px) calc(100vw - 30px), 760px"/>
+                              sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 991px) 690px, (max-width: 1199px) 930px, 1110px"/>
 
             </section>
             <section class="post-content">
