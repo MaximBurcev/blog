@@ -50,10 +50,10 @@
     <meta name="twitter:image" content="{{ $ogImage }}">
 
     {{-- summernote (редактор из админки) и flag-icon отсюда убраны: на
-         публичных страницах они не используются, но блокировали рендер. --}}
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="stylesheet" href="{{ asset('assets/vendors/font-awesome/css/all.min.css') }}">
+         публичных страницах они не используются, но блокировали рендер.
+         Font Awesome убран следом: единственной иконкой было сердечко лайка,
+         теперь это инлайновый SVG в шаблоне поста. --}}
+    <link rel="preload" href="{{ asset('assets/fonts/dm-sans/dm-sans-latin-variable.woff2') }}" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="{{ asset('assets/vendors/aos/aos.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
     <style>
@@ -95,9 +95,9 @@
             margin-right: 0.35rem;
         }
     </style>
-    {{-- jQuery, loader и highlight.js переехали в конец body: в <head> они
-         блокировали первую отрисовку, а нужны только после загрузки DOM. --}}
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlightjs-themes@1.0.0/androidstudio.css"/>
+    {{-- Тема подсветки кода уехала в @stack('head') шаблона поста: на всех
+         остальных страницах подсвечивать нечего. --}}
+    @stack('head')
 
     {{-- Общая для всех страниц разметка: сам сайт и его издатель. Разметка
          конкретной страницы (BlogPosting, BreadcrumbList) приезжает из
@@ -139,7 +139,10 @@
 
 </head>
 <body>
-<div class="edica-loader"></div>
+{{-- Прелоадер убран: белый оверлей на весь экран (z-index 9999) висел до
+     window.load, то есть до загрузки последней картинки и стороннего скрипта.
+     Пользователь и Lighthouse всё это время видели пустой белый экран, хотя
+     контент уже был отрисован. --}}
 <header class="edica-header">
     <div class="container">
         <nav class="navbar navbar-expand-lg navbar-light">
@@ -176,35 +179,33 @@
         </div>
     </div>
 </footer>
-<script src="{{ asset('assets/vendors/jquery/jquery.min.js') }}"></script>
-<script src="{{ asset('assets/js/loader.js') }}"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.6.0/highlight.min.js"></script>
-<script src="{{ asset('assets/vendors/popper.js/popper.min.js') }}"></script>
-<script src="{{ asset('assets/vendors/bootstrap/dist/js/bootstrap.min.js') }}"></script>
-<script src="{{ asset('assets/vendors/aos/aos.js') }}"></script>
-<script src="{{ asset('assets/js/main.js') }}"></script>
+{{-- Из фронта убраны jQuery, popper и bootstrap.js: jQuery нужен был только
+     лоадеру и main.js (тот вешал hover на .dropdown, которых в этой вёрстке
+     нет), popper — дропдаунам и тултипам bootstrap.js, а из самого
+     bootstrap.js использовалось одно раскрытие бургер-меню. Оно ниже на
+     ванильном JS, CSS-классы те же (.collapse / .show из style.css). --}}
+<script src="{{ asset('assets/vendors/aos/aos.js') }}" defer></script>
 
-
-
-
+{{-- Инлайн-скрипт выполняется сразу, а defer-скрипты — перед DOMContentLoaded,
+     поэтому AOS внутри обработчика уже определён. --}}
 <script>
-    AOS.init({
-        duration: 1000
+    document.addEventListener('DOMContentLoaded', function () {
+        AOS.init({ duration: 1000 });
+
+        document.querySelectorAll('[data-toggle="collapse"]').forEach(function (toggler) {
+            toggler.addEventListener('click', function () {
+                var target = document.querySelector(toggler.dataset.target);
+                if (!target) {
+                    return;
+                }
+                var opened = target.classList.toggle('show');
+                toggler.setAttribute('aria-expanded', opened ? 'true' : 'false');
+            });
+        });
     });
-
-    $(document).ready(function () {
-
-        const preTags = document.getElementsByTagName('pre');
-        const size = preTags.length;
-        for (let i = 0; i < size; i++) {
-            preTags[i].innerHTML = '<code>' + preTags[i].innerHTML + '</code>'; // wrap content of pre tag in code tag
-        }
-        hljs.highlightAll(); // apply highlighting
-
-    });
-
-
 </script>
+
+@stack('scripts')
 
 {{-- Echo/Pusher подписывается на приватный канал пользователя — гостю этот
      бандл не нужен вовсе. --}}

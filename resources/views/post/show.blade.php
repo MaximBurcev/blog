@@ -1,5 +1,36 @@
 @extends('layouts.main')
 
+@php
+    // highlight.js весит 120 КБ и раньше грузился с cdnjs на каждой странице
+    // сайта. Теперь он локальный и подключается только там, где есть что
+    // подсвечивать — то есть в посте реально встретился блок <pre>.
+    $hasCode = str_contains($post->content, '<pre');
+@endphp
+
+@if($hasCode)
+    @push('head')
+        <link rel="stylesheet" href="{{ asset('assets/vendors/highlight/androidstudio.css') }}">
+    @endpush
+
+    @push('scripts')
+        <script src="{{ asset('assets/vendors/highlight/highlight.min.js') }}" defer></script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                document.querySelectorAll('.post-content pre').forEach(function (pre) {
+                    // hljs подсвечивает содержимое <code>, а в контенте постов
+                    // лежит голый <pre> — оборачиваем перед подсветкой.
+                    if (!pre.querySelector('code')) {
+                        var code = document.createElement('code');
+                        code.append(...pre.childNodes);
+                        pre.append(code);
+                    }
+                });
+                hljs.highlightAll();
+            });
+        </script>
+    @endpush
+@endif
+
 @push('schema')
     @include('partials.json-ld', ['data' => [
         '@context' => 'https://schema.org',
@@ -86,7 +117,14 @@
             @auth()
                 <button id="like-btn" class="post-like-btn @if($isLiked) is-liked @endif" type="button"
                         aria-pressed="{{ $isLiked ? 'true' : 'false' }}">
-                    <i class="fa-heart post-like-icon {{ $isLiked ? 'fas' : 'far' }}"></i>
+                    {{-- Инлайновый SVG вместо иконки Font Awesome: ради одного
+                         сердечка весь шрифт иконок грузился на каждой странице
+                         сайта и блокировал отрисовку. Залито/не залито сердце
+                         решает класс .is-liked на кнопке, отдельные классы
+                         иконке больше не нужны. --}}
+                    <svg class="post-like-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                    </svg>
                     <span class="post-like-label">{{ $isLiked ? 'Нравится' : 'Мне нравится' }}</span>
                     <span class="post-like-count" id="likes-count">{{ $post->likesCount() }}</span>
                 </button>
@@ -125,8 +163,11 @@
 
                     .post-like-icon {
                         color: #c9c9c9;
-                        font-size: 1.05rem;
-                        transition: color 0.15s ease, transform 0.2s ease;
+                        fill: none;
+                        stroke: currentColor;
+                        stroke-width: 2;
+                        stroke-linejoin: round;
+                        transition: color 0.15s ease, fill 0.15s ease, transform 0.2s ease;
                     }
 
                     .post-like-btn:hover .post-like-icon {
@@ -140,6 +181,7 @@
 
                     .post-like-btn.is-liked .post-like-icon {
                         color: #e83e8c;
+                        fill: currentColor;
                     }
 
                     .post-like-btn.is-pop .post-like-icon {
@@ -181,7 +223,6 @@
                         });
 
                     const likeBtn = document.getElementById('like-btn');
-                    const likeIcon = likeBtn.querySelector('.post-like-icon');
                     const likeLabel = likeBtn.querySelector('.post-like-label');
 
                     likeBtn.addEventListener('click', () => {
@@ -204,8 +245,6 @@
 
                                 likeBtn.classList.toggle('is-liked', data.liked);
                                 likeBtn.setAttribute('aria-pressed', data.liked ? 'true' : 'false');
-                                likeIcon.classList.toggle('fas', data.liked);
-                                likeIcon.classList.toggle('far', !data.liked);
                                 likeLabel.textContent = data.liked ? 'Нравится' : 'Мне нравится';
 
                                 likeBtn.classList.remove('is-pop');
