@@ -26,8 +26,8 @@
                     @foreach($posts as $post)
                         <div class="col-md-4 fetured-post blog-post" data-aos="fade-up">
                             <div class="blog-post-thumbnail-wrapper">
-                                <img src="{{ $post->preview_image ? asset('storage/'.$post->preview_image) : asset(config('seo.default_image')) }}"
-                                     alt="{{ $post->title }}" loading="lazy" decoding="async" width="370" height="240">
+                                <x-post-image :path="$post->preview_image" :alt="$post->title"
+                                              :width="370" :height="240"/>
                             </div>
                             @if($post->category)
                                 <p class="blog-post-category">

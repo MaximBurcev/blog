@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Service\HtmlSanitizerService;
+use App\Service\ImageVariantService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -73,6 +74,22 @@ class Post extends Model
         'published' => 'boolean',
         'parsed_at' => 'datetime',
     ];
+
+    /**
+     * Уменьшенные копии превью для srcset генерируются здесь, а не в
+     * PostService или StorePostJob: обложку задаёт ещё и админка Filament,
+     * которая сохраняет модель напрямую, и мимо любого сервиса.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (self $post) {
+            if (! $post->wasChanged('preview_image') || blank($post->preview_image)) {
+                return;
+            }
+
+            app(ImageVariantService::class)->generate($post->preview_image);
+        });
+    }
 
     /**
      * Имя намеренно отличается от скоупа parseFailed(): одноимённый метод

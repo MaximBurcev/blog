@@ -266,9 +266,9 @@
                             <div class="row">
                                 @foreach($relatedPosts as $relatedPost)
                                     <div class="col-md-3" data-aos="fade-right" data-aos-delay="100">
-                                        <img src="{{ $relatedPost->preview_image ? asset('storage/'.$relatedPost->preview_image) : asset(config('seo.default_image')) }}"
-                                             alt="{{ $relatedPost->title }}" class="post-thumbnail"
-                                             loading="lazy" decoding="async" width="270" height="180">
+                                        <x-post-image :path="$relatedPost->preview_image" :alt="$relatedPost->title"
+                                                      :width="270" :height="180" class="post-thumbnail"
+                                                      sizes="(max-width: 767px) 50vw, 270px"/>
                                         @if($relatedPost->category)
                                             <p class="post-category">{{ $relatedPost->category->title }}</p>
                                         @endif
