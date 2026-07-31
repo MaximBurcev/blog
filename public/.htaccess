@@ -19,3 +19,28 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# Отметить сборку Vite: имена файлов там с хешем контента, можно кешировать навсегда
+<IfModule mod_setenvif.c>
+    SetEnvIf Request_URI "^/build/" IMMUTABLE_ASSET
+</IfModule>
+
+# Кеширование статики. Дублирует правила из vhost, но с полным списком типов:
+# там нет gif, из-за чего assets/images/loader.gif отдавался без Cache-Control.
+# FilesMatch, а не ExpiresByType — чтобы не цеплять PHP-роуты (они уже переписаны
+# на index.php). Срок 6 месяцев как в vhost: public/assets не хешированы, после
+# правки файла вернувшийся посетитель увидит старую версию до конца TTL.
+<FilesMatch "\.(css|js|mjs|map|gif|jpe?g|png|webp|avif|svg|ico|woff2?|ttf|otf|eot)$">
+    <IfModule mod_expires.c>
+        ExpiresActive On
+        ExpiresDefault "access plus 6 months"
+    </IfModule>
+    <IfModule mod_headers.c>
+        # Оба Header внутри FilesMatch: директивы секции применяются ПОСЛЕ
+        # несекционных, поэтому вынесенный наружу immutable молча перебивался бы
+        Header set Cache-Control "public, max-age=15552000" env=!IMMUTABLE_ASSET
+        Header set Cache-Control "public, max-age=31536000, immutable" env=IMMUTABLE_ASSET
+        # mod_expires не умеет env, для /build/ он поставит свои 6 месяцев — снимаем
+        Header unset Expires env=IMMUTABLE_ASSET
+    </IfModule>
+</FilesMatch>
