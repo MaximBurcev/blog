@@ -54,7 +54,8 @@
          Font Awesome убран следом: единственной иконкой было сердечко лайка,
          теперь это инлайновый SVG в шаблоне поста. --}}
     <link rel="preload" href="{{ asset('assets/fonts/dm-sans/dm-sans-latin-variable.woff2') }}" as="font" type="font/woff2" crossorigin>
-    <link rel="stylesheet" href="{{ asset('assets/vendors/aos/aos.css') }}">
+    {{-- Стили AOS вшиты в style.css: отдельный запрос на 2.6 КБ стоил
+         160 мс блокировки отрисовки. --}}
     <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
     <style>
         .blog .blog-post .blog-post-thumbnail-wrapper {

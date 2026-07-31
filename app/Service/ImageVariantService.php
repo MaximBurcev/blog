@@ -20,13 +20,29 @@ use Illuminate\Support\Facades\Storage;
 class ImageVariantService
 {
     /**
-     * Ширины под фактические размеры контейнеров: 160 — сайдбар (80 px при
-     * DPR 2), 400 — карточка листинга, 800 — она же на ретине и почти вся
-     * ширина экрана на мобильном.
+     * Ширины под фактические размеры контейнеров. Карточка листинга — это
+     * col-md-4 внутри col-md-8, то есть 223 px на широком экране, а вовсе
+     * не 370 из атрибута width; сайдбар — 80 px; на телефоне карточка
+     * занимает 100vw минус отступы контейнера.
+     *
+     * Отсюда набор: 160 — сайдбар, 240 — карточка на десктопе, 400 — она
+     * же на ретине, 600 и 800 — телефон при DPR 1.5 и 2.
+     *
+     * Шаг по ширине важнее качества: на замере обложка в 800 px весила
+     * 77 КБ, та же в 600 px — 36 КБ, а снижение качества с 82 до 65 при
+     * той же ширине экономило всего 17 КБ.
      */
-    public const WIDTHS = [160, 400, 800];
+    public const WIDTHS = [160, 240, 400, 600, 800];
 
+    /**
+     * Крупные варианты жмём сильнее: на карточке 370 px их пиксели вдвое
+     * мельче экранных, разница не видна, а вес заметный.
+     */
     private const QUALITY = 82;
+
+    private const QUALITY_LARGE = 72;
+
+    private const LARGE_FROM = 600;
 
     public function __construct(
         private readonly ?string $disk = 'public'
@@ -144,7 +160,7 @@ class ImageVariantService
             imagesavealpha($resized, true);
 
             ob_start();
-            $ok = imagewebp($resized, null, self::QUALITY);
+            $ok = imagewebp($resized, null, $targetWidth >= self::LARGE_FROM ? self::QUALITY_LARGE : self::QUALITY);
             $webp = (string) ob_get_clean();
             imagedestroy($resized);
 

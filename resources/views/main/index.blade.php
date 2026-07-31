@@ -21,8 +21,12 @@
                                 <div class="col-md-4 fetured-post blog-post" data-aos="fade-up">
                                     <a href="{{ route('post.show', $post->code) }}">
                                         <div class="blog-post-thumbnail-wrapper">
+                                            {{-- Первая карточка — кандидат в LCP: она видна сразу,
+                                                 и откладывать её загрузку нечем. --}}
                                             <x-post-image :path="$post->preview_image" :alt="$post->title"
-                                                          :width="370" :height="240"/>
+                                                          :width="370" :height="240"
+                                                          :loading="$loop->first ? 'eager' : 'lazy'"
+                                                          :fetchpriority="$loop->first ? 'high' : null"/>
 
                                         </div>
                                     </a>

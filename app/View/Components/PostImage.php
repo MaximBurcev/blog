@@ -3,6 +3,7 @@
 namespace App\View\Components;
 
 use App\Service\ImageVariantService;
+use Illuminate\Support\Str;
 use Illuminate\View\Component;
 
 /**
@@ -30,13 +31,27 @@ class PostImage extends Component
          * Значение по умолчанию описывает карточку листинга: во всю ширину
          * на телефоне, половина на планшете, 370 px на десктопе.
          */
-        public string $sizes = '(max-width: 575px) 100vw, (max-width: 991px) 50vw, 370px',
+        public string $sizes = '(max-width: 575px) calc(100vw - 30px), (max-width: 767px) 510px, (max-width: 991px) 150px, 225px',
         public string $loading = 'lazy',
+        public ?string $fetchpriority = null,
     ) {
-        // Постов без обложки хватает — им отдаём общую заглушку, для неё
-        // вариантов нет и srcset не нужен.
-        $this->src = $path ? asset('storage/'.$path) : asset(config('seo.default_image'));
-        $this->srcset = $path ? $variants->srcset($path) : null;
+        // У постов без обложки общая заглушка, и ей варианты нужны не
+        // меньше: сам файл — 1920x960 на 61 КБ, а стоит он в тех же
+        // карточках по 223 px. В og:image при этом уходит оригинал.
+        $path ??= $this->defaultImagePath();
+
+        $this->src = asset('storage/'.$path);
+        $this->srcset = $variants->srcset($path);
+    }
+
+    /**
+     * config('seo.default_image') хранит путь вместе с префиксом «storage/»
+     * — он же используется как готовый URL для og:image. Здесь нужен путь
+     * внутри диска, без префикса.
+     */
+    private function defaultImagePath(): string
+    {
+        return (string) Str::after(config('seo.default_image'), 'storage/');
     }
 
     public function render()

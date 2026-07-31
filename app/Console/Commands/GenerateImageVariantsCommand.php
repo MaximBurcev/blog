@@ -6,6 +6,7 @@ use App\Models\Post;
 use App\Service\ImageVariantService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * Backfill уменьшенных копий превью для уже существующих постов.
@@ -17,13 +18,15 @@ use Illuminate\Support\Facades\Storage;
 class GenerateImageVariantsCommand extends Command
 {
     protected $signature = 'images:variants
-        {--dry-run : Показать, сколько будет создано, без записи}';
+        {--dry-run : Показать, сколько будет создано, без записи}
+        {--force : Пересоздать варианты заново — нужно после смены набора ширин или качества}';
 
     protected $description = 'Создаёт уменьшенные копии превью постов для srcset';
 
     public function handle(ImageVariantService $variants): int
     {
         $dryRun = (bool) $this->option('dry-run');
+        $force = (bool) $this->option('force');
         $disk = Storage::disk('public');
 
         $paths = Post::withTrashed()
@@ -31,6 +34,10 @@ class GenerateImageVariantsCommand extends Command
             ->distinct()
             ->pluck('preview_image')
             ->all();
+
+        // Заглушка стоит в карточках постов без обложки, ей варианты нужны
+        // на тех же основаниях.
+        $paths[] = (string) Str::after(config('seo.default_image'), 'storage/');
 
         $created = 0;
         $skipped = 0;
@@ -47,7 +54,7 @@ class GenerateImageVariantsCommand extends Command
             if ($dryRun) {
                 // Считаем недостающие, ничего не записывая.
                 foreach (ImageVariantService::WIDTHS as $width) {
-                    if (! $disk->exists($variants->variantPath($path, $width))) {
+                    if ($force || ! $disk->exists($variants->variantPath($path, $width))) {
                         $created++;
                     } else {
                         $skipped++;
@@ -55,6 +62,14 @@ class GenerateImageVariantsCommand extends Command
                 }
 
                 continue;
+            }
+
+            if ($force) {
+                // generate() пропускает то, что уже лежит на диске, поэтому
+                // при смене ширин или качества старое надо убрать руками.
+                foreach (ImageVariantService::WIDTHS as $width) {
+                    $disk->delete($variants->variantPath($path, $width));
+                }
             }
 
             $new = $variants->generate($path);
