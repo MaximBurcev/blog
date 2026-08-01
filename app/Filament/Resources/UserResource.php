@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Enums\UserRole;
 use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
 use Filament\Forms\Components\TextInput;
@@ -12,6 +13,7 @@ use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 
@@ -84,7 +86,24 @@ class UserResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    // canDelete() массовое удаление не проверяет — сверяем сами
+                    // и отменяем всю операцию, если в выборку попал защищённый.
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->before(function (Tables\Actions\DeleteBulkAction $action, Collection $records) {
+                            $protected = $records->reject(fn (User $user) => static::canDelete($user));
+
+                            if ($protected->isEmpty()) {
+                                return;
+                            }
+
+                            Notification::make()
+                                ->danger()
+                                ->title('Удаление отменено')
+                                ->body('Нельзя удалить себя или последнего администратора: '.$protected->pluck('email')->implode(', '))
+                                ->send();
+
+                            $action->cancel();
+                        }),
                 ]),
             ]);
     }
@@ -105,10 +124,22 @@ class UserResource extends Resource
         ];
     }
 
-    //    public static function canDelete(Model $record): bool
-    //    {
-    //        return false;
-    //    }
+    /**
+     * Удалить себя или последнего администратора нельзя — иначе доступ
+     * к панели теряется безвозвратно.
+     */
+    public static function canDelete(Model $record): bool
+    {
+        if ($record->getKey() === auth()->id()) {
+            return false;
+        }
+
+        if ($record->role !== UserRole::Admin) {
+            return true;
+        }
+
+        return User::query()->where('role', UserRole::Admin)->count() > 1;
+    }
 
     public static function getNavigationBadge(): ?string
     {

@@ -2,8 +2,10 @@
 
 namespace App\Providers;
 
-// use Illuminate\Support\Facades\Gate;
+use App\Enums\UserRole;
+use App\Models\User;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
+use Illuminate\Support\Facades\Gate;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -21,6 +23,11 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Без этого gate пакет log-viewer пускает к логам кого угодно:
+        // AuthorizeLogViewer вызывает LogViewer::auth(), а тот проверяет
+        // доступ, только когда gate объявлен (иначе — молча пропускает).
+        Gate::define('viewLogViewer', function (?User $user) {
+            return $user?->role === UserRole::Admin;
+        });
     }
 }
