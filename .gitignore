@@ -19,5 +19,10 @@ yarn-error.log
 /.idea
 /.vscode
 access.log
+error.log
+# Дампы БД в корне проекта (laravel.sql и т.п.) — содержат боевые данные:
+# e-mail и bcrypt-хэши пользователей. Паттерн только для корня, чтобы не задеть
+# docker/pgsql/create-testing-database.sql
+/*.sql
 /meilisearch-data
 /.playwright-mcp

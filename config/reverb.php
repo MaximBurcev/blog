@@ -85,7 +85,14 @@ return [
                 // '*' пускал WebSocket handshake с любого origin (cross-site
                 // WebSocket hijacking) — по умолчанию только сам сайт,
                 // дополнительные origin'ы через REVERB_ALLOWED_ORIGINS (через запятую).
-                'allowed_origins' => array_filter(array_map('trim', explode(',', env('REVERB_ALLOWED_ORIGINS', env('APP_URL', ''))))),
+                // Reverb сравнивает паттерн с ГОЛЫМ хостом Origin (Server::open() →
+                // parse_url($origin, PHP_URL_HOST)), поэтому дефолт из APP_URL нужно
+                // приводить к хосту — иначе 'http://site.ru:8000' не совпадёт с 'site.ru'
+                // и сервер закроет все соединения с InvalidOrigin.
+                'allowed_origins' => array_filter(array_map('trim', explode(',', env(
+                    'REVERB_ALLOWED_ORIGINS',
+                    parse_url((string) env('APP_URL', ''), PHP_URL_HOST) ?: ''
+                )))),
                 'ping_interval' => env('REVERB_APP_PING_INTERVAL', 60),
                 'activity_timeout' => env('REVERB_APP_ACTIVITY_TIMEOUT', 30),
                 'max_connections' => env('REVERB_APP_MAX_CONNECTIONS'),

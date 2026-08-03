@@ -38,7 +38,10 @@ return [
             'driver' => 'database',
             'table' => 'jobs',
             'queue' => 'default',
-            'retry_after' => 90,
+            // retry_after обязан превышать самый большой $timeout среди джоб этого
+            // соединения (StorePostJob::$timeout = 300), иначе очередь отдаст ещё
+            // выполняющуюся задачу второму воркеру и она выполнится дважды.
+            'retry_after' => 360,
             'after_commit' => false,
         ],
 
@@ -66,7 +69,8 @@ return [
             'driver' => 'redis',
             'connection' => 'default',
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => 90,
+            // См. комментарий к 'database': значение больше StorePostJob::$timeout.
+            'retry_after' => 360,
             'block_for' => null,
             'after_commit' => false,
         ],

@@ -26,6 +26,18 @@ return [
                 'exclude' => [
                     base_path('vendor'),
                     base_path('node_modules'),
+                    // Секреты в архив не кладём: даже при заданном BACKUP_ARCHIVE_PASSWORD
+                    // архив лежит рядом с приложением, а .env — это APP_KEY, DB_PASSWORD,
+                    // REVERB_APP_SECRET и MEILISEARCH_KEY разом. Храните .env отдельно.
+                    base_path('.env'),
+                    // Дамп БД и логи: дублируют содержимое бэкапа и раздувают архив.
+                    base_path('laravel.sql'),
+                    base_path('access.log'),
+                    base_path('error.log'),
+                    base_path('.git'),
+                    storage_path('logs'),
+                    storage_path('framework/cache'),
+                    storage_path('app/backup-temp'),
                 ],
 
                 /*
@@ -199,9 +211,10 @@ return [
             \Spatie\Backup\Notifications\Notifications\BackupHasFailedNotification::class => ['mail'],
             \Spatie\Backup\Notifications\Notifications\UnhealthyBackupWasFoundNotification::class => ['mail'],
             \Spatie\Backup\Notifications\Notifications\CleanupHasFailedNotification::class => ['mail'],
-            \Spatie\Backup\Notifications\Notifications\BackupWasSuccessfulNotification::class => ['mail'],
-            \Spatie\Backup\Notifications\Notifications\HealthyBackupWasFoundNotification::class => ['mail'],
-            \Spatie\Backup\Notifications\Notifications\CleanupWasSuccessfulNotification::class => ['mail'],
+            // Успешные прогоны не шлём — иначе ежедневный шум заглушит письма о сбоях.
+            \Spatie\Backup\Notifications\Notifications\BackupWasSuccessfulNotification::class => [],
+            \Spatie\Backup\Notifications\Notifications\HealthyBackupWasFoundNotification::class => [],
+            \Spatie\Backup\Notifications\Notifications\CleanupWasSuccessfulNotification::class => [],
         ],
 
         /*
@@ -211,7 +224,7 @@ return [
         'notifiable' => \Spatie\Backup\Notifications\Notifiable::class,
 
         'mail' => [
-            'to' => 'your@example.com',
+            'to' => env('BACKUP_NOTIFICATION_EMAIL', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
 
             'from' => [
                 'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),

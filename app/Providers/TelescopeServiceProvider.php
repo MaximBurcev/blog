@@ -37,10 +37,9 @@ class TelescopeServiceProvider extends TelescopeApplicationServiceProvider
      */
     protected function hideSensitiveRequestDetails(): void
     {
-        if ($this->app->environment('local')) {
-            return;
-        }
-
+        // Скрываем во всех окружениях, включая local: на dev-контуре Telescope пишет
+        // вообще всё (см. filter() ниже), и заголовок Cookie — это значение живой сессии,
+        // которое затем уезжает в дампы БД и бэкапы.
         Telescope::hideRequestParameters(['_token']);
 
         Telescope::hideRequestHeaders([
