@@ -14,7 +14,7 @@ class PostView extends Model
     protected $fillable = [
         'post_id',
         'ip_hash',
-        'session_id',
+        'session_hash',
         'viewed_at',
     ];
 

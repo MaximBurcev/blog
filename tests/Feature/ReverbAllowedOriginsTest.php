@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Support\Env;
 use Illuminate\Support\Str;
+use Tests\Concerns\InteractsWithEnv;
 use Tests\TestCase;
 
 /**
@@ -16,31 +16,17 @@ use Tests\TestCase;
  */
 class ReverbAllowedOriginsTest extends TestCase
 {
+    use InteractsWithEnv;
+
     /**
      * @return array<int, string>
      */
     private function allowedOriginsFor(string $appUrl, ?string $explicitOrigins = null): array
     {
-        $repository = Env::getRepository();
-
-        $previousUrl = Env::get('APP_URL');
-        $previousOrigins = Env::get('REVERB_ALLOWED_ORIGINS');
-
-        $repository->set('APP_URL', $appUrl);
-        $explicitOrigins === null
-            ? $repository->clear('REVERB_ALLOWED_ORIGINS')
-            : $repository->set('REVERB_ALLOWED_ORIGINS', $explicitOrigins);
-
-        try {
-            $config = require base_path('config/reverb.php');
-
-            return $config['apps']['apps'][0]['allowed_origins'];
-        } finally {
-            $previousUrl === null ? $repository->clear('APP_URL') : $repository->set('APP_URL', $previousUrl);
-            $previousOrigins === null
-                ? $repository->clear('REVERB_ALLOWED_ORIGINS')
-                : $repository->set('REVERB_ALLOWED_ORIGINS', $previousOrigins);
-        }
+        return $this->withEnv(
+            ['APP_URL' => $appUrl, 'REVERB_ALLOWED_ORIGINS' => $explicitOrigins],
+            fn () => (require base_path('config/reverb.php'))['apps']['apps'][0]['allowed_origins']
+        );
     }
 
     /**

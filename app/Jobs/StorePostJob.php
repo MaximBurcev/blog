@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\DataTransferObjects\PostData;
+use App\Exceptions\TransientFetchException;
 use App\Models\Post;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
@@ -34,9 +35,12 @@ use Stichoza\GoogleTranslate\GoogleTranslate;
  * Без distributed lock две параллельные джобы по одному и тому же url (два
  * воркера queue:work, либо повторный ParseReleaseJob до того как первая
  * успела закоммититься) всё ещё могут одновременно пройти проверку
- * "существует ли Post с таким url" и создать дубликат — updateOrCreate не
- * атомарен без UNIQUE-индекса в БД, а его пока нет (см.
- * docs/blog-improvements-plan.md — в данных уже есть дубли url).
+ * "существует ли Post с таким url" и создать дубликат.
+ *
+ * Второй рубеж — UNIQUE-индекс posts_url_unique (миграция 2026_08_04_100000):
+ * лок держится на файловом кэше и потому не распределённый, а индекс делает
+ * дубликат физически невозможным независимо от того, сколько воркеров и на
+ * скольких инстансах работают.
  */
 class StorePostJob implements ShouldBeUnique, ShouldQueue
 {
@@ -116,9 +120,11 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             if ($html === false) {
                 $failure = $this->fetchError ?? 'Не удалось скачать страницу статьи';
             } elseif (empty($html)) {
-                $failure = 'Источник вернул пустой ответ';
+                throw new TransientFetchException('Источник вернул пустой ответ');
             } elseif ($this->isChallengePage($html)) {
-                $failure = 'Вместо статьи отдана антибот-заглушка (Cloudflare)';
+                // Антибот-заглушка часто уходит сама: смена выходного адреса,
+                // спад нагрузки на защите источника. Отдаём очереди на retry.
+                throw new TransientFetchException('Вместо статьи отдана антибот-заглушка (Cloudflare)');
             } else {
                 @$dom->loadHTML($html);
 
@@ -131,6 +137,16 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
                     $this->extractArticle($dom, $h1, $titleTranslator);
                 }
             }
+        } catch (TransientFetchException $exception) {
+            // Наружу: очередь запланирует retry по $backoff. Заглушку поста
+            // создаст failed(), когда попытки закончатся.
+            Log::warning('StorePostJob: transient failure, retry', [
+                'url' => $this->data['url'] ?? null,
+                'attempt' => $this->attempts(),
+                'reason' => $exception->getMessage(),
+            ]);
+
+            throw $exception;
         } catch (\Throwable $exception) {
             Log::error('StorePostJob error: '.$exception->getMessage(), [
                 'class' => get_class($exception),
@@ -159,6 +175,41 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
 
         $this->service->store(PostData::fromArray($this->data));
+    }
+
+    /**
+     * Ретраи закончились (или джоба не уложилась в $timeout). Ссылка не должна
+     * потеряться молча: создаём тот же пост-заглушку, что и при постоянном
+     * сбое, но с пометкой, сколько попыток было потрачено.
+     *
+     * Вызывается на свежем экземпляре с исходным payload, поэтому $this->data
+     * здесь — то, с чем джобу поставили в очередь, без наработок handle().
+     */
+    public function failed(\Throwable $exception): void
+    {
+        Log::error('StorePostJob: attempts exhausted', [
+            'url' => $this->data['url'] ?? null,
+            'class' => get_class($exception),
+            'reason' => $exception->getMessage(),
+        ]);
+
+        $this->applyParseResult(sprintf(
+            'Не удалось разобрать за %d попыток: %s',
+            $this->tries,
+            $exception->getMessage()
+        ));
+
+        $this->data['content'] = $this->data['content'] ?? '';
+
+        try {
+            app(PostService::class)->store(PostData::fromArray($this->data));
+        } catch (\Throwable $storeException) {
+            // Уже в failed(): бросать отсюда некуда, кроме лога.
+            Log::error('StorePostJob: failed() could not persist stub post', [
+                'url' => $this->data['url'] ?? null,
+                'error' => $storeException->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -276,12 +327,22 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             }
 
             if ($result['status'] === null) {
-                $this->fetchError = "Источник не ответил: {$url} (таймаут, обрыв соединения либо превышен лимит размера ответа)";
+                // Сеть моргнула или источник не уложился в --max-time: ровно
+                // тот случай, ради которого у джобы есть $tries и $backoff.
+                throw new TransientFetchException(
+                    "Источник не ответил: {$url} (таймаут, обрыв соединения либо превышен лимит размера ответа)"
+                );
+            }
 
-                return false;
+            if ($result['status'] >= 500 || $result['status'] === 429) {
+                // Проблема на стороне источника (или он просит притормозить) —
+                // через минуту-другую та же ссылка обычно отдаётся нормально.
+                throw new TransientFetchException("Источник вернул HTTP {$result['status']}: {$url}");
             }
 
             if ($result['status'] >= 400) {
+                // 404/410/401/403 — повторять бессмысленно, статьи там нет
+                // или доступ к ней закрыт. Фиксируем на посте как есть.
                 $this->fetchError = "Источник вернул HTTP {$result['status']}: {$url}";
 
                 return false;
@@ -930,13 +991,5 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             // The content to modify
             $postContent
         );
-    }
-
-    public function failed(\Throwable $exception): void
-    {
-        Log::error('StorePostJob permanently failed', [
-            'url' => $this->data['url'] ?? null,
-            'error' => $exception->getMessage(),
-        ]);
     }
 }

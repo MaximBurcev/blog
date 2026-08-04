@@ -45,6 +45,25 @@ class RouteServiceProvider extends ServiceProvider
             ];
         });
 
+        // Регистрация и запрос сброса пароля: Auth::routes() не вешает throttle
+        // ни на один маршрут, а брокер паролей ограничивает только повторную
+        // отправку на ОДИН адрес (config/auth.php passwords.throttle). Без лимита
+        // по IP это спам-регистрации и рассылка писем сброса на чужие ящики
+        // через нашу инфраструктуру.
+        RateLimiter::for('auth-sensitive', function (Request $request) {
+            return [
+                Limit::perMinute(5)->by('auth-minute:'.$request->ip()),
+                Limit::perHour(20)->by('auth-hour:'.$request->ip()),
+            ];
+        });
+
+        // Лайк порождает запись в БД и broadcast-джобу на каждый запрос,
+        // поиск — обращение к Meilisearch. Лимит на пользователя, а для гостя
+        // (поиск открыт всем) — на IP.
+        RateLimiter::for('interactions', function (Request $request) {
+            return Limit::perMinute(30)->by($request->user()?->id ?: $request->ip());
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

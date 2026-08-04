@@ -15,6 +15,25 @@ class TrustProxies extends Middleware
     protected $proxies;
 
     /**
+     * Список берём из config/security.php (env TRUSTED_PROXIES), а не из
+     * захардкоженного свойства: за балансировщиком/CDN без него схема запроса
+     * определяется как http — HSTS не выставляется, secure-cookie считаются
+     * небезопасными, а в post_views пишется IP прокси вместо посетителя.
+     *
+     * @return array<int, string>|string|null
+     */
+    protected function proxies()
+    {
+        $proxies = config('security.trusted_proxies', []);
+
+        if ($proxies === ['*']) {
+            return '*';
+        }
+
+        return $proxies ?: null;
+    }
+
+    /**
      * The headers that should be used to detect proxies.
      *
      * @var int

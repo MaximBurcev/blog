@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Post;
 use Illuminate\Support\Facades\Broadcast;
 
 /*
@@ -17,4 +18,7 @@ Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
 
-Broadcast::channel('post.{id}', fn ($user, $id) => true);
+// Канал отдаёт счётчик лайков (PostLiked). Заглушка `=> true` пускала любого
+// аутентифицированного на канал любого поста, включая несуществующий и
+// неопубликованный, — подписка подтверждала факт существования черновика.
+Broadcast::channel('post.{id}', fn ($user, $id) => Post::whereKey($id)->published()->exists());

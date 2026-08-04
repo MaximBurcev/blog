@@ -27,4 +27,11 @@ class ResetPasswordController extends Controller
      * @var string
      */
     protected $redirectTo = RouteServiceProvider::HOME;
+
+    public function __construct()
+    {
+        // Токен сброса — 60 символов, перебор нереалистичен, но лимит закрывает
+        // распределённый подбор и заодно не даёт молотить БД проверками токена.
+        $this->middleware('throttle:auth-sensitive')->only('reset');
+    }
 }

@@ -12,6 +12,12 @@ class StoreController extends Controller
 {
     public function __invoke(Post $post, StoreRequest $request): RedirectResponse
     {
+        // Неявный биндинг резолвит пост по id без scopePublished, тогда как
+        // Post\ShowController отдаёт 404 на неопубликованный. Без этой проверки
+        // перебор id подтверждал существование ещё не вышедшей статьи (200 vs
+        // 404) и позволял оставить к ней комментарий до публикации.
+        abort_unless($post->published, 404);
+
         $data = $request->validated();
 
         $redirect = redirect(route('post.show', $post->code).'#comments')

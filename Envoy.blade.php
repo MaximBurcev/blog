@@ -32,6 +32,7 @@
     config_project
     migrate
     set_current
+    queue_restart
     releases_clean
 @endstory
 
@@ -96,6 +97,22 @@
     rm -rf {{$dirCurrentRelease}}/storage/app;
     cd {{$dirCurrentRelease}};
     ln -nfs {{$dirShared}}/storage/app storage/app;
+
+    # Шарилось только storage/app, поэтому сессии, кэш и логи жили ВНУТРИ
+    # релиза: каждый выкат разлогинивал всех посетителей и ломал CSRF у
+    # открытых форм, сбрасывал cache-локи ShouldBeUnique, а логи уезжали
+    # вместе со старым релизом и удалялись при ротации пятого.
+    echo "# Linking shared session/cache/log directories";
+    mkdir -p {{$dirShared}}/storage/framework/sessions;
+    mkdir -p {{$dirShared}}/storage/framework/cache/data;
+    mkdir -p {{$dirShared}}/storage/framework/views;
+    mkdir -p {{$dirShared}}/storage/logs;
+    rm -rf storage/framework/sessions storage/framework/cache storage/framework/views storage/logs;
+    ln -nfs {{$dirShared}}/storage/framework/sessions storage/framework/sessions;
+    ln -nfs {{$dirShared}}/storage/framework/cache storage/framework/cache;
+    ln -nfs {{$dirShared}}/storage/framework/views storage/framework/views;
+    ln -nfs {{$dirShared}}/storage/logs storage/logs;
+
     php artisan storage:link
 
     echo "# Linking .env file";
@@ -140,6 +157,16 @@
 @task('set_current', ['on' => $on])
     echo '# Linking current release';
     ln -nfs {{$dirCurrentRelease}} {{$dirCurrent}};
+@endtask
+
+@task('queue_restart', ['on' => $on])
+    # Без этого воркеры продолжали исполнять код релиза, из которого стартовали:
+    # он оставался в их памяти до перезапуска и через пять деплоев физически
+    # удалялся шагом releases_clean. Выполняется ПОСЛЕ set_current, чтобы
+    # поднявшийся заново воркер подхватил уже новый релиз.
+    echo '# Restarting queue workers';
+    cd {{$dirCurrent}};
+    php artisan queue:restart;
 @endtask
 
 @story('post-parse', ['on' => 'production'])

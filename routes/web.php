@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', IndexController::class)->name('main.index');
 
-Route::get('/search', SearchController::class)->name('main.search');
+Route::get('/search', SearchController::class)->name('main.search')->middleware('throttle:interactions');
 
 Route::get('/sitemap', [\App\Http\Controllers\Sitemap\IndexController::class, 'index'])->name('sitemap.index');
 
@@ -34,7 +34,7 @@ Route::prefix('posts')->group(function () {
     Route::get('/', PostIndexController::class)->name('posts.index');
     Route::post('/{post}/comments', StoreController::class)->name('post.comment.store')->middleware('throttle:comments');
     Route::get('/{post}', ShowController::class)->name('post.show');
-    Route::post('/{post}/like', [PostLikeStoreController::class, 'like'])->middleware('auth');
+    Route::post('/{post}/like', [PostLikeStoreController::class, 'like'])->middleware(['auth', 'throttle:interactions']);
 });
 
 Route::prefix('categories')->group(function () {

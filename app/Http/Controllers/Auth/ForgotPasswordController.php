@@ -19,4 +19,13 @@ class ForgotPasswordController extends Controller
     */
 
     use SendsPasswordResetEmails;
+
+    public function __construct()
+    {
+        // config/auth.php passwords.throttle ограничивает только повторную
+        // отправку на ОДИН адрес. Без лимита по IP скрипт рассылал письма
+        // сброса на произвольные чужие ящики через нашу инфраструктуру —
+        // абьюз чужой почты и риск блокировки домена у SMTP-провайдера.
+        $this->middleware('throttle:auth-sensitive')->only('sendResetLinkEmail');
+    }
 }

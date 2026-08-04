@@ -14,33 +14,44 @@ class PostViewService
 
     public function record(Post $post, Request $request): void
     {
-        $sessionId = $request->hasSession() ? $request->session()->getId() : null;
-        $ipHash = $request->ip() !== null ? hash('sha256', $request->ip()) : null;
+        $sessionHash = $request->hasSession() ? $this->pseudonymize($request->session()->getId()) : null;
+        $ipHash = $request->ip() !== null ? $this->pseudonymize($request->ip()) : null;
 
-        if ($this->alreadyViewed($post, $sessionId, $ipHash)) {
+        if ($this->alreadyViewed($post, $sessionHash, $ipHash)) {
             return;
         }
 
         $post->views()->create([
             'ip_hash' => $ipHash,
-            'session_id' => $sessionId,
+            'session_hash' => $sessionHash,
             'viewed_at' => now(),
         ]);
     }
 
-    private function alreadyViewed(Post $post, ?string $sessionId, ?string $ipHash): bool
+    /**
+     * HMAC, а не голый hash(): id сессии — это токен доступа, а несолёный
+     * sha256 от IPv4 разворачивается перебором 2^32 значений за минуты. Ключ
+     * приложения не лежит в БД, поэтому утечка дампа больше не даёт ни сессий,
+     * ни исходных IP. Побочный эффект: смена APP_KEY обнуляет дедуп просмотров.
+     */
+    private function pseudonymize(string $value): string
+    {
+        return hash_hmac('sha256', $value, (string) config('app.key'));
+    }
+
+    private function alreadyViewed(Post $post, ?string $sessionHash, ?string $ipHash): bool
     {
         // Нечем идентифицировать посетителя — считаем просмотр новым, но
         // без session/ip записи всё равно попадут в общий счётчик.
-        if ($sessionId === null && $ipHash === null) {
+        if ($sessionHash === null && $ipHash === null) {
             return false;
         }
 
         return $post->views()
             ->where('viewed_at', '>=', now()->subHours(self::DEDUP_WINDOW_HOURS))
-            ->where(function ($query) use ($sessionId, $ipHash) {
-                if ($sessionId !== null) {
-                    $query->orWhere('session_id', $sessionId);
+            ->where(function ($query) use ($sessionHash, $ipHash) {
+                if ($sessionHash !== null) {
+                    $query->orWhere('session_hash', $sessionHash);
                 }
                 if ($ipHash !== null) {
                     $query->orWhere('ip_hash', $ipHash);

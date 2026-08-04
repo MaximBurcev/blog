@@ -5,7 +5,10 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Providers\RouteServiceProvider;
+use Illuminate\Auth\Events\Registered;
 use Illuminate\Foundation\Auth\RegistersUsers;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
@@ -39,6 +42,40 @@ class RegisterController extends Controller
     public function __construct()
     {
         $this->middleware('guest');
+
+        // Auth::routes() не вешает throttle ни на один маршрут. Лимит только на
+        // сам POST: форму (GET) перезагружают легитимно и часто.
+        $this->middleware('throttle:auth-sensitive')->only('register');
+    }
+
+    /**
+     * Копия RegistersUsers::register() с одной вставкой — проверкой honeypot.
+     * Поле 'website' невидимо человеку (см. auth/register.blade.php), поэтому
+     * заполненным оно приходит только от бота. Ответ при этом неотличим от
+     * успешного: скрипт не понимает, что был отсеян, и не подбирает обход —
+     * тот же приём, что в Post\Comment\StoreController.
+     */
+    public function register(Request $request)
+    {
+        $this->validator($request->all())->validate();
+
+        if (filled($request->input('website'))) {
+            return $request->wantsJson()
+                ? new JsonResponse([], 201)
+                : redirect($this->redirectPath());
+        }
+
+        event(new Registered($user = $this->create($request->all())));
+
+        $this->guard()->login($user);
+
+        if ($response = $this->registered($request, $user)) {
+            return $response;
+        }
+
+        return $request->wantsJson()
+            ? new JsonResponse([], 201)
+            : redirect($this->redirectPath());
     }
 
     /**

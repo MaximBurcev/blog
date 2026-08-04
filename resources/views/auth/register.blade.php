@@ -11,6 +11,15 @@
                     <form method="POST" action="{{ route('register') }}">
                         @csrf
 
+                        {{-- Honeypot по образцу формы комментариев: невидимо человеку
+                             (offscreen + tabindex=-1 + autocomplete=off), а боты
+                             заполняют все найденные поля подряд. Обработка —
+                             в RegisterController::register(). --}}
+                        <div class="register-hp-field" aria-hidden="true">
+                            <label for="website">Website</label>
+                            <input type="text" name="website" id="website" tabindex="-1" autocomplete="off">
+                        </div>
+
                         <div class="row mb-3">
                             <label for="name" class="col-md-4 col-form-label text-md-end">{{ __('Name') }}</label>
 
@@ -69,6 +78,17 @@
                             </div>
                         </div>
                     </form>
+
+                    <style>
+                        .register-hp-field {
+                            position: absolute;
+                            left: -9999px;
+                            top: -9999px;
+                            width: 1px;
+                            height: 1px;
+                            overflow: hidden;
+                        }
+                    </style>
                 </div>
             </div>
         </div>
