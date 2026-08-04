@@ -7,7 +7,16 @@
     <!-- CSRF Token -->
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <title>{{ config('app.name', 'Laravel') }}</title>
+    <title>{{ $title ?? config('app.name', 'Laravel') }}</title>
+
+    {{-- Под этим макетом живут только служебные страницы аккаунта (вход,
+         регистрация, восстановление пароля, подтверждение почты). Метатегов
+         тут не было вовсе — Яндекс.Вебмастер ругался на «Отсутствуют метатеги
+         Description» именно с них. Индексировать их незачем, но description
+         всё равно нужен: страница может попасть в выдачу по ссылке. --}}
+    <meta name="description" content="{{ $description ?? config('seo.default_description') }}">
+    <meta name="robots" content="noindex, follow">
+    <link rel="canonical" href="{{ url()->current() }}">
 
     @include('partials.favicon')
 
