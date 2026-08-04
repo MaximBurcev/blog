@@ -34,7 +34,10 @@ Route::prefix('posts')->group(function () {
     Route::get('/', PostIndexController::class)->name('posts.index');
     Route::post('/{post}/comments', StoreController::class)->name('post.comment.store')->middleware('throttle:comments');
     Route::get('/{post}', ShowController::class)->name('post.show');
-    Route::post('/{post}/like', [PostLikeStoreController::class, 'like'])->middleware(['auth', 'throttle:interactions']);
+    // verified: лайк — единственное действие, требующее аккаунта, и именно он
+    // был бы целью накрутки с пачки свежесозданных фейков.
+    Route::post('/{post}/like', [PostLikeStoreController::class, 'like'])
+        ->middleware(['auth', 'verified', 'throttle:interactions']);
 });
 
 Route::prefix('categories')->group(function () {
@@ -47,7 +50,9 @@ Route::prefix('tags')->group(function () {
     Route::get('/{tag}', 'App\Http\Controllers\Tag\ShowController')->name('tag.show');
 });
 
-Auth::routes();
+// verify => true подключает маршруты подтверждения почты (User реализует
+// MustVerifyEmail). Троттлинг самих отправок — в VerificationController.
+Auth::routes(['verify' => true]);
 
 Route::get('/sitemap.xml', \App\Http\Controllers\Sitemap\XmlController::class)->name('sitemap.xml');
 
