@@ -24,14 +24,48 @@ class HtmlSanitizerService
         'table,thead,tbody,tr,td,th,'.
         'span,div';
 
+    /**
+     * HTMLPurifier переиспользуется между вызовами.
+     *
+     * Раньше и конфиг, и сам пурифаер собирались заново на каждый вызов, причём
+     * с Cache.DefinitionImpl = null, то есть с выключенным кэшем определений:
+     * весь набор разрешённых тегов и атрибутов разбирался с нуля на каждую
+     * статью. При санитайзинге поста мутаторы модели дёргают сервис дважды
+     * (content и content_orig), а команда пересанитайзинга — на каждый из
+     * сотен постов подряд.
+     */
+    private ?HTMLPurifier $purifier = null;
+
     public function sanitize(string $html): string
     {
+        return $this->purifier()->purify($this->demoteTopHeadings($html));
+    }
+
+    private function purifier(): HTMLPurifier
+    {
+        if ($this->purifier !== null) {
+            return $this->purifier;
+        }
+
         $config = HTMLPurifier_Config::createDefault();
         $config->set('HTML.Allowed', self::ALLOWED_HTML);
         $config->set('URI.AllowedSchemes', ['http' => true, 'https' => true, 'mailto' => true]);
-        $config->set('Cache.DefinitionImpl', null);
+        // Сериализованные определения кладём в storage, а не в vendor: каталог
+        // vendor на проде только для чтения, и запись туда молча падала бы.
+        $config->set('Cache.SerializerPath', $this->definitionCachePath());
 
-        return (new HTMLPurifier($config))->purify($this->demoteTopHeadings($html));
+        return $this->purifier = new HTMLPurifier($config);
+    }
+
+    private function definitionCachePath(): string
+    {
+        $path = storage_path('framework/cache/htmlpurifier');
+
+        if (! is_dir($path)) {
+            mkdir($path, 0775, true);
+        }
+
+        return $path;
     }
 
     /**

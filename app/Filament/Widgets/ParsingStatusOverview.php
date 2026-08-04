@@ -6,7 +6,6 @@ use App\Models\Post;
 use Carbon\Carbon;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
-use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -28,8 +27,8 @@ class ParsingStatusOverview extends BaseWidget
     /**
      * Рендерим сразу вместе со страницей, без ленивой подгрузки: она в этой
      * сборке панели не отрабатывает — виджет остаётся скелетоном (тем же
-     * болеет и BlogPostsChart). Запросы тут дешёвые: четыре count по
-     * маленькой таблице jobs плюс два по posts.
+     * болеет и BlogPostsChart). Запросов немного: один агрегат по jobs
+     * (см. queueSnapshot) плюс три по posts/failed_jobs.
      */
     protected static bool $isLazy = false;
 
@@ -43,15 +42,52 @@ class ParsingStatusOverview extends BaseWidget
 
     protected function getStats(): array
     {
-        $running = $this->countJobs(fn (Builder $q) => $q->whereNotNull('reserved_at'));
-        $pendingPosts = $this->countJobs(fn (Builder $q) => $q->whereNull('reserved_at'), 'StorePostJob');
-        $pendingReleases = $this->countJobs(fn (Builder $q) => $q->whereNull('reserved_at'), 'ParseReleaseJob');
+        $queue = $this->queueSnapshot();
 
         return [
-            $this->runningStat($running, $pendingPosts + $pendingReleases),
-            $this->queueStat($pendingPosts, $pendingReleases, $running),
+            $this->runningStat($queue['running'], $queue['pending_posts'] + $queue['pending_releases']),
+            $this->queueStat($queue['pending_posts'], $queue['pending_releases'], $queue['running'], $queue['oldest_pending_at']),
             $this->lastParsedStat(),
             $this->errorsStat(),
+        ];
+    }
+
+    /**
+     * Один проход по jobs вместо пяти.
+     *
+     * Виджет обновляется каждые 10 секунд, и раньше на каждое обновление
+     * уходило четыре COUNT и один MIN, каждый — с `payload LIKE '%…%'` по
+     * LONGTEXT-колонке, то есть пять полных сканов таблицы очереди подряд.
+     * Все нужные числа снимаются условной агрегацией за один запрос.
+     *
+     * Разбирать тип задачи всё ещё приходится по payload: имя класса лежит
+     * только там. Уйти от этого можно, разведя парсинг по именованным
+     * очередям, но это требует согласованной смены команды запуска воркера
+     * на сервере — иначе задачи просто перестанут разбираться.
+     *
+     * @return array{running: int, pending_posts: int, pending_releases: int, oldest_pending_at: ?Carbon}
+     */
+    private function queueSnapshot(): array
+    {
+        $connection = config('queue.connections.database.connection');
+        $table = config('queue.connections.database.table', 'jobs');
+
+        $row = DB::connection($connection)->table($table)
+            ->selectRaw('
+                SUM(reserved_at IS NOT NULL) as running,
+                SUM(reserved_at IS NULL AND payload LIKE ?) as pending_posts,
+                SUM(reserved_at IS NULL AND payload LIKE ?) as pending_releases,
+                MIN(CASE WHEN reserved_at IS NULL THEN available_at END) as oldest_pending
+            ', ['%StorePostJob%', '%ParseReleaseJob%'])
+            ->first();
+
+        return [
+            'running' => (int) ($row->running ?? 0),
+            'pending_posts' => (int) ($row->pending_posts ?? 0),
+            'pending_releases' => (int) ($row->pending_releases ?? 0),
+            'oldest_pending_at' => isset($row->oldest_pending)
+                ? Carbon::createFromTimestamp($row->oldest_pending)
+                : null,
         ];
     }
 
@@ -71,15 +107,13 @@ class ParsingStatusOverview extends BaseWidget
             ->color($pending > 0 ? 'warning' : 'gray');
     }
 
-    private function queueStat(int $pendingPosts, int $pendingReleases, int $running): Stat
+    private function queueStat(int $pendingPosts, int $pendingReleases, int $running, ?Carbon $waitingSince): Stat
     {
         $description = $pendingReleases > 0
             ? "Плюс дайджестов на разбор: {$pendingReleases}"
             : 'Дайджестов на разбор нет';
 
         $color = $pendingPosts + $pendingReleases > 0 ? 'primary' : 'gray';
-
-        $waitingSince = $this->oldestPendingAt();
 
         if ($waitingSince !== null && $running === 0 && $waitingSince->diffInSeconds(now()) > self::STALE_QUEUE_SECONDS) {
             $description = 'Ждут с '.$waitingSince->format('H:i').' и никто не взял — возможно, воркер очереди не запущен';
@@ -120,36 +154,6 @@ class ParsingStatusOverview extends BaseWidget
                 : 'Упавших задач за сутки нет')
             ->icon('heroicon-m-exclamation-triangle')
             ->color($failedPosts > 0 || $failedJobs > 0 ? 'danger' : 'gray');
-    }
-
-    /**
-     * Задачи парсинга в очереди. Тип задачи определяется по payload: имя
-     * класса лежит в нём и как displayName, и внутри сериализованной
-     * команды — LIKE по нему надёжнее, чем разбор JSON в SQL.
-     */
-    private function countJobs(callable $filter, ?string $jobClass = null): int
-    {
-        return $this->jobsQuery($jobClass)->where($filter)->count();
-    }
-
-    private function oldestPendingAt(): ?Carbon
-    {
-        $timestamp = $this->jobsQuery()->whereNull('reserved_at')->min('available_at');
-
-        return $timestamp === null ? null : Carbon::createFromTimestamp($timestamp);
-    }
-
-    private function jobsQuery(?string $jobClass = null): Builder
-    {
-        $connection = config('queue.connections.database.connection');
-
-        return DB::connection($connection)
-            ->table(config('queue.connections.database.table', 'jobs'))
-            ->where(function (Builder $query) use ($jobClass) {
-                foreach ($jobClass !== null ? [$jobClass] : ['StorePostJob', 'ParseReleaseJob'] as $class) {
-                    $query->orWhere('payload', 'like', '%'.$class.'%');
-                }
-            });
     }
 
     private function plural(int $count, string $one, string $few, string $many): string

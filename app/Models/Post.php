@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
+use App\Jobs\GenerateImageVariantsJob;
 use App\Service\HtmlSanitizerService;
-use App\Service\ImageVariantService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -88,7 +88,11 @@ class Post extends Model
             // свои варианты.
             foreach (['preview_image', 'main_image'] as $field) {
                 if ($post->wasChanged($field) && filled($post->$field)) {
-                    app(ImageVariantService::class)->generate($post->$field);
+                    // afterCommit обязателен: сохранение идёт внутри транзакции
+                    // PostService::store(), а очередь настроена с
+                    // after_commit = false — без этого воркер мог схватить
+                    // задачу раньше, чем коммит сделает файл «официальным».
+                    GenerateImageVariantsJob::dispatch($post->$field)->afterCommit();
                 }
             }
         });
@@ -113,6 +117,51 @@ class Post extends Model
     public function shouldBeSearchable(): bool
     {
         return (bool) $this->published && filled($this->content);
+    }
+
+    /**
+     * Что уходит в Meilisearch.
+     *
+     * Без этого метода Scout берёт toArray(), то есть отправляет модель
+     * целиком — включая content и content_orig, два LONGTEXT на запись. Причём
+     * content_orig это англоязычный оригинал: искать по нему на русском сайте
+     * незачем, а место в индексе он занимал наравне с переводом.
+     *
+     * Разметку из content вырезаем: имена тегов и атрибуты не должны попадать
+     * в поисковый индекс, иначе запрос вроде «href» находит все статьи со
+     * ссылками.
+     *
+     * @return array<string, mixed>
+     */
+    public function toSearchableArray(): array
+    {
+        return [
+            'id' => (int) $this->id,
+            'title' => (string) $this->title,
+            'code' => (string) $this->code,
+            'content' => $this->plainContent(),
+            'category' => (string) ($this->category?->title ?? ''),
+            'created_at' => $this->created_at?->timestamp,
+            // Обязателен, хотя shouldBeSearchable() и так пускает в индекс
+            // только опубликованные: SearchController страхуется фильтром
+            // ->where('published', true) на случай, если пост сняли с
+            // публикации уже после индексации. Без поля в документе этот
+            // фильтр не совпадает ни с чем и выдача становится пустой.
+            // Именно bool, а не 1: сравнение с числом Meilisearch не проходит.
+            'published' => (bool) $this->published,
+        ];
+    }
+
+    /**
+     * Текст статьи без разметки: теги заменяются пробелом (а не вырезаются
+     * встык, иначе на границах блоков склеиваются слова — «в PHP 8.Ключевое»),
+     * пробельные последовательности схлопываются.
+     */
+    private function plainContent(): string
+    {
+        $text = preg_replace('#<[^>]+>#', ' ', (string) $this->content) ?? '';
+
+        return trim((string) preg_replace('/\s+/u', ' ', html_entity_decode($text)));
     }
 
     public function scopeParseFailed(Builder $query): Builder

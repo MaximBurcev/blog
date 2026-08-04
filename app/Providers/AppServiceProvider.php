@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Enums\UserRole;
+use App\Service\HtmlSanitizerService;
 use Carbon\Carbon;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Gate;
@@ -16,7 +17,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Синглтон: HtmlSanitizerService держит внутри собранный HTMLPurifier,
+        // а его сборка — разбор всего набора разрешённых тегов и атрибутов.
+        // Через app() сервис создаётся заново на каждый вызов, а вызовов на
+        // сохранение поста два (content и content_orig) и по сотне подряд
+        // в ResanitizePostsCommand.
+        $this->app->singleton(HtmlSanitizerService::class);
     }
 
     /**

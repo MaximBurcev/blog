@@ -189,7 +189,7 @@
 
 {{-- Инлайн-скрипт выполняется сразу, а defer-скрипты — перед DOMContentLoaded,
      поэтому AOS внутри обработчика уже определён. --}}
-<script>
+<script nonce="{{ $cspNonce ?? '' }}">
     document.addEventListener('DOMContentLoaded', function () {
         AOS.init({ duration: 1000 });
 

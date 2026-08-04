@@ -14,7 +14,7 @@
 
     @push('scripts')
         <script src="{{ asset('assets/vendors/highlight/highlight.min.js') }}" defer></script>
-        <script>
+        <script nonce="{{ $cspNonce ?? '' }}">
             document.addEventListener('DOMContentLoaded', function () {
                 document.querySelectorAll('.post-content pre').forEach(function (pre) {
                     // hljs подсвечивает содержимое <code>, а в контенте постов
@@ -217,7 +217,7 @@
                  (#like-btn отсутствует → likeBtn.querySelector падал с
                  TypeError и ронял весь обработчик DOMContentLoaded), ни
                  авторизации на приватный канал Echo. --}}
-            <script>
+            <script nonce="{{ $cspNonce ?? '' }}">
                 document.addEventListener('DOMContentLoaded', () => {
                     // Подключение Echo (после сборки Vite или через script)
                     const postId = {{ $post->id }};

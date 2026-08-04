@@ -5,4 +5,4 @@
     (а поля тут — заголовки и описания чужих статей) закрыла бы тег и всё
     последующее браузер разобрал бы как HTML.
 --}}
-<script type="application/ld+json">{!! json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>
+<script type="application/ld+json" nonce="{{ $cspNonce ?? '' }}">{!! json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>

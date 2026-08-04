@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -72,6 +73,23 @@ class ImageVariantService
         }
 
         [$width, $height] = $info;
+
+        // GD распаковывает кадр в память целиком (~4 байта на пиксель) ещё до
+        // всякой проверки размеров, поэтому ограничение обязано стоять ДО
+        // imagecreatefromstring: иначе загруженная из админки «фотография»
+        // на 100 Мп кладёт процесс по памяти. Порог берём от фактического
+        // memory_limit, а не константой: на проде это 1.8 ГБ машина.
+        if (! $this->fitsInMemory($width, $height)) {
+            Log::warning('ImageVariantService: картинка слишком велика для обработки', [
+                'path' => $path,
+                'width' => $width,
+                'height' => $height,
+                'memory_limit' => ini_get('memory_limit'),
+            ]);
+
+            return [];
+        }
+
         $created = [];
 
         foreach (self::WIDTHS as $targetWidth) {
@@ -93,6 +111,10 @@ class ImageVariantService
             $created[] = $variantPath;
         }
 
+        if ($created !== []) {
+            self::forget($path);
+        }
+
         return $created;
     }
 
@@ -102,6 +124,21 @@ class ImageVariantService
      * как раньше, и картинка не превращается в битую ссылку.
      */
     public function srcset(string $path): ?string
+    {
+        // Набор вариантов на диске меняется только при генерации, а читался он
+        // на КАЖДУЮ отрисовку картинки: шесть Storage::exists() плюс
+        // getimagesize() — семь обращений к файловой системе на изображение,
+        // то есть под сотню на страницу листинга с двенадцатью карточками.
+        // Кэш сбрасывается из generate(), когда варианты действительно
+        // появляются (см. forget()).
+        return Cache::remember(
+            self::cacheKey($path),
+            now()->addDay(),
+            fn () => $this->buildSrcset($path)
+        );
+    }
+
+    private function buildSrcset(string $path): ?string
     {
         $disk = Storage::disk($this->disk);
         $parts = [];
@@ -130,6 +167,21 @@ class ImageVariantService
     }
 
     /**
+     * Кэш srcset для конкретной картинки. Публичный, потому что варианты
+     * могут появиться и мимо этого сервиса — например, если файлы залили
+     * на диск руками.
+     */
+    public static function forget(string $path): void
+    {
+        Cache::forget(self::cacheKey($path));
+    }
+
+    private static function cacheKey(string $path): string
+    {
+        return 'image-variants:srcset:'.sha1($path);
+    }
+
+    /**
      * «images/content/abc.webp» + 400 → «images/content/abc-400.webp»
      */
     public function variantPath(string $path, int $width): string
@@ -138,6 +190,40 @@ class ImageVariantService
         $base = $extension === '' ? $path : substr($path, 0, -(strlen($extension) + 1));
 
         return $base.'-'.$width.'.webp';
+    }
+
+    /**
+     * Хватит ли памяти на распаковку кадра. Считаем 4 байта на пиксель (GD
+     * держит truecolor-изображение именно так) и оставляем половину лимита на
+     * всё остальное: сам бинарь, уменьшенную копию, буфер вывода.
+     */
+    private function fitsInMemory(int $width, int $height): bool
+    {
+        $limit = $this->memoryLimitBytes();
+
+        if ($limit === null) {
+            return true;
+        }
+
+        return $width * $height * 4 < $limit / 2;
+    }
+
+    private function memoryLimitBytes(): ?int
+    {
+        $raw = trim((string) ini_get('memory_limit'));
+
+        if ($raw === '' || $raw === '-1') {
+            return null;
+        }
+
+        $value = (int) $raw;
+
+        return match (strtolower(substr($raw, -1))) {
+            'g' => $value * 1024 ** 3,
+            'm' => $value * 1024 ** 2,
+            'k' => $value * 1024,
+            default => $value,
+        };
     }
 
     private function resize(string $binary, int $width, int $height, int $targetWidth): ?string

@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\Facades\Vite;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -11,22 +12,39 @@ use Symfony\Component\HttpFoundation\Response;
  * Базовые security-заголовки (security-audit-2026-07-24 MAJ-4) —
  * ни один из них раньше не выставлялся вообще.
  *
- * Про CSP честно: 'unsafe-inline'/'unsafe-eval' в script-src обязательны,
- * пока в шаблонах есть инлайновые <script> (AdminLTE, layouts/main,
- * post/show), а Livewire и Alpine (в том числе внутри Filament) вычисляют
- * выражения через new Function. То есть инлайновую инъекцию эта политика
- * НЕ ловит — от неё защищает HtmlSanitizerService. Что политика реально
- * закрывает: подгрузку скрипта с чужого хоста (<script src="//evil/">),
- * отправку формы наружу (form-action), подмену базового URL (<base>),
- * object/embed-плагины и фрейминг страницы (frame-ancestors).
+ * Про CSP: на публичных страницах политика строгая — инлайновые скрипты
+ * разрешены только по nonce, 'unsafe-inline' и 'unsafe-eval' в script-src
+ * нет. Своих инлайнов там ровно четыре (layouts/main, post/show ×2 и
+ * JSON-LD), все получают nonce из этого мидлваря.
  *
- * Ужесточать (nonce на каждый инлайн-скрипт, отказ от unsafe-eval) имеет
- * смысл после обкатки с CSP_REPORT_ONLY=true.
+ * Панель администратора живёт по ослабленной политике: Filament и Livewire
+ * вставляют собственные инлайновые скрипты без nonce, а Alpine вычисляет
+ * выражения через new Function, то есть требует 'unsafe-eval'. Ужесточение
+ * там упирается в чужой код и делается отдельно.
+ *
+ * Что политика закрывает и на публичной части, и в панели: подгрузку скрипта
+ * с чужого хоста (<script src="//evil/">), отправку формы наружу
+ * (form-action), подмену базового URL (<base>), object/embed-плагины и
+ * фрейминг страницы (frame-ancestors). На публичных страницах теперь ещё и
+ * исполнение внедрённого в разметку скрипта.
  */
 class SecurityHeaders
 {
+    /**
+     * Пути, где инлайновые скрипты вставляет чужой код (Filament, Livewire,
+     * log-viewer, Telescope) и nonce к ним не приделать.
+     */
+    private const RELAXED_PATHS = ['filament', 'filament/*', 'livewire/*', 'log-viewer', 'log-viewer/*', 'telescope', 'telescope/*'];
+
     public function handle(Request $request, Closure $next): Response
     {
+        // Нонс должен существовать ДО рендера шаблонов, поэтому генерируем и
+        // раздаём его до $next(): заголовок выставляется потом, но значение
+        // уже то же самое, что попало в разметку.
+        $nonce = base64_encode(random_bytes(16));
+        $request->attributes->set('csp_nonce', $nonce);
+        View::share('cspNonce', $nonce);
+
         $response = $next($request);
 
         $response->headers->set('X-Content-Type-Options', 'nosniff');
@@ -66,6 +84,21 @@ class SecurityHeaders
         return $header;
     }
 
+    /**
+     * Чем разрешаем инлайновые скрипты: нонсом (публичная часть) или
+     * ослаблением под чужой код (панель, dev-сервер Vite с его инжектами).
+     *
+     * @return array<int, string>
+     */
+    private function scriptSourceMode(Request $request): array
+    {
+        if ($request->is(self::RELAXED_PATHS) || Vite::isRunningHot()) {
+            return ["'unsafe-inline'", "'unsafe-eval'"];
+        }
+
+        return ["'nonce-".$request->attributes->get('csp_nonce')."'"];
+    }
+
     private function csp(Request $request): string
     {
         $extra = (array) config('security.csp.extra_hosts', []);
@@ -76,7 +109,8 @@ class SecurityHeaders
         $directives = [
             'default-src' => ["'self'"],
             'script-src' => array_merge(
-                ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
+                ["'self'", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
+                $this->scriptSourceMode($request),
                 $vite,
                 $extra
             ),
