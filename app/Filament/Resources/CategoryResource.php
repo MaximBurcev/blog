@@ -33,7 +33,7 @@ class CategoryResource extends Resource
                 TextInput::make('title')->required()->reactive()->afterStateUpdated(function ($set, $state) {
                     $set('code', Str::slug($state));
                 }),
-                TextInput::make('code')->required()->unique(),
+                TextInput::make('code')->required()->unique(ignoreRecord: true),
             ]);
     }
 

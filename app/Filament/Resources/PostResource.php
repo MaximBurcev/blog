@@ -8,6 +8,7 @@ use App\Jobs\StorePostJob;
 use App\Models\Category;
 use App\Models\Post;
 use App\Support\ContentSelectorResolver;
+use App\Support\PostCode;
 use Filament\Forms;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
@@ -18,7 +19,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
-use Illuminate\Support\Str;
 
 class PostResource extends Resource
 {
@@ -49,10 +49,22 @@ class PostResource extends Resource
                         )
                     ))
                     ->visible(fn (?Post $record): bool => filled($record?->url)),
-                TextInput::make('title')->required()->reactive()->afterStateUpdated(function ($set, $state) {
-                    $set('code', Str::slug($state));
-                })->label('Заголовок'),
-                TextInput::make('code')->required()->label('Код (slug)'),
+                TextInput::make('title')->required()->reactive()
+                    ->afterStateUpdated(function (string $operation, $set, $state) {
+                        // Только на создании: у существующего поста code — это
+                        // его публичный адрес, и правка заголовка молча уводила
+                        // статью на новый URL (старый начинал отдавать 404
+                        // вместе с накопленными позициями и внешними ссылками).
+                        if ($operation !== 'create') {
+                            return;
+                        }
+
+                        $set('code', PostCode::fromTitle($state));
+                    })->label('Заголовок'),
+                TextInput::make('code')->required()->label('Код (slug)')
+                    ->helperText(fn (string $operation): string => $operation === 'create'
+                        ? 'Подставляется из заголовка, можно поправить.'
+                        : 'Часть публичного адреса статьи. Меняйте осознанно: старый адрес начнёт отдавать 404.'),
                 Forms\Components\RichEditor::make('content')->required()->label('Контент'),
                 Forms\Components\Select::make('category_id')->relationship('category', 'title')->required()->options(Category::all()->pluck('title', 'id'))
                     ->searchable()->label('Категория'),
@@ -202,7 +214,12 @@ class PostResource extends Resource
         StorePostJob::dispatch([
             'url' => $post->url,
             'selector' => app(ContentSelectorResolver::class)->resolve($post->url),
-            'tag_ids' => [],
+            // Передаём текущие категорию и теги, а не пустоту: PostService
+            // запускает автодетект только когда значение пустое, и с
+            // 'tag_ids' => [] перепарсинг затирал расставленное вручную
+            // результатом детектора (теги — через sync(), то есть начисто).
+            'category_id' => $post->category_id,
+            'tag_ids' => $post->tags()->pluck('tags.id')->all(),
             'translate' => null,
         ]);
 

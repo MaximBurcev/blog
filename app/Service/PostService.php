@@ -6,10 +6,10 @@ use App\DataTransferObjects\PostData;
 use App\Events\PostCreated;
 use App\Exceptions\PostPersistenceException;
 use App\Models\Post;
+use App\Support\PostCode;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 class PostService
 {
@@ -32,10 +32,12 @@ class PostService
             $tagIds = $data['tag_ids'] ?? [];
             unset($data['tag_ids'], $data['html_file']);
 
-            // Пост от неудавшегося парсинга может остаться без осмысленного
-            // заголовка — code участвует в публичном URL, пустым он быть не
-            // должен.
-            $data['code'] = $this->makeCode($data['title']);
+            // Введённый в форме slug уважаем: раньше строка ниже была
+            // безусловной, и поле «Код (slug)» на создании поста не значило
+            // ничего — что бы админ ни ввёл, код пересчитывался из заголовка.
+            $data['code'] = filled($data['code'] ?? null)
+                ? PostCode::normalize($data['code'])
+                : PostCode::fromTitle($data['title']);
             $data['selector'] = '';
             $data['content'] = $data['content'] ?? '';
 
@@ -105,14 +107,13 @@ class PostService
     }
 
     /**
-     * Символьный код (участвует в публичном URL) из заголовка. Локаль 'ru'
-     * задана явно: без неё Str::slug транслитерирует кириллицу другой
-     * таблицей («Цикл жизни» → cikl-zizni вместо tsikl-zhizni), и один и тот
-     * же заголовок давал разные адреса в store() и update().
+     * @deprecated Правило переехало в App\Support\PostCode: им же пользуются
+     * форма Filament и консольные команды, чтобы адрес не расходился с тем,
+     * что показано администратору.
      */
     private function makeCode(?string $title): string
     {
-        return Str::slug((string) $title, '-', 'ru') ?: 'post-'.Str::random(8);
+        return PostCode::fromTitle($title);
     }
 
     /**

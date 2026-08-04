@@ -34,9 +34,17 @@
                         <div class="row blog-post-row">
 
 
-                            @if(request('q'))
+                            @if($searchFailed)
 
-                                @if($posts)
+                                <p>Поиск временно недоступен, попробуйте позже.</p>
+
+                            @elseif($query !== '')
+
+                                {{-- Раньше здесь стояло @if($posts): пустая
+                                     коллекция — это объект, то есть условие
+                                     всегда истинно, и вместо «ничего не найдено»
+                                     показывалась пустая сетка. --}}
+                                @if($posts->isNotEmpty())
 
                                     @foreach($posts as $post)
                                         <div class="col-md-4 fetured-post blog-post" data-aos="fade-up">
@@ -67,6 +75,13 @@
 
                         </div>
 
+                        @if($posts->hasPages())
+                            <div class="row">
+                                <div class="col-md-12">
+                                    {{ $posts->links() }}
+                                </div>
+                            </div>
+                        @endif
 
                     </section>
                 </div>

@@ -93,12 +93,14 @@ class AuthRateLimitTest extends TestCase
 
     public function test_normal_registration_still_creates_user(): void
     {
+        // Редирект именно на '/': раньше RouteServiceProvider::HOME указывал
+        // на несуществующий /home, и регистрация заканчивалась 404.
         $this->post('/register', [
             'name' => 'Человек',
             'email' => 'human@example.com',
             'password' => 'password123',
             'password_confirmation' => 'password123',
-        ])->assertStatus(302);
+        ])->assertRedirect('/');
 
         $this->assertDatabaseHas('users', ['email' => 'human@example.com']);
         $this->assertAuthenticated();

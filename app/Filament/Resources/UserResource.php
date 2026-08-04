@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Enums\UserRole;
 use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -35,9 +36,20 @@ class UserResource extends Resource
     {
         return $form
             ->schema([
-                TextInput::make('name')->required(),
-                TextInput::make('email')->required()->email()->unique(),
-                TextInput::make('password')->required()->password()->rule(Password::default()),
+                TextInput::make('name')->required()->label('Имя'),
+                TextInput::make('email')->required()->email()->unique(ignoreRecord: true),
+                TextInput::make('password')->required()->password()->rule(Password::default())->label('Пароль'),
+                // Роли не было ни в одной форме приложения: созданный из панели
+                // пользователь получал role = NULL (колонка nullable без
+                // default) и в саму панель попасть уже не мог —
+                // User::canAccessPanel() требует роль Admin. Нового
+                // администратора приходилось заводить руками в БД.
+                Select::make('role')
+                    ->label('Роль')
+                    ->options(UserRole::options())
+                    ->default(UserRole::Reader->value)
+                    ->required()
+                    ->native(false),
             ]);
     }
 
@@ -48,6 +60,10 @@ class UserResource extends Resource
                 Tables\Columns\TextColumn::make('id')->sortable()->label('ID')->searchable(),
                 TextColumn::make('name')->sortable()->label('Имя')->searchable(),
                 TextColumn::make('email')->sortable()->label('Email')->searchable(),
+                TextColumn::make('role')->label('Роль')->sortable()
+                    ->formatStateUsing(fn (?UserRole $state): string => $state?->label() ?? '—')
+                    ->badge()
+                    ->color(fn (?UserRole $state): string => $state === UserRole::Admin ? 'warning' : 'gray'),
                 TextColumn::make('created_at')->date('d.m.Y H:i:s')->sortable()->label('Дата создания')->searchable(),
             ])
             ->defaultSort('id', 'desc')

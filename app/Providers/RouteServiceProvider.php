@@ -11,13 +11,16 @@ use Illuminate\Support\Facades\Route;
 class RouteServiceProvider extends ServiceProvider
 {
     /**
-     * The path to your application's "home" route.
+     * Куда возвращать пользователя после входа, регистрации, подтверждения
+     * почты и сброса пароля.
      *
-     * Typically, users are redirected here after authentication.
+     * Было '/home' — маршрута с таким адресом в приложении нет (он остался от
+     * скелета laravel/ui, а HomeController удалён вместе с легаси-админкой),
+     * поэтому каждый из этих сценариев заканчивался 404 на пустой странице.
      *
      * @var string
      */
-    public const HOME = '/home';
+    public const HOME = '/';
 
     protected $namespace = 'App\\Http\\Controllers';
 

@@ -4,10 +4,18 @@ namespace App\Notifications;
 
 use App\Models\Post;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class PostCreatedNotification extends Notification
+/**
+ * ShouldQueue обязателен: без него notify() отправлял письмо синхронно внутри
+ * листенера, и один упавший SMTP ронял рассылку остальным администраторам.
+ * Теперь на каждого адресата ставится отдельная джоба со своими ретраями —
+ * поэтому листенер может спокойно пробрасывать исключения наружу, не рискуя
+ * повторно разослать уже отправленные письма.
+ */
+class PostCreatedNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 

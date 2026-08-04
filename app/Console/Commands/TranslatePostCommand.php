@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Models\Post;
 use App\Service\TranslateService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Str;
 
 class TranslatePostCommand extends Command
 {
@@ -37,10 +36,14 @@ class TranslatePostCommand extends Command
 
         $data = $translateService->translate($data);
 
+        // code не трогаем: он уже является публичным адресом сохранённого
+        // поста. Перевод заголовка от прогона к прогону гуляет, и пересчёт
+        // кода уводил статью на новый URL, а старый начинал отдавать 404 —
+        // ровно тот инвариант, который PostService защищает keepExistingCode().
+        // Переименование остаётся ручной операцией через админку.
         $post->update([
             'title' => $data['title'],
             'content' => $data['content'],
-            'code' => Str::slug($data['title'], '-', 'ru'),
         ]);
 
         $this->info("Готово: {$post->title}");
