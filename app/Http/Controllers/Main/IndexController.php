@@ -37,6 +37,10 @@ class IndexController extends Controller
         // тавтологичное «Блог — Блог Максима Бурцева». На <h1> страницы это
         // не влияет, он свой.
         $title = 'Статьи и переводы о веб-разработке';
+        // Своё описание, а не фолбэк seo.default_description: главная —
+        // самая индексируемая страница, а с общим фолбэком её описание не
+        // отличалось от любого листинга, где description не задан.
+        $description = 'Блог о веб-разработке: авторские статьи, разборы инструментов и переводы англоязычных материалов о языках, фреймворках и практиках.';
         // Каноническая — именно текущая страница листинга: url()->current()
         // отбросил бы ?page=N и склеил все страницы в первую. Для первой
         // страницы канонической остаётся чистый адрес без ?page=1.
@@ -44,6 +48,6 @@ class IndexController extends Controller
             ? $posts->url($posts->currentPage())
             : url()->current();
 
-        return view('main.index', compact('posts', 'categories', 'popularPosts', 'title', 'tags', 'canonical'));
+        return view('main.index', compact('posts', 'categories', 'popularPosts', 'title', 'description', 'tags', 'canonical'));
     }
 }

@@ -18,7 +18,10 @@ class ShowController extends Controller
 
         $date = Carbon::parse($post->created_at);
         $title = $post->title;
-        $description = $post->excerpt();
+        // excerpt() выбрасывает из текста код и таблицы, поэтому для статьи,
+        // состоящей из одних листингов, он возвращает пустую строку — без
+        // фолбэка в разметку уходило бы content="".
+        $description = $post->excerpt() ?: 'Статья «'.$post->title.'» в блоге о веб-разработке.';
         $ogImage = $post->main_image ? asset('storage/'.$post->main_image) : null;
         $ogType = 'article';
         // og:type=article требует своих полей: без них Facebook/LinkedIn не

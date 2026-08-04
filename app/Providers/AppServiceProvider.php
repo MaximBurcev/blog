@@ -42,7 +42,7 @@ class AppServiceProvider extends ServiceProvider
             // og:title без имени сайта и без «страница N» — в соцсетях
             // название ресурса и так выводится отдельной строкой.
             $view->with('ogTitle', $pageTitle ?? config('seo.default_title'));
-            $view->with('description', $data['description'] ?? config('seo.default_description'));
+            $view->with('description', $this->pageDescription($data['description'] ?? null));
             $view->with('ogImage', $data['ogImage'] ?? asset(config('seo.default_image')));
             $view->with('ogType', $data['ogType'] ?? 'website');
             $view->with('ogUrl', $data['ogUrl'] ?? url()->current());
@@ -73,5 +73,29 @@ class AppServiceProvider extends ServiceProvider
         $suffix = $page > 1 ? " — страница {$page}" : '';
 
         return $pageTitle.$suffix.' — '.$siteName;
+    }
+
+    /**
+     * Описание страницы для meta description.
+     *
+     * Пустая строка отсекается наравне с null: `?? ` её не ловит, а
+     * Post::excerpt() возвращает '' для статьи, в которой кроме кода и
+     * таблиц ничего нет — в разметку уходил пустой content="".
+     *
+     * Номер страницы дописывается по той же причине, что и в title: без него
+     * все страницы пагинации листинга уходят в индекс с одинаковым
+     * описанием, и Вебмастер помечает их как некорректно заполненные.
+     */
+    private function pageDescription(?string $description): string
+    {
+        $description = trim((string) $description);
+
+        if ($description === '') {
+            $description = config('seo.default_description');
+        }
+
+        $page = (int) request()->query('page', 1);
+
+        return $page > 1 ? $description.' — страница '.$page : $description;
     }
 }
