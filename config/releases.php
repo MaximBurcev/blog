@@ -226,6 +226,39 @@ return [
     | Array of blocked domains to exclude from URL extraction.
     |
     */
+    /*
+    |--------------------------------------------------------------------------
+    | Skipped Sources (не статьи)
+    |--------------------------------------------------------------------------
+    |
+    | Домены, ссылки на которые в дайджесте попадаются регулярно, но статьями
+    | не являются: видео, репозитории, справочники, страницы подкастов.
+    | Парсер честно скачивает их, не находит контент по селектору и создаёт
+    | пост-заглушку — 7 из 13 таких заглушек в базе на 2026-08-09 пришли
+    | именно отсюда (youtube 2, github, php.net, podcast.laravel-news.com,
+    | blog.stanleymasinde.com, highlit.co).
+    |
+    | Отличие от blocked_domains: те проверяет UrlSafetyChecker уже на этапе
+    | фетча, и ссылка всё равно превращается в заглушку с ошибкой. Эти
+    | отсеиваются раньше — до постановки джобы, поэтому поста не возникает.
+    |
+    | Совпадение по границе метки (HostMatcher): 'youtube.com' покрывает
+    | 'www.youtube.com', но не 'youtube.com.evil.tld'.
+    |
+    */
+    'skipped_domains' => env('RELEASE_SKIPPED_DOMAINS')
+        ? array_values(array_filter(array_map('trim', explode(',', (string) env('RELEASE_SKIPPED_DOMAINS')))))
+        : [
+            'youtube.com',
+            'youtu.be',
+            'github.com',
+            'php.net',
+            'packagist.org',
+            'twitter.com',
+            'x.com',
+            'podcast.laravel-news.com',
+        ],
+
     'blocked_domains' => env('RELEASE_BLOCKED_DOMAINS')
         ? explode(',', env('RELEASE_BLOCKED_DOMAINS'))
         : [

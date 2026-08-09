@@ -69,6 +69,31 @@ class StorePostJobRetryTest extends TestCase
         $this->assertDatabaseCount('posts', 0);
     }
 
+    /**
+     * Разметка, которую medium.com реально отдаёт вместе с HTTP 403
+     * (снято 2026-08-09: cf-mitigated: challenge, cType 'managed').
+     * Тест сторожит список маркеров в isChallengePage(): Cloudflare меняет
+     * вёрстку заглушки, и молча разошедшийся маркер вернёт нас к пост-
+     * заглушкам вместо ретраев.
+     */
+    public function test_real_cloudflare_challenge_markup_is_recognised(): void
+    {
+        $challenge = '<!DOCTYPE html><html lang="en-US"><head><title>Just a moment...</title>'.
+            '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">'.
+            '</head><body class="no-js"><div class="main-content">'.
+            '<noscript>Enable JavaScript and cookies to continue</noscript>'.
+            '<script>(function(){window._cf_chl_opt = {cvId: \'3\', cType: \'managed\'};'.
+            'a.src = \'/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1\';}());</script>'.
+            '</body></html>';
+
+        $this->withHtmlFile($challenge, function (string $file) {
+            $this->expectException(TransientFetchException::class);
+            $this->runJob(['url' => '', 'html_file' => $file, 'selector' => '']);
+        });
+
+        $this->assertDatabaseCount('posts', 0);
+    }
+
     public function test_empty_response_is_transient(): void
     {
         $this->withHtmlFile('', function (string $file) {

@@ -333,17 +333,58 @@ class ReleaseService
         // Убираем дубликаты по URL
         $uniqueLinks = [];
         $seenUrls = [];
+        $skipped = [];
 
         foreach ($links as $link) {
             $url = $link['url'];
-            if (! in_array($url, $seenUrls)) {
-                $uniqueLinks[] = $link;
-                $seenUrls[] = $url;
+
+            if (in_array($url, $seenUrls, true)) {
+                continue;
             }
+
+            $seenUrls[] = $url;
+
+            // Отсев ДО среза по offset/max_links: иначе видео и репозитории
+            // занимали бы слоты вместо статей.
+            if ($this->isSkippedSource($url)) {
+                $skipped[] = $url;
+
+                continue;
+            }
+
+            $uniqueLinks[] = $link;
+        }
+
+        if ($skipped !== []) {
+            Log::info('ReleaseService: ссылки пропущены как не-статьи', [
+                'count' => count($skipped),
+                'urls' => $skipped,
+            ]);
         }
 
         // Применяем смещение и ограничение
         return array_slice($uniqueLinks, $offset, $maxLinks);
+    }
+
+    /**
+     * Ссылка ведёт на источник, который заведомо не является статьёй
+     * (видео, репозиторий, справочник, страница подкаста).
+     *
+     * Отсеиваем до постановки джобы: парсер иначе честно скачивает такую
+     * страницу, не находит контент по селектору и создаёт пост-заглушку,
+     * которую потом разбирают руками. См. releases.skipped_domains.
+     */
+    private function isSkippedSource(string $url): bool
+    {
+        $host = (string) parse_url($url, PHP_URL_HOST);
+
+        foreach ((array) config('releases.skipped_domains', []) as $domain) {
+            if (HostMatcher::matches($host, (string) $domain)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function getSelectorForUrl(string $url): string
