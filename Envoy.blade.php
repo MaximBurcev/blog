@@ -138,9 +138,6 @@
     # то есть любой примитив записи из веба становился постоянным вебшеллом.
     # Писать нужно только в shared (storage) — туда права и выдаём.
     # Заглавная X вешает бит исполнения на каталоги, но не на обычные файлы.
-    # o-rwx: bootstrap/cache/config.php после config:cache содержит APP_KEY,
-    # DB_PASSWORD и остальные секреты в открытом виде, а ug+rwx оставлял
-    # его читаемым любому локальному аккаунту сервера.
     sudo chmod -R g+rX,g-w,o-rwx {{$dirCurrentRelease}};
     sudo chmod -R ug+rwX,o-rwx {{$dirShared}};
 
@@ -149,6 +146,15 @@
     php artisan optimize --env={{$env}};
     php artisan config:cache --env={{$env}};
     php artisan cache:clear --env={{$env}};
+
+    # ПОСЛЕ optimize, а не вместе с общим chmod выше: config:cache создаёт
+    # bootstrap/cache/config.php уже после него, с umask деплойщика — файл
+    # получался -rw-rw-r-- deployer:deployer, то есть APP_KEY, DB_PASSWORD,
+    # MEILISEARCH_KEY и BACKUP_ARCHIVE_PASSWORD в открытом виде читал любой
+    # локальный аккаунт сервера. www-data нужен только read.
+    echo "# Securing compiled config";
+    sudo chgrp -R www-data {{$dirCurrentRelease}}/bootstrap/cache;
+    sudo chmod -R g+rX,g-w,o-rwx {{$dirCurrentRelease}}/bootstrap/cache;
 @endtask
 
 @task('down', ['on' => $on])
