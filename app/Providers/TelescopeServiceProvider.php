@@ -40,7 +40,20 @@ class TelescopeServiceProvider extends TelescopeApplicationServiceProvider
         // Скрываем во всех окружениях, включая local: на dev-контуре Telescope пишет
         // вообще всё (см. filter() ниже), и заголовок Cookie — это значение живой сессии,
         // которое затем уезжает в дампы БД и бэкапы.
-        Telescope::hideRequestParameters(['_token']);
+        // Пароли обязаны быть здесь, а не только _token. RequestWatcher пишет
+        // тело запроса целиком, а filter() ниже пропускает isFailedRequest() —
+        // это в том числе 429 от throttle:auth-sensitive на /login и /register.
+        // То есть каждая заблокированная попытка подбора складывала в
+        // telescope_entries пару email + пароль открытым текстом, а в local
+        // (ранний return true) туда попадали вообще все успешные логины.
+        Telescope::hideRequestParameters([
+            '_token',
+            'password',
+            'password_confirmation',
+            'current_password',
+            'new_password',
+            'new_password_confirmation',
+        ]);
 
         Telescope::hideRequestHeaders([
             'cookie',

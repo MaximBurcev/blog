@@ -2,11 +2,9 @@
 
 namespace App\Providers;
 
-use App\Enums\UserRole;
 use App\Service\HtmlSanitizerService;
 use Carbon\Carbon;
 use Illuminate\Pagination\Paginator;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -33,11 +31,10 @@ class AppServiceProvider extends ServiceProvider
         Carbon::setLocale('ru_RU');
         Paginator::useBootstrapFive();
 
-        // Без этого gate opcodesio/log-viewer вообще не проверяет доступ
-        // (LogViewerService::auth() — no-op при отсутствии и callback, и
-        // gate'а) — /log-viewer был бы открыт кому угодно, а логи содержат
-        // стектрейсы/SQL/payload'ы запросов.
-        Gate::define('viewLogViewer', fn ($user) => $user->role === UserRole::Admin);
+        // Гейт viewLogViewer объявлен один раз — в AuthServiceProvider.
+        // Здесь была вторая копия с не-nullable $user: провайдеры грузятся по
+        // порядку из config/app.php, и если бы она объявлялась последней,
+        // гость на /log-viewer получал бы fatal вместо 403.
 
         View::composer('layouts.main', function ($view) {
             $data = $view->getData();

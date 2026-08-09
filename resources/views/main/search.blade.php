@@ -11,7 +11,11 @@
                     <div class="form-group col-md-12 aos-init aos-animate" data-aos="fade-up">
 
                         <input type="text" class="form-control" id="q" name="q" placeholder="Что ищете?"
-                               value="{{request('q')}}">
+                               {{-- $query, а не request('q'): контроллер уже
+                                    нормализовал ввод (строка, обрезанная по
+                                    длине), а сырой параметр может прийти
+                                    массивом и уронить рендер. --}}
+                               value="{{ $query }}">
                     </div>
 
                 </div>

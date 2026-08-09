@@ -32,15 +32,25 @@ class StorePostJobRetryTest extends TestCase
         });
     }
 
+    /**
+     * Фикстура кладётся внутрь каталога импорта и config переставляется на
+     * него: читать html_file откуда попало джоба больше не умеет
+     * (security-audit 2026-08-01, INF-1).
+     */
     private function withHtmlFile(string $contents, callable $callback): void
     {
-        $file = tempnam(sys_get_temp_dir(), 'storepostjob_');
+        $dir = sys_get_temp_dir().'/storepostjob_imports_'.uniqid();
+        mkdir($dir);
+        config(['releases.html_import_dir' => $dir]);
+
+        $file = $dir.'/article.html';
         file_put_contents($file, $contents);
 
         try {
             $callback($file);
         } finally {
             @unlink($file);
+            @rmdir($dir);
         }
     }
 
@@ -84,6 +94,72 @@ class StorePostJobRetryTest extends TestCase
         $this->assertSame(Post::PARSE_STATUS_FAILED, $post->parse_status);
         $this->assertStringContainsString('Не удалось прочитать файл', (string) $post->parse_error);
         $this->assertFalse((bool) $post->published);
+    }
+
+    /**
+     * Регрессия на security-audit-2026-08-01 INF-1: html_file уходил в
+     * file_get_contents без ограничения по каталогу, а содержимое файла
+     * становится телом поста — то есть `--html-file .env` опубликовало бы
+     * APP_KEY и пароль от БД.
+     */
+    public function test_html_file_outside_import_dir_is_refused(): void
+    {
+        Event::fake([PostCreated::class]);
+
+        $importDir = sys_get_temp_dir().'/storepostjob_imports_'.uniqid();
+        mkdir($importDir);
+        config(['releases.html_import_dir' => $importDir]);
+
+        // Файл существует и читается — отказать должна именно проверка каталога.
+        $outside = sys_get_temp_dir().'/storepostjob_secret_'.uniqid().'.html';
+        file_put_contents($outside, 'APP_KEY=base64:supersecret');
+
+        try {
+            $this->runJob(['url' => '', 'html_file' => $outside, 'selector' => '']);
+        } finally {
+            @unlink($outside);
+            @rmdir($importDir);
+        }
+
+        $post = Post::first();
+        $this->assertNotNull($post);
+        $this->assertSame(Post::PARSE_STATUS_FAILED, $post->parse_status);
+        $this->assertStringContainsString('вне разрешённого каталога', (string) $post->parse_error);
+        // Главное: содержимое файла никуда не утекло.
+        $this->assertStringNotContainsString('supersecret', (string) $post->content);
+        $this->assertStringNotContainsString('supersecret', (string) $post->parse_error);
+    }
+
+    /**
+     * Обход проверки через `..`: путь лексически начинается с каталога
+     * импорта, но realpath уводит наружу.
+     */
+    public function test_html_file_traversal_out_of_import_dir_is_refused(): void
+    {
+        Event::fake([PostCreated::class]);
+
+        $importDir = sys_get_temp_dir().'/storepostjob_imports_'.uniqid();
+        mkdir($importDir);
+        config(['releases.html_import_dir' => $importDir]);
+
+        $outside = sys_get_temp_dir().'/storepostjob_secret_'.uniqid().'.html';
+        file_put_contents($outside, 'APP_KEY=base64:supersecret');
+
+        try {
+            $this->runJob([
+                'url' => '',
+                'html_file' => $importDir.'/../'.basename($outside),
+                'selector' => '',
+            ]);
+        } finally {
+            @unlink($outside);
+            @rmdir($importDir);
+        }
+
+        $post = Post::first();
+        $this->assertNotNull($post);
+        $this->assertStringContainsString('вне разрешённого каталога', (string) $post->parse_error);
+        $this->assertStringNotContainsString('supersecret', (string) $post->content);
     }
 
     public function test_failed_creates_stub_post_after_attempts_are_exhausted(): void

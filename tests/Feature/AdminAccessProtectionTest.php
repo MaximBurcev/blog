@@ -69,4 +69,20 @@ class AdminAccessProtectionTest extends TestCase
 
         $this->assertTrue(UserResource::canDelete($reader));
     }
+
+    /**
+     * Форма редактирования должна открываться: в Select роли появился
+     * disableOptionWhen, закрывающий понижение себя/последнего админа
+     * (аудит 2026-08-09) — ошибка в его сигнатуре ломала бы страницу целиком,
+     * а проверки canDelete выше рендер формы не затрагивают.
+     */
+    public function test_user_edit_form_renders_for_admin(): void
+    {
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        $this->actingAs($admin);
+
+        $this->get(UserResource::getUrl('edit', ['record' => $admin]))->assertOk();
+        $this->get(UserResource::getUrl('index'))->assertOk();
+    }
 }

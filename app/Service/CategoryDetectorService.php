@@ -21,7 +21,7 @@ class CategoryDetectorService
 
         foreach (Category::all(['id', 'title']) as $category) {
             if ($this->matchesWord($haystack, $category->title)) {
-                Log::info('CategoryDetector: matched', ['category' => $category->title]);
+                Log::debug('CategoryDetector: matched', ['category' => $category->title]);
 
                 return $category->id;
             }
@@ -30,13 +30,13 @@ class CategoryDetectorService
         foreach (config('topics.known', []) as $keyword => $canonicalName) {
             if ($this->matchesWord($haystack, $keyword)) {
                 $category = $this->findOrCreateCategory($canonicalName);
-                Log::info('CategoryDetector: auto-created category', ['category' => $canonicalName]);
+                Log::debug('CategoryDetector: auto-created category', ['category' => $canonicalName]);
 
                 return $category->id;
             }
         }
 
-        Log::info('CategoryDetector: no match found');
+        Log::debug('CategoryDetector: no match found');
 
         return null;
     }

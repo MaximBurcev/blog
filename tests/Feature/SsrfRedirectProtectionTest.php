@@ -42,7 +42,7 @@ class SsrfRedirectProtectionTest extends TestCase
 
         Http::fake([
             'http://8.8.8.8/*' => Http::response('', 302, ['Location' => 'http://1.1.1.1/final.jpg']),
-            'http://1.1.1.1/*' => Http::response('fake-image-bytes', 200),
+            'http://1.1.1.1/*' => Http::response($this->pngBytes(), 200),
         ]);
 
         $result = (new ContentImageService)->downloadImage('http://8.8.8.8/start');

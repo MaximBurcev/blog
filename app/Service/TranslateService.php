@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Support\SelectorXPathBuilder;
 use App\Traits\TranslatesNodes;
 use DOMDocument;
 use DOMXPath;
@@ -44,8 +45,11 @@ class TranslateService
                 $panel->parentNode->removeChild($panel);
             }
 
-            if ($this->data['selector'] && ! empty($this->data['selector'])) {
-                $nodes = $finder->query("//*[contains(concat(' ', normalize-space(@class), ' '), ' ".$this->data['selector']." ')]");
+            if (! empty($this->data['selector'])) {
+                // Через SelectorXPathBuilder, а не конкатенацией: selector
+                // приходит из формы админки, и кавычка в нём иначе ломает
+                // структуру XPath-выражения (XPath injection, CWE-91).
+                $nodes = $finder->query(SelectorXPathBuilder::build((string) $this->data['selector']));
             } else {
                 $nodes = $dom->getRootNode()->childNodes;
             }
@@ -68,7 +72,7 @@ class TranslateService
                 $this->data['content'] = $postContent;
             }
 
-            Log::info('TranslateService::translate: done', ['title' => $this->data['title'] ?? null]);
+            Log::debug('TranslateService::translate: done', ['title' => $this->data['title'] ?? null]);
 
         } catch (\Exception $exception) {
             // Исключение до/во время перевода — контент остался (частично) непереведённым

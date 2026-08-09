@@ -9,6 +9,7 @@ use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
 use App\Support\PinnedTarget;
+use App\Support\SelectorXPathBuilder;
 use App\Support\UrlSafetyChecker;
 use App\Traits\TranslatesNodes;
 use Carbon\Carbon;
@@ -119,7 +120,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
             $html = $this->fetchHtml();
 
-            Log::info('StorePostJob: response', [
+            Log::debug('StorePostJob: response', [
                 'length' => strlen((string) $html),
                 'has_crayons_article' => str_contains((string) $html, 'crayons-article__body'),
             ]);
@@ -274,6 +275,25 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
+     * Лежит ли уже разрешённый (realpath) путь внутри каталога импорта
+     * config('releases.html_import_dir') — security-audit 2026-08-01, INF-1.
+     *
+     * Сверяем realpath обоих концов, а не исходные строки: сравнение строк
+     * обходится и через `imports/../../../etc/passwd`, и через симлинк,
+     * положенный внутрь каталога импорта.
+     */
+    private function isInsideHtmlImportDir(string $realPath): bool
+    {
+        $baseDir = realpath((string) config('releases.html_import_dir'));
+
+        if ($baseDir === false) {
+            return false;
+        }
+
+        return $realPath === $baseDir || str_starts_with($realPath, $baseDir.DIRECTORY_SEPARATOR);
+    }
+
+    /**
      * Скачивает HTML статьи: из локального файла (если передан html_file,
      * см. --html-file у post:parse), либо через curl/curl-impersonate
      * (curl-impersonate — если задан config('releases.curl_binary'),
@@ -287,9 +307,30 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
     private function fetchHtml(): string|false
     {
         if (! empty($this->data['html_file'])) {
-            Log::info('StorePostJob: reading from file', ['file' => $this->data['html_file']]);
+            $path = realpath((string) $this->data['html_file']);
 
-            $contents = @file_get_contents($this->data['html_file']);
+            // Несуществующий/нечитаемый файл — обычный постоянный сбой, и
+            // сообщение о нём отличается от отказа по каталогу: иначе опечатка
+            // в пути выглядела бы как срабатывание защиты.
+            if ($path === false || ! is_file($path) || ! is_readable($path)) {
+                $this->fetchError = 'Не удалось прочитать файл '.$this->data['html_file'];
+
+                return false;
+            }
+
+            if (! $this->isInsideHtmlImportDir($path)) {
+                Log::warning('StorePostJob: html_file outside import dir', [
+                    'file' => $path,
+                    'import_dir' => config('releases.html_import_dir'),
+                ]);
+                $this->fetchError = 'Файл вне разрешённого каталога импорта ('.config('releases.html_import_dir').')';
+
+                return false;
+            }
+
+            Log::debug('StorePostJob: reading from file', ['file' => $path]);
+
+            $contents = @file_get_contents($path);
 
             if ($contents === false) {
                 $this->fetchError = 'Не удалось прочитать файл '.$this->data['html_file'];
@@ -527,7 +568,13 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
         // Защита от мусора в разметке источника (пустая/дефолтная дата,
         // будущее число) — в этом случае лучше оставить обычный now().
-        if ($date->isFuture() || $date->year < 2000) {
+        // Окно доверия узкое намеренно: created_at берётся из JSON-LD и мета-тегов
+        // чужой страницы, то есть полностью подконтролен источнику, а по нему
+        // сортируются все листинги, RSS и «популярное». Границей 2000 год
+        // источник мог выставить себе дату в далёком прошлом (статья уезжает
+        // в конец всех выдач) или свежую (вечно висит первой). Всё, что вне
+        // окна, откатывается на дату парсинга.
+        if ($date->isFuture() || $date->lt(now()->subYears(5))) {
             Log::warning('StorePostJob: implausible published date, ignoring', ['raw' => $raw]);
 
             return;
@@ -653,17 +700,17 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         // Категория определяется позже, в PostService::store()/update() —
         // там уже доступен полный текст статьи (см. CategoryDetectorService),
         // а на этом этапе контент ещё не извлечён из DOM
-        Log::info('StorePostJob: extracting content', ['title' => $this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
+        Log::debug('StorePostJob: extracting content', ['title' => $this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
 
         $finder = new DomXPath($dom);
 
         $this->stripKnownJunk($finder);
 
         $selector = $this->data['selector'];
-        $xpathQuery = $this->buildSelectorXPath($selector);
+        $xpathQuery = SelectorXPathBuilder::build($selector);
         $nodes = $finder->query($xpathQuery);
 
-        Log::info('selector nodes found', ['selector' => $selector, 'xpath' => $xpathQuery, 'count' => $nodes->count()]);
+        Log::debug('selector nodes found', ['selector' => $selector, 'xpath' => $xpathQuery, 'count' => $nodes->count()]);
 
         $this->translateContentNodes($dom, $nodes);
     }
@@ -738,54 +785,6 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         foreach (iterator_to_array($tags) as $tag) {
             $tag->parentNode?->removeChild($tag);
         }
-    }
-
-    /**
-     * Переводит CSS/ID-подобный селектор (#id, .class, tag, или голое
-     * имя класса без точки) в XPath-запрос для поиска контентных узлов.
-     * selector задаётся вручную в админке при добавлении поста/релиза —
-     * значение экранируется через xpathLiteral(), а не подставляется в
-     * запрос напрямую, иначе '] | //script | //*[@id=' сломало бы структуру
-     * XPath-выражения (XPath injection).
-     */
-    private function buildSelectorXPath(string $selector): string
-    {
-        if (str_starts_with($selector, '#')) {
-            return '//*[@id='.$this->xpathLiteral(ltrim($selector, '#')).']';
-        }
-
-        if (str_starts_with($selector, '.')) {
-            $class = ltrim($selector, '.');
-
-            return "//*[contains(concat(' ', normalize-space(@class), ' '), concat(' ', ".$this->xpathLiteral($class).", ' '))]";
-        }
-
-        if (preg_match('/^[a-zA-Z][a-zA-Z0-9]*$/', $selector)) {
-            return "(//{$selector})[1]";
-        }
-
-        return "//*[contains(concat(' ', normalize-space(@class), ' '), concat(' ', ".$this->xpathLiteral($selector).", ' '))]";
-    }
-
-    /**
-     * Строит безопасный XPath string-литерал из произвольной строки. XPath
-     * 1.0 не умеет экранировать кавычку внутри строки того же типа — если
-     * значение содержит и одинарные, и двойные кавычки, единственный
-     * стандартный способ — склеить через concat().
-     */
-    private function xpathLiteral(string $value): string
-    {
-        if (! str_contains($value, "'")) {
-            return "'{$value}'";
-        }
-
-        if (! str_contains($value, '"')) {
-            return "\"{$value}\"";
-        }
-
-        $parts = array_map(fn ($part) => "'{$part}'", explode("'", $value));
-
-        return 'concat('.implode(', "\'", ', $parts).')';
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Service\ReleaseService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\Log;
  * прямо в цикле запроса Admin\Release\StoreController — при недоступном
  * источнике админ ждал таймаут и получал 500. Вынесено в очередь.
  */
-class ParseReleaseJob implements ShouldQueue
+class ParseReleaseJob implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -24,7 +25,23 @@ class ParseReleaseJob implements ShouldQueue
 
     public int $tries = 2;
 
+    /**
+     * Чуть больше полного цикла попыток (60с × 2), чтобы залипший лок не
+     * блокировал повторный разбор надолго при убитом воркере.
+     */
+    public int $uniqueFor = 300;
+
     public function __construct(private readonly string $url) {}
+
+    /**
+     * Дедуп по url: двойное нажатие «Спарсить» в ReleaseResource ставило два
+     * одинаковых разбора. Дублей постов не будет (UNIQUE на posts.url), но
+     * внешние фетчи и переводы удваивались впустую.
+     */
+    public function uniqueId(): string
+    {
+        return md5($this->url);
+    }
 
     public function handle(ReleaseService $service): void
     {

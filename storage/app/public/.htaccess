@@ -1,0 +1,35 @@
+# Второй рубеж для каталога, в который пишет скрейпер.
+#
+# storage/app/public отдаётся Apache НАПРЯМУЮ по /storage (симлинк
+# public/storage), минуя Laravel: ни CSP, ни X-Content-Type-Options, ни
+# прочих заголовков из App\Http\Middleware\SecurityHeaders на этих ответах
+# нет — мидлварь работает только на маршрутах приложения.
+#
+# Сюда ContentImageService складывает файлы, скачанные со СТОРОННИХ страниц.
+# Расширение теперь определяется по содержимому файла, а не по URL источника
+# (см. ContentImageService::storeImage) — но первый рубеж может быть обойдён
+# или сюда однажды начнёт писать другой код, поэтому дублируем запретом на
+# уровне веб-сервера.
+#
+# Работает благодаря AllowOverride All для /var/www/ в apache2.conf.
+
+# 1. Исполняемое. Глобальный `SetHandler application/x-httpd-php` для
+#    .ph(ar|p|tml) объявлен в mods-enabled/php8.3.conf и действует в том
+#    числе здесь, поэтому просто закрываем доступ — до обработчика дело
+#    не дойдёт.
+<FilesMatch "(?i)\.(php|phar|phtml|phps|php[0-9]|cgi|pl|py|sh|bash)$">
+    Require all denied
+</FilesMatch>
+
+# 2. Активный контент, который браузер исполнит в НАШЕМ origin: SVG умеет
+#    <script>, HTML — что угодно. Отдавать такое с домена сайта нельзя.
+<FilesMatch "(?i)\.(svg|svgz|html|htm|xhtml|xml|js|mjs)$">
+    Require all denied
+</FilesMatch>
+
+# 3. Не позволяем браузеру угадывать тип по содержимому и на всякий случай
+#    режем скрипты политикой — на статику CSP иначе не попадает.
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
+</IfModule>

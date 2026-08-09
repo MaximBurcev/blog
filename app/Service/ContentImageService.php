@@ -15,6 +15,24 @@ class ContentImageService
 {
     private const MAX_REDIRECTS = 5;
 
+    /**
+     * Сколько картинок максимум тянем из одной статьи.
+     *
+     * releases.max_content_length ограничивает ОДИН ответ (20 МБ), но не их
+     * количество: страница с пятью сотнями <img> заставляла воркер выкачать
+     * гигабайты в storage и породить столько же GenerateImageVariantsJob с
+     * шестью перекодировками каждая. Сверх лимита картинка остаётся внешней
+     * ссылкой — статья не ломается.
+     */
+    private const MAX_IMAGES_PER_ARTICLE = 40;
+
+    /**
+     * Счётчик скачанных картинок в пределах одного разбора статьи. Сервис
+     * живёт ровно столько же (создаётся под джобу), поэтому состояние
+     * инстанса тут уместно.
+     */
+    private int $downloadedCount = 0;
+
     public function __construct(
         private readonly UrlSafetyChecker $urlSafetyChecker = new UrlSafetyChecker,
         private readonly WebpConverterService $webpConverter = new WebpConverterService
@@ -107,7 +125,7 @@ class ContentImageService
 
             $filename = $this->storeImage($imageContent, $url);
 
-            Log::info('ContentImageService: downloaded', ['url' => $url, 'path' => $filename]);
+            Log::debug('ContentImageService: downloaded', ['url' => $url, 'path' => $filename]);
 
             return $filename;
         } catch (\Exception $e) {
@@ -133,7 +151,7 @@ class ContentImageService
             $pictureInner = $matches[1];
             $bestUrl = $this->extractBestSrcsetUrl($pictureInner);
 
-            if (! $bestUrl) {
+            if (! $bestUrl || ! $this->mayDownloadMore()) {
                 return $matches[0];
             }
 
@@ -152,7 +170,7 @@ class ContentImageService
                 $filename = $this->storeImage($imageContent, $bestUrl);
                 $newImageUrl = Storage::disk('public')->url($filename);
 
-                Log::info('ContentImageService: picture replaced', ['url' => $bestUrl, 'path' => $filename]);
+                Log::debug('ContentImageService: picture replaced', ['url' => $bestUrl, 'path' => $filename]);
 
                 return '<img src="'.$newImageUrl.'"'.$sizeAttrs.'>';
             } catch (\Exception $e) {
@@ -164,16 +182,60 @@ class ContentImageService
     }
 
     /**
+     * Не исчерпан ли лимит картинок на статью. Счётчик увеличивается здесь,
+     * а не после успешного сохранения: ограничивать нужно число попыток
+     * скачивания (это и есть внешний трафик), а не число удачных.
+     */
+    private function mayDownloadMore(): bool
+    {
+        if ($this->downloadedCount >= self::MAX_IMAGES_PER_ARTICLE) {
+            Log::warning('ContentImageService: достигнут лимит картинок на статью, остальные останутся внешними ссылками', [
+                'limit' => self::MAX_IMAGES_PER_ARTICLE,
+            ]);
+
+            return false;
+        }
+
+        $this->downloadedCount++;
+
+        return true;
+    }
+
+    /**
+     * Расширения, с которыми файл вообще может лечь в storage, и типы GD,
+     * которым они соответствуют. Ключ — константа IMAGETYPE_*.
+     */
+    private const ALLOWED_IMAGE_TYPES = [
+        IMAGETYPE_JPEG => 'jpg',
+        IMAGETYPE_PNG => 'png',
+        IMAGETYPE_GIF => 'gif',
+        IMAGETYPE_WEBP => 'webp',
+        IMAGETYPE_AVIF => 'avif',
+        IMAGETYPE_BMP => 'bmp',
+    ];
+
+    /**
      * Кладёт скачанную картинку в storage и возвращает относительный путь.
      *
      * Растровые оригиналы по пути перекодируются в WebP: обложки статей
      * приезжают PNG'ами по 150-300 КБ, в WebP тот же кадр в разы легче.
-     * Если конвертация не применима (GIF-анимация, SVG, битый файл) или
-     * не даёт выигрыша — сохраняется оригинал.
+     * Если конвертация не применима (GIF-анимация, битый файл) или не даёт
+     * выигрыша — сохраняется оригинал.
      *
-     * Расширение берётся из пути URL, а не из строки целиком: раньше в
-     * downloadAndReplaceImages() query-параметры попадали прямо в имя файла
-     * (в хранилище лежат артефакты вида «.png?format=48x48»).
+     * Расширение определяется по СОДЕРЖИМОМУ, а не по URL источника.
+     * Раньше оно бралось из пути URL, и это была RCE: страница-источник
+     * решает, что написать в src, конвертер возвращает null для всего, что
+     * не картинка, и `<img src="https://evil.tld/x.php">` укладывал чужие
+     * байты в storage/app/public/images/content/<rand>.php — то есть в
+     * каталог, который Apache отдаёт напрямую по /storage и исполняет
+     * (SetHandler для .ph(ar|p|tml) объявлен глобально). Тем же путём
+     * заезжал .svg — активный контент с нашего origin, причём мимо
+     * SecurityHeaders: на статику CSP не навешивается.
+     *
+     * SVG не принимаем сознательно, хотя это валидный формат картинки:
+     * он умеет исполнять скрипт, а отдаётся с нашего домена. Такие
+     * картинки останутся внешними ссылками — это хуже для приватности
+     * читателя, но не даёт XSS.
      */
     private function storeImage(string $binary, string $sourceUrl): string
     {
@@ -183,8 +245,15 @@ class ContentImageService
             $binary = $webp;
             $extension = 'webp';
         } else {
-            $extension = pathinfo((string) parse_url($sourceUrl, PHP_URL_PATH), PATHINFO_EXTENSION);
-            $extension = strtolower(preg_replace('/[^a-zA-Z].*/', '', $extension)) ?: 'jpg';
+            $type = @getimagesizefromstring($binary)[2] ?? null;
+
+            if (! isset(self::ALLOWED_IMAGE_TYPES[$type])) {
+                throw new \RuntimeException(
+                    'Скачанный файл не является растровым изображением: '.$sourceUrl
+                );
+            }
+
+            $extension = self::ALLOWED_IMAGE_TYPES[$type];
         }
 
         $filename = 'images/content/'.Str::random(40).'.'.$extension;
@@ -238,7 +307,7 @@ class ContentImageService
             $imageUrl = $matches[2];
 
             // Skip local images
-            if (! str_starts_with($imageUrl, 'http')) {
+            if (! str_starts_with($imageUrl, 'http') || ! $this->mayDownloadMore()) {
                 return $matches[0];
             }
 

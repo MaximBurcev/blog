@@ -63,7 +63,7 @@ return [
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
-            'permission' => 0775,
+            'permission' => 0640,
         ],
 
         'daily' => [
@@ -72,7 +72,28 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
             'days' => 14,
             'replace_placeholders' => true,
-            'permission' => 0775,
+            'permission' => 0640,
+        ],
+
+        /*
+         * Audit-trail событий безопасности: входы, неудачные попытки, lockout,
+         * смена пароля и роли, удаление пользователей (App\Support\SecurityAudit).
+         *
+         * Отдельный файл, а не общий laravel.log: разбор инцидента не должен
+         * тонуть в трафике парсера, а срок хранения тут нужен заметно длиннее
+         * (компрометацию замечают не в тот же день).
+         *
+         * level захардкожен: канал обязан пережить понижение LOG_LEVEL до
+         * warning/error на проде, иначе audit-trail молча исчезнет — ровно в
+         * тот момент, когда логи ужимают из-за нагрузки.
+         */
+        'security' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/security.log'),
+            'level' => 'info',
+            'days' => 90,
+            'replace_placeholders' => true,
+            'permission' => 0640,
         ],
 
         'slack' => [
@@ -127,7 +148,7 @@ return [
 
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
-            'permission' => 0775,
+            'permission' => 0640,
         ],
     ],
 

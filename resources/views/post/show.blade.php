@@ -97,7 +97,11 @@
                 {!! $post->content !!}
             </section>
 
-            @if($post->url)
+            {{-- Ссылку строим только для http(s): url приходит со страницы
+                 стороннего дайджеста, и `javascript:` в href пережил бы
+                 экранирование Blade (оно защищает от выхода из атрибута,
+                 но не от схемы). --}}
+            @if(\Illuminate\Support\Str::startsWith($post->url, ['http://', 'https://']))
                 <p class="post-original-source">Оригинал: <a href="{{ $post->url }}" target="_blank" rel="noopener noreferrer nofollow">{{ $post->url }}</a></p>
             @endif
 

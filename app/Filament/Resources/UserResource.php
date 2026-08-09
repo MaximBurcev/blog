@@ -16,6 +16,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 
 class UserResource extends Resource
@@ -44,12 +45,23 @@ class UserResource extends Resource
                 // default) и в саму панель попасть уже не мог —
                 // User::canAccessPanel() требует роль Admin. Нового
                 // администратора приходилось заводить руками в БД.
+                // Понижение роли закрыто тем же инвариантом, что и удаление
+                // (canDelete): иначе оставался соседний путь к тому же
+                // результату — админ выставлял себе Reader, canAccessPanel()
+                // начинал отдавать 403, и, если он был последним, панель
+                // становилась недоступна безвозвратно (роль правится только
+                // руками в БД).
                 Select::make('role')
                     ->label('Роль')
                     ->options(UserRole::options())
                     ->default(UserRole::Reader->value)
                     ->required()
-                    ->native(false),
+                    ->native(false)
+                    ->disableOptionWhen(fn (string $value, ?User $record): bool => $record !== null
+                        && $value !== UserRole::Admin->value
+                        && $record->role === UserRole::Admin
+                        && ! static::canDelete($record)
+                    ),
             ]);
     }
 
@@ -89,9 +101,7 @@ class UserResource extends Resource
                             ->validationAttribute('new_password_confirmation'),
                     ]
                     )->action(function (User $record, array $data) {
-                        $record->update([
-                            'password' => Hash::make($data['new_password']),
-                        ]);
+                        static::changePassword($record, $data['new_password']);
 
                         Notification::make()
                             ->success()
@@ -122,6 +132,25 @@ class UserResource extends Resource
                         }),
                 ]),
             ]);
+    }
+
+    /**
+     * Смена пароля админом — единственная точка для обеих форм панели
+     * (действие в таблице и на странице редактирования).
+     *
+     * remember_token обязателен: EloquentUserProvider::retrieveByToken()
+     * сверяет только его, пароль в проверке не участвует. Без ротации
+     * админ менял пароль скомпрометированному пользователю, писал в
+     * audit-trail «пароль сменён» — а угнанная recaller-cookie (срок жизни
+     * 5 лет) продолжала пускать атакующего. Серверные сессии на других
+     * устройствах добивает AuthenticateSession в группе web (Http\Kernel).
+     */
+    public static function changePassword(User $user, string $newPassword): void
+    {
+        $user->forceFill([
+            'password' => Hash::make($newPassword),
+            'remember_token' => Str::random(60),
+        ])->save();
     }
 
     public static function getRelations(): array

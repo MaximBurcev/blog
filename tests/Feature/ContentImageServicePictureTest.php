@@ -20,7 +20,7 @@ class ContentImageServicePictureTest extends TestCase
     {
         Storage::fake('public');
         Http::fake([
-            'https://miro.medium.com/*1400*' => Http::response('fake-image-bytes-1400', 200),
+            'https://miro.medium.com/*1400*' => Http::response($this->pngBytes(), 200),
         ]);
 
         $html = '<p>Before.</p><picture>'.

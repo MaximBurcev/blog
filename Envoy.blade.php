@@ -94,8 +94,19 @@
     echo "# Config project task";
 
     echo "# Linking storage directory";
+    # .htaccess из репозитория обязан доехать до shared: storage/app ниже
+    # подменяется симлинком, и версия из релиза была бы просто выброшена.
+    # Файл запрещает отдавать из /storage исполняемое и активное содержимое —
+    # каталог наполняет скрейпер файлами со сторонних сайтов.
+    mkdir -p {{$dirShared}}/storage/app/public;
+    cp {{$dirCurrentRelease}}/storage/app/public/.htaccess {{$dirShared}}/storage/app/public/.htaccess;
     rm -rf {{$dirCurrentRelease}}/storage/app;
     cd {{$dirCurrentRelease}};
+    # storage/app подменяется симлинком на shared, поэтому storage/app/imports
+    # из репозитория до прода не доезжает — создаём его в shared. Каталог
+    # ограничивает --html-file у post:parse (config releases.html_import_dir):
+    # без него realpath() не резолвится и любой импорт из файла отвергается.
+    mkdir -p {{$dirShared}}/storage/app/imports;
     ln -nfs {{$dirShared}}/storage/app storage/app;
 
     # Шарилось только storage/app, поэтому сессии, кэш и логи жили ВНУТРИ
@@ -121,8 +132,17 @@
 
     sudo chgrp -R www-data {{$dirShared}};
     sudo chgrp -R www-data {{$dirCurrentRelease}};
-    sudo chmod -R ug+rwx {{$dirShared}};
-    sudo chmod -R ug+rwx {{$dirCurrentRelease}};
+
+    # Код релиза — www-data только на чтение. Раньше здесь стояло ug+rwx на
+    # весь релиз: веб-пользователь мог писать в app/, vendor/ и public/index.php,
+    # то есть любой примитив записи из веба становился постоянным вебшеллом.
+    # Писать нужно только в shared (storage) — туда права и выдаём.
+    # Заглавная X вешает бит исполнения на каталоги, но не на обычные файлы.
+    # o-rwx: bootstrap/cache/config.php после config:cache содержит APP_KEY,
+    # DB_PASSWORD и остальные секреты в открытом виде, а ug+rwx оставлял
+    # его читаемым любому локальному аккаунту сервера.
+    sudo chmod -R g+rX,g-w,o-rwx {{$dirCurrentRelease}};
+    sudo chmod -R ug+rwX,o-rwx {{$dirShared}};
 
     echo "# Optimising installation";
     php artisan clear-compiled --env={{$env}};

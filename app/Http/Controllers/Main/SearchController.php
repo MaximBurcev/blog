@@ -23,7 +23,11 @@ class SearchController extends Controller
 
     public function __invoke(Request $request)
     {
-        $query = mb_substr(trim((string) $request->get('q')), 0, self::MAX_QUERY_LENGTH);
+        // is_string обязателен: ?q[]=1 приходит массивом, и приведение (string)
+        // давало warning «Array to string conversion», а шаблон, печатавший
+        // сырое request('q'), ронял страницу пятисоткой на e(array).
+        $raw = $request->get('q');
+        $query = is_string($raw) ? mb_substr(trim($raw), 0, self::MAX_QUERY_LENGTH) : '';
 
         $posts = $this->emptyPage($request);
         $searchFailed = false;

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\HostMatcher;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -37,10 +38,11 @@ class SiteSelector extends Model
     }
 
     /**
-     * Селектор для хоста статьи. Домен в правиле — подстрока хоста
-     * ('dev.to' матчит 'www.dev.to'), поэтому под один URL может подойти
-     * несколько правил: берём самое специфичное (самая длинная подстрока),
-     * иначе 'jetbrains.com' перебивал бы 'blog.jetbrains.com'.
+     * Селектор для хоста статьи. Домен в правиле матчится по границе метки
+     * ('dev.to' подходит для 'www.dev.to', но не для 'dev.to.evil.tld'),
+     * поэтому под один URL может подойти несколько правил: берём самое
+     * специфичное (самый длинный домен), иначе 'jetbrains.com' перебивал бы
+     * 'blog.jetbrains.com'.
      */
     public static function selectorForHost(string $host): ?string
     {
@@ -50,7 +52,7 @@ class SiteSelector extends Model
 
         return self::query()
             ->get(['domain', 'content_selector'])
-            ->filter(fn (self $rule) => $rule->domain !== '' && str_contains($host, $rule->domain))
+            ->filter(fn (self $rule) => HostMatcher::matches($host, (string) $rule->domain))
             ->sortByDesc(fn (self $rule) => strlen($rule->domain))
             ->first()
             ?->content_selector;

@@ -68,7 +68,9 @@ All controllers are single-action classes — each HTTP action (index, show, sto
 
 - **StorePostJob** — fetches an external URL, extracts content by CSS selector, translates text nodes to Russian via Google Translate (skipping `<code>` tags), downloads images via `ContentImageService`, then calls `PostService::store()`
 - **ParseReleaseJob** — parses links from a release URL
-- **StoreUserJob** — async user creation
+- **GenerateImageVariantsJob** — generates WebP variants for post images
+
+`StoreUserJob` was removed on 2026-08-09: it was never dispatched anywhere, mass-assigned `$data` wholesale (including `role`, i.e. a ready-made privilege escalation for whoever wired it up), and put the plaintext password into the queue payload.
 
 ### Models & Relationships
 

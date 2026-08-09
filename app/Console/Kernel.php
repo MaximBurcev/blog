@@ -28,6 +28,12 @@ class Kernel extends ConsoleKernel
             ->weekly()
             ->onOneServer();
 
+        // Просроченные токены сброса пароля не удаляются сами: строки в
+        // password_reset_tokens лежали вечно и уезжали в каждый бэкап.
+        $schedule->command('auth:clear-resets')
+            ->daily()
+            ->onOneServer();
+
         // Бэкапы настроены в config/backup.php, но до сих пор не запускались ничем,
         // кроме ручной задачи Envoy. Только прод: локально это лишний мусор в storage/app.
         $schedule->command('backup:clean')

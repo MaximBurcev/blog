@@ -12,11 +12,15 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        \App\Models\User::factory(10)->create();
+        // UserFactory ставит всем общеизвестный пароль 'password' и сразу
+        // проставляет email_verified_at — на проде случайный db:seed завёл бы
+        // десяток готовых к использованию учёток.
+        if (app()->environment('production')) {
+            $this->command?->warn('DatabaseSeeder пропущен: на production сидеры не выполняются.');
 
-        // \App\Models\User::factory()->create([
-        //     'name' => 'Test User',
-        //     'email' => 'test@example.com',
-        // ]);
+            return;
+        }
+
+        \App\Models\User::factory(10)->create();
     }
 }

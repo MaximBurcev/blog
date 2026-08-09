@@ -56,17 +56,24 @@ services:
             retries: 3
     mailpit:
         image: 'axllent/mailpit:latest'
+        # Только с localhost, как и mysql выше. Веб-морда Mailpit не требует
+        # аутентификации, а это ВСЕ исходящие письма — включая живые ссылки
+        # сброса пароля и подтверждения почты. На 0.0.0.0 их читал любой
+        # в той же сети.
         ports:
-            - '${FORWARD_MAILPIT_PORT:-1025}:1025'
-            - '${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025'
+            - '127.0.0.1:${FORWARD_MAILPIT_PORT:-1025}:1025'
+            - '127.0.0.1:${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025'
         networks:
             - sail
     meilisearch:
         image: getmeili/meilisearch:latest
         container_name: meilisearch
         restart: unless-stopped
+        # Тоже только localhost: при пустом MEILISEARCH_KEY (а его нет в
+        # .env.example) Meilisearch стартует вообще без авторизации, и индекс
+        # читается и перезаписывается снаружи.
         ports:
-            - 7720:7700
+            - 127.0.0.1:7720:7700
         environment:
             MEILI_NO_ANALYTICS: ${MEILISEARCH_NO_ANALYTICS}
             MEILI_NO_SENTRY: ${MEILISEARCH_NO_SENTRY}

@@ -4,6 +4,7 @@ namespace App\Service;
 
 use App\Models\Post;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class PostViewService
 {
@@ -17,6 +18,16 @@ class PostViewService
         $sessionHash = $request->hasSession() ? $this->pseudonymize($request->session()->getId()) : null;
         $ipHash = $request->ip() !== null ? $this->pseudonymize($request->ip()) : null;
 
+        // Гонка: alreadyViewed() (SELECT) и create() (INSERT) не атомарны и
+        // не прикрыты уникальным индексом. Параллельные запросы одного
+        // посетителя — несколько вкладок или скрипт в N потоков с одной
+        // сессией — проходили проверку одновременно и создавали N записей,
+        // то есть окно дедупа обходилось ровно на величину параллелизма.
+        // Cache::add атомарен и делает заявку на просмотр однократной.
+        if (! $this->claimView($post, $sessionHash ?? $ipHash)) {
+            return;
+        }
+
         if ($this->alreadyViewed($post, $sessionHash, $ipHash)) {
             return;
         }
@@ -26,6 +37,26 @@ class PostViewService
             'session_hash' => $sessionHash,
             'viewed_at' => now(),
         ]);
+    }
+
+    /**
+     * Занимает слот просмотра на окно дедупа. false — слот уже занят, то есть
+     * этот посетитель в окне уже учтён.
+     *
+     * Кэш здесь не источник истины, а только защёлка от гонки: сброс кэша
+     * просто вернёт нас к проверке по БД, которая осталась на месте.
+     */
+    private function claimView(Post $post, ?string $identifier): bool
+    {
+        if ($identifier === null) {
+            return true;
+        }
+
+        return Cache::add(
+            'post-view:'.$post->getKey().':'.$identifier,
+            true,
+            now()->addHours(self::DEDUP_WINDOW_HOURS)
+        );
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Events\CommentCreated;
 use App\Events\PostCreated;
+use App\Listeners\SecurityEventSubscriber;
 use App\Listeners\SendCommentCreatedNotification;
 use App\Listeners\SendPostCreatedNotifications;
 use Illuminate\Auth\Events\Registered;
@@ -28,6 +29,15 @@ class EventServiceProvider extends ServiceProvider
         CommentCreated::class => [
             SendCommentCreatedNotification::class,
         ],
+    ];
+
+    /**
+     * The subscriber classes to register.
+     *
+     * @var array<int, class-string>
+     */
+    protected $subscribe = [
+        SecurityEventSubscriber::class,
     ];
 
     /**

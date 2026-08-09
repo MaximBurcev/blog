@@ -153,10 +153,7 @@ class UrlSafetyChecker
      */
     private function hostMatchesDomain(string $host, string $domain): bool
     {
-        $host = strtolower($host);
-        $domain = strtolower(ltrim($domain, '.'));
-
-        return $host === $domain || str_ends_with($host, '.'.$domain);
+        return HostMatcher::matches($host, $domain);
     }
 
     /**

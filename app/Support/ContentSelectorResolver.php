@@ -51,7 +51,7 @@ class ContentSelectorResolver
     private function fromConfig(string $host): ?string
     {
         foreach (config('releases.domain_selectors', []) as $domain => $selector) {
-            if ($host !== '' && str_contains($host, $domain)) {
+            if (HostMatcher::matches($host, $domain)) {
                 return $selector;
             }
         }

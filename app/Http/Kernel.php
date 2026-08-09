@@ -15,7 +15,12 @@ class Kernel extends HttpKernel
      * @var array<int, class-string|string>
      */
     protected $middleware = [
-        // \App\Http\Middleware\TrustHosts::class,
+        // Абсолютные URL Laravel строит от заголовка Host, а он приходит от
+        // клиента: без этого мидлваря `Host: evil.tld` на POST /password/email
+        // отправлял жертве письмо с НАШЕГО адреса, но со ссылкой на чужой
+        // домен — то есть отдавал токен сброса атакующему. Список хостов
+        // TrustHosts берёт из APP_URL, отдельной настройки не нужно.
+        \App\Http\Middleware\TrustHosts::class,
         \App\Http\Middleware\TrustProxies::class,
         \Illuminate\Http\Middleware\HandleCors::class,
         \App\Http\Middleware\PreventRequestsDuringMaintenance::class,
@@ -35,6 +40,13 @@ class Kernel extends HttpKernel
             \App\Http\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
             \Illuminate\Session\Middleware\StartSession::class,
+            // Смена пароля должна выкидывать остальные сессии и recaller-cookie.
+            // Без этого мидлваря сессия живёт своей жизнью: админ меняет пароль
+            // скомпрометированному пользователю, пишет в audit-trail «пароль
+            // сменён», а угнанная кука продолжает пускать атакующего. Хэш
+            // пароля кладётся в сессию при первом же запросе, поэтому включение
+            // не разлогинивает всех разом.
+            \Illuminate\Session\Middleware\AuthenticateSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
@@ -55,6 +67,7 @@ class Kernel extends HttpKernel
      * @var array<string, class-string|string>
      */
     protected $middlewareAliases = [
+        'admin' => AdminMiddleware::class,
         'auth' => \App\Http\Middleware\Authenticate::class,
         'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
         'auth.session' => \Illuminate\Session\Middleware\AuthenticateSession::class,
@@ -66,9 +79,5 @@ class Kernel extends HttpKernel
         'signed' => \App\Http\Middleware\ValidateSignature::class,
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-    ];
-
-    protected $routeMiddleware = [
-        'admin' => AdminMiddleware::class,
     ];
 }

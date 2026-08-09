@@ -8,7 +8,6 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
 
 class EditUser extends EditRecord
@@ -36,9 +35,7 @@ class EditUser extends EditRecord
                         ->validationAttribute('new_password_confirmation'),
                 ]
                 )->action(function (array $data) {
-                    $this->record->update([
-                        'password' => Hash::make($data['new_password']),
-                    ]);
+                    UserResource::changePassword($this->record, $data['new_password']);
 
                     Notification::make()
                         ->success()

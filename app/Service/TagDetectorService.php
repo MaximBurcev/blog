@@ -36,7 +36,7 @@ class TagDetectorService
 
         $matched = array_values(array_unique($matched));
 
-        Log::info('TagDetector: matched', ['tag_ids' => $matched]);
+        Log::debug('TagDetector: matched', ['tag_ids' => $matched]);
 
         return $matched;
     }

@@ -5,6 +5,7 @@ namespace App\Service;
 use App\Jobs\StorePostJob;
 use App\Models\Release;
 use App\Support\ContentSelectorResolver;
+use App\Support\HostMatcher;
 use App\Support\UrlSafetyChecker;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Uri;
@@ -191,7 +192,7 @@ class ReleaseService
             $links = $this->extractLinksWithCrawler($html, $this->getLinkSelectorForUrl($url));
 
             if (empty($links)) {
-                Log::info('No links found on the page', ['url' => $url]);
+                Log::debug('No links found on the page', ['url' => $url]);
 
                 return [];
             }
@@ -199,7 +200,7 @@ class ReleaseService
             // Применяем конфигурацию для выбора ссылок
             $processedLinks = $this->processLinks($links);
 
-            Log::info('Processed links for dispatch', [
+            Log::debug('Processed links for dispatch', [
                 'url' => $url,
                 'total_found' => count($links),
                 'processed' => count($processedLinks),
@@ -240,7 +241,7 @@ class ReleaseService
 
             $links = $crawler->filter($selector)->each(function (Crawler $node) {
                 $text = trim($node->text());
-                $url = trim($node->attr('href'));
+                $url = $this->sanitizeHref($node->attr('href'));
 
                 if (empty($url) || empty($text)) {
                     return null;
@@ -260,6 +261,41 @@ class ReleaseService
         }
     }
 
+    /**
+     * Отбраковывает href со схемой, которую нельзя пускать дальше.
+     *
+     * href берётся со страницы стороннего дайджеста, а дальше оседает в
+     * posts.url и рендерится кликабельной ссылкой — и в панели
+     * (PostResource), и на публичной странице поста. Скачать `javascript:…`
+     * UrlSafetyChecker не даст, но пост-заглушку с этим url джоба всё равно
+     * создаёт, и админ, открывший её разбираться с ошибкой, кликает по
+     * ссылке уже в origin панели, где CSP намеренно ослаблена до
+     * 'unsafe-inline' — то есть javascript:-URI там не блокируется.
+     */
+    private function sanitizeHref(?string $href): ?string
+    {
+        $href = trim((string) $href);
+
+        if ($href === '') {
+            return null;
+        }
+
+        $scheme = strtolower((string) parse_url($href, PHP_URL_SCHEME));
+
+        // Схема есть и она не http(s) — javascript:, data:, vbscript: и прочее.
+        // Относительные ссылки (схемы нет) оставляем как были: их разбор
+        // не менялся, и ломать сейчас поведение парсера незачем.
+        if ($scheme !== '' && ! in_array($scheme, ['http', 'https'], true)) {
+            Log::warning('ReleaseService: ссылка с недопустимой схемой отброшена', [
+                'scheme' => $scheme,
+            ]);
+
+            return null;
+        }
+
+        return $href;
+    }
+
     private function extractLinksFromSections(Crawler $crawler, array $headings): array
     {
         $links = [];
@@ -277,7 +313,7 @@ class ReleaseService
 
             $td->filter('a[href]')->each(function (Crawler $node) use (&$links) {
                 $text = trim($node->text());
-                $url = trim($node->attr('href'));
+                $url = $this->sanitizeHref($node->attr('href'));
 
                 if (! empty($url) && ! empty($text)) {
                     $links[] = ['text' => $text, 'url' => $url];
@@ -326,7 +362,7 @@ class ReleaseService
         $host = parse_url($url, PHP_URL_HOST) ?? '';
 
         foreach (config('releases.parser_selectors_by_domain', []) as $domain => $selector) {
-            if (str_contains($host, $domain)) {
+            if (HostMatcher::matches($host, $domain)) {
                 return $selector;
             }
         }
@@ -337,7 +373,7 @@ class ReleaseService
     private function dispatchJobs(array $links): void
     {
         if (! $this->config['enable_job_dispatch']) {
-            Log::info('Job dispatch is disabled', ['links_count' => count($links)]);
+            Log::debug('Job dispatch is disabled', ['links_count' => count($links)]);
 
             return;
         }

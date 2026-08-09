@@ -2,28 +2,22 @@
 
 namespace Tests\Unit;
 
-use App\Jobs\StorePostJob;
+use App\Support\SelectorXPathBuilder;
 use DOMDocument;
 use DOMXPath;
-use ReflectionMethod;
 use Tests\TestCase;
 
 /**
- * Регрессия на XPath injection (security-audit-2026-07-24 MIN-2):
+ * Регрессия на XPath injection (security-audit-2026-07-24 MIN-2 и
+ * security-audit-2026-08-01, латентная находка в TranslateService):
  * selector задаётся вручную в админке и раньше подставлялся в XPath-запрос
  * без экранирования кавычек — значение вида `#foo'] | //script | //*[@id='`
  * ломало структуру запроса и могло вытащить произвольные узлы документа.
+ *
+ * Билдер общий для StorePostJob::extractArticle() и TranslateService::translate().
  */
-class StorePostJobSelectorXPathTest extends TestCase
+class SelectorXPathBuilderTest extends TestCase
 {
-    private function buildXPath(string $selector): string
-    {
-        $method = new ReflectionMethod(StorePostJob::class, 'buildSelectorXPath');
-        $method->setAccessible(true);
-
-        return $method->invoke(new StorePostJob([]), $selector);
-    }
-
     private function query(string $html, string $xpath): \DOMNodeList
     {
         $dom = new DOMDocument;
@@ -36,7 +30,7 @@ class StorePostJobSelectorXPathTest extends TestCase
     {
         $html = '<html><body><div id="article-body">content</div></body></html>';
 
-        $nodes = $this->query($html, $this->buildXPath('#article-body'));
+        $nodes = $this->query($html, SelectorXPathBuilder::build('#article-body'));
 
         $this->assertSame(1, $nodes->count());
     }
@@ -45,7 +39,16 @@ class StorePostJobSelectorXPathTest extends TestCase
     {
         $html = '<html><body><div class="article-body">content</div></body></html>';
 
-        $nodes = $this->query($html, $this->buildXPath('.article-body'));
+        $nodes = $this->query($html, SelectorXPathBuilder::build('.article-body'));
+
+        $this->assertSame(1, $nodes->count());
+    }
+
+    public function test_bare_class_name_matches_like_dotted_selector(): void
+    {
+        $html = '<html><body><div class="crayons-article__body">content</div></body></html>';
+
+        $nodes = $this->query($html, SelectorXPathBuilder::build('crayons-article__body'));
 
         $this->assertSame(1, $nodes->count());
     }
@@ -60,10 +63,25 @@ class StorePostJobSelectorXPathTest extends TestCase
 
         $payload = "article-body'] | //script | //*[@id='secret";
 
-        $nodes = $this->query($html, $this->buildXPath('#'.$payload));
+        $nodes = $this->query($html, SelectorXPathBuilder::build('#'.$payload));
 
         // Экранированный литерал ищет id, буквально равный всему payload —
         // такого узла нет, значит результат пуст, а не script/secret
+        $this->assertSame(0, $nodes->count());
+    }
+
+    public function test_injection_payload_in_class_selector_does_not_leak_other_nodes(): void
+    {
+        $html = '<html><body>'.
+            '<div class="article-body">content</div>'.
+            '<script>alert(1)</script>'.
+            '</body></html>';
+
+        // Форма payload'а под старую прямую конкатенацию в TranslateService
+        $payload = "article-body ')] | //script | //*[contains(concat(' ";
+
+        $nodes = $this->query($html, SelectorXPathBuilder::build($payload));
+
         $this->assertSame(0, $nodes->count());
     }
 
@@ -73,7 +91,7 @@ class StorePostJobSelectorXPathTest extends TestCase
 
         $payload = '.safe\'" | //*[1'; // содержит и \' и "
 
-        $xpath = $this->buildXPath($payload);
+        $xpath = SelectorXPathBuilder::build($payload);
 
         // Не должно бросить исключение из-за синтаксически некорректного XPath
         $nodes = $this->query($html, $xpath);

@@ -16,7 +16,9 @@ class AdminMiddleware
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if (auth()->user()->role !== UserRole::Admin) {
+        // ?-> обязателен: у гостя auth()->user() === null, и обращение к ->role
+        // дало бы 500 вместо 404 на защищённом маршруте.
+        if (auth()->user()?->role !== UserRole::Admin) {
             abort(404);
         }
 
