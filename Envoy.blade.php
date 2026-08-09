@@ -28,6 +28,7 @@
 @story('deploy', ['on' => 'production'])
     gitclone
     composer
+    env_link
     npm
     config_project
     migrate
@@ -69,6 +70,18 @@
     composer install --no-interaction --quiet --no-dev --prefer-dist --optimize-autoloader
 
     echo "# Composer dependencies have been installed"
+@endtask
+
+@task('env_link', ['on' => $on])
+    echo "# Linking .env before asset build";
+
+    # .env обязан появиться ДО `npm run build`: Vite подставляет import.meta.env
+    # на этапе сборки, читая .env из корня проекта. Раньше симлинк создавался
+    # только в config_project, то есть ПОСЛЕ npm — и все VITE_* уходили в бандл
+    # пустыми. Из-за этого laravel-echo собирался без ключа и хоста Reverb
+    # (проверено: ключа приложения в public/build/assets/app-*.js не было).
+    cd {{$dirCurrentRelease}};
+    ln -nfs {{$dirBase}}/.env .env;
 @endtask
 
 @task('npm', ['on' => $on])
