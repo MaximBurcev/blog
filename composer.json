@@ -1,11 +1,11 @@
 {
     "name": "maxburcev/laravel-local-blog",
     "type": "project",
-    "description": "Blog engine with a scraping/translation pipeline, custom AdminLTE admin panel and a Filament admin panel.",
+    "description": "Blog engine with a scraping/translation pipeline and a Filament admin panel.",
     "keywords": ["laravel", "blog"],
     "license": "MIT",
     "require": {
-        "php": "^8.1",
+        "php": "^8.3",
         "ext-dom": "*",
         "doctrine/dbal": "^3.7",
         "ezyang/htmlpurifier": "^4.19",

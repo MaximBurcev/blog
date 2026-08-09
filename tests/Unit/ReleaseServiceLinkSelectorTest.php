@@ -63,10 +63,14 @@ class ReleaseServiceLinkSelectorTest extends TestCase
         // как раньше
         Config::set('releases.section_headings', ['Articles']);
 
-        $html = '<html><body>'.
+        // td обязаны лежать внутри table: начиная с symfony/dom-crawler 7.4
+        // разбор идёт по правилам HTML5, и одинокий <td> в <body> молча
+        // выбрасывается — ровно как это делает браузер. В реальной рассылке
+        // mailer.inovica.com таблица есть, поэтому фикстура её и повторяет.
+        $html = '<html><body><table><tr>'.
             '<td class="bodyContent"><h2>Articles</h2><a href="https://example.test/a">Kept</a></td>'.
             '<td class="bodyContent"><h2>Other Section</h2><a href="https://example.test/b">Skipped</a></td>'.
-            '</body></html>';
+            '</tr></table></body></html>';
 
         $links = $this->extractLinksWithCrawler($html, null);
 
