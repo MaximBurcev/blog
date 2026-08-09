@@ -206,6 +206,14 @@
     echo '# Restarting queue workers';
     cd {{$dirCurrent}};
     php artisan queue:restart;
+
+    # Reverb — тоже долгоживущий процесс, но queue:restart его не касается:
+    # тот сигнал слушают только воркеры очереди. Без явного перезапуска
+    # WebSocket-сервер продолжал бы крутить код релиза, из которого стартовал,
+    # и сломался бы, когда releases_clean физически удалит этот каталог.
+    # `|| true` — чтобы деплой не падал на машине, где программы ещё нет.
+    echo '# Restarting Reverb';
+    sudo supervisorctl restart blog-reverb || true;
 @endtask
 
 @story('post-parse', ['on' => 'production'])
