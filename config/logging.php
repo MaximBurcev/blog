@@ -58,12 +58,21 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        /*
+         * permission 0660, а не 0640: в один и тот же файл пишут ДВА
+         * пользователя — www-data из веба и deployer из artisan/queue:work, —
+         * и общая у них только группа. С 0640 тот из них, кто не владелец
+         * файла, терял право записи, и логирование из веба молча отваливалось
+         * (проверено на проде). Смысл правки (было 0775) сохранён: снят бит
+         * исполнения и доступ для посторонних локальных аккаунтов, а логи
+         * содержат стектрейсы, SQL и — в канале security — email и IP.
+         */
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
-            'permission' => 0640,
+            'permission' => 0660,
         ],
 
         'daily' => [
@@ -72,7 +81,7 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
             'days' => 14,
             'replace_placeholders' => true,
-            'permission' => 0640,
+            'permission' => 0660,
         ],
 
         /*
@@ -93,7 +102,7 @@ return [
             'level' => 'info',
             'days' => 90,
             'replace_placeholders' => true,
-            'permission' => 0640,
+            'permission' => 0660,
         ],
 
         'slack' => [
@@ -148,7 +157,7 @@ return [
 
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
-            'permission' => 0640,
+            'permission' => 0660,
         ],
     ],
 
