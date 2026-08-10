@@ -8,6 +8,7 @@ use App\Models\Post;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
+use App\Support\FeedArticleLocator;
 use App\Support\PinnedTarget;
 use App\Support\SelectorXPathBuilder;
 use App\Support\UrlSafetyChecker;
@@ -275,6 +276,88 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
+     * CSS-класс контейнера в HTML, который мы синтезируем из RSS. Значение
+     * попадает в data['selector'], поэтому дальше по пайплайну статья из
+     * фида обрабатывается ровно так же, как скачанная страница.
+     */
+    private const FEED_CONTENT_CLASS = 'feed-article-body';
+
+    /**
+     * Забирает текст статьи из RSS источника, когда её страница закрыта
+     * антибот-проверкой.
+     *
+     * Возвращает синтезированный HTML (заголовок + тело в контейнере с
+     * известным классом) либо null, если фида нет, статьи в нём нет или
+     * контент урезан. null означает «не помогло» — вызывающий код
+     * продолжает обычную обработку сбоя.
+     */
+    private function fetchArticleFromFeed(string $articleUrl): ?string
+    {
+        $feedUrl = FeedArticleLocator::feedUrlFor($articleUrl);
+
+        if ($feedUrl === null) {
+            return null;
+        }
+
+        Log::info('StorePostJob: пробуем RSS источника', ['feed' => $feedUrl]);
+
+        try {
+            $xml = $this->fetchViaCurl($feedUrl);
+        } catch (TransientFetchException $exception) {
+            // Фид тоже под проверкой — обходного пути нет.
+            Log::warning('StorePostJob: RSS недоступен', ['feed' => $feedUrl, 'reason' => $exception->getMessage()]);
+
+            return null;
+        }
+
+        if (! is_string($xml) || $xml === '') {
+            return null;
+        }
+
+        $article = FeedArticleLocator::findArticle($xml, $articleUrl);
+
+        if ($article === null) {
+            // Обычная причина: статья старше десяти последних публикаций,
+            // а больше в фид не попадает.
+            Log::warning('StorePostJob: статьи нет в RSS', ['feed' => $feedUrl, 'url' => $articleUrl]);
+
+            return null;
+        }
+
+        if (FeedArticleLocator::isTruncated($article['html'])) {
+            // Платная member-only статья: в фиде только вступление.
+            // Публиковать огрызок хуже, чем честно пометить сбой.
+            Log::warning('StorePostJob: в RSS только урезанный текст', ['url' => $articleUrl]);
+            $this->fetchError = 'Статья платная: в RSS источника только вступление';
+
+            return null;
+        }
+
+        // Дата из фида надёжнее той, что нашлась бы в синтезированном DOM.
+        if ($article['published_at'] !== null) {
+            try {
+                $this->data['created_at'] = Carbon::parse($article['published_at'])->toDateTimeString();
+            } catch (\Throwable) {
+                // Некорректный pubDate — не повод терять статью.
+            }
+        }
+
+        // Селектор из дайджеста рассчитан на вёрстку страницы источника и к
+        // нашему контейнеру не подойдёт — подменяем на свой.
+        $this->data['selector'] = self::FEED_CONTENT_CLASS;
+
+        Log::info('StorePostJob: статья взята из RSS', [
+            'url' => $articleUrl,
+            'length' => strlen($article['html']),
+        ]);
+
+        return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'.e($article['title']).'</title></head>'
+            .'<body><h1>'.e($article['title']).'</h1>'
+            .'<div class="'.self::FEED_CONTENT_CLASS.'">'.$article['html'].'</div>'
+            .'</body></html>';
+    }
+
+    /**
      * Лежит ли уже разрешённый (realpath) путь внутри каталога импорта
      * config('releases.html_import_dir') — security-audit 2026-08-01, INF-1.
      *
@@ -339,8 +422,42 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             return $contents;
         }
 
-        $url = $this->data['url'];
+        try {
+            $html = $this->fetchViaCurl($this->data['url']);
+        } catch (TransientFetchException $exception) {
+            // Антибот-проверка на странице статьи. Прежде чем уходить на
+            // retry, пробуем забрать текст из RSS источника — Medium отдаёт
+            // фид без проверки, и там лежит полный content:encoded.
+            $fromFeed = $this->fetchArticleFromFeed($this->data['url']);
 
+            if ($fromFeed !== null) {
+                return $fromFeed;
+            }
+
+            throw $exception;
+        }
+
+        // Заглушка может приехать и с кодом 200 — тогда исключения не было,
+        // но статьи в ответе всё равно нет.
+        if (is_string($html) && $this->isChallengePage($html)) {
+            $fromFeed = $this->fetchArticleFromFeed($this->data['url']);
+
+            if ($fromFeed !== null) {
+                return $fromFeed;
+            }
+        }
+
+        return $html;
+    }
+
+    /**
+     * Скачивает URL через curl/curl-impersonate с ревалидацией каждого
+     * редиректа и IP-пиннингом. Вынесено из fetchHtml(), чтобы тем же
+     * защищённым путём ходить и за RSS-фидом, а не заводить рядом
+     * четвёртую копию SSRF-логики.
+     */
+    private function fetchViaCurl(string $url): string|false
+    {
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
             $target = $this->urlSafetyChecker->resolveTarget($url);
             if ($target === null) {
@@ -390,12 +507,14 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
             if ($result['status'] >= 400) {
                 // Отдельный случай: 403 с телом антибот-заглушки — это не
-                // «доступа нет», а «проверьте браузер». Cloudflare отдаёт
-                // managed challenge выборочно, и та же ссылка со следующей
-                // попытки обычно открывается: у medium.com так разобралось
-                // 7 статей из 11, а остальные 4 легли заглушками только
-                // потому, что 403 считался постоянным сбоем и ретраи
-                // не запускались вовсе.
+                // «доступа нет», а «проверьте браузер». Наружу уходит
+                // транзиентной ошибкой, но перехватывает её fetchHtml() и
+                // сперва пробует RSS источника (см. fetchArticleFromFeed).
+                //
+                // Ретрай остаётся смыслом для площадок, где проверка
+                // срабатывает от случая к случаю. Для medium.com он уже
+                // бесполезен: страницы статей отдают 403 поголовно, включая
+                // те, что раньше разбирались, — спасает только фид.
                 if ($this->isChallengePage((string) $result['body'])) {
                     throw new TransientFetchException(
                         "Источник вернул HTTP {$result['status']} с антибот-заглушкой (Cloudflare): {$url}"
