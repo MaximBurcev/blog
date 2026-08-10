@@ -49,10 +49,16 @@ final class FeedArticleLocator
 
         $origin = $parts['scheme'].'://'.$parts['host'];
         $segments = array_values(array_filter(explode('/', trim($parts['path'] ?? '', '/'))));
+        $host = strtolower(rtrim($parts['host'], '.'));
 
-        if (HostMatcher::matches($parts['host'], 'medium.com')) {
-            // Нужен хотя бы раздел автора/публикации и сама статья: на
-            // medium.com/feed уже фид, а не статья.
+        // Раздел автора/публикации в пути есть только на самом medium.com.
+        // У поддоменов (ecnmee.medium.com/slug-id) автор закодирован в хосте,
+        // и путь состоит из одного сегмента — по общему правилу ниже фид
+        // лежит на /feed. Раньше сюда попадала ветка medium.com, сегментов
+        // было меньше двух, и функция возвращала null: для таких статей RSS
+        // не пробовался вовсе.
+        if (in_array($host, ['medium.com', 'www.medium.com'], true)) {
+            // На medium.com/feed уже фид, а не статья.
             if (count($segments) < 2) {
                 return null;
             }

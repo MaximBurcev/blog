@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\DataTransferObjects\PostData;
 use App\Exceptions\TransientFetchException;
 use App\Models\Post;
+use App\Service\ChallengeSolverClient;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
@@ -425,13 +426,10 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         try {
             $html = $this->fetchViaCurl($this->data['url']);
         } catch (TransientFetchException $exception) {
-            // Антибот-проверка на странице статьи. Прежде чем уходить на
-            // retry, пробуем забрать текст из RSS источника — Medium отдаёт
-            // фид без проверки, и там лежит полный content:encoded.
-            $fromFeed = $this->fetchArticleFromFeed($this->data['url']);
+            $bypassed = $this->fetchAroundChallenge($this->data['url']);
 
-            if ($fromFeed !== null) {
-                return $fromFeed;
+            if ($bypassed !== null) {
+                return $bypassed;
             }
 
             throw $exception;
@@ -440,11 +438,67 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         // Заглушка может приехать и с кодом 200 — тогда исключения не было,
         // но статьи в ответе всё равно нет.
         if (is_string($html) && $this->isChallengePage($html)) {
-            $fromFeed = $this->fetchArticleFromFeed($this->data['url']);
+            $bypassed = $this->fetchAroundChallenge($this->data['url']);
 
-            if ($fromFeed !== null) {
-                return $fromFeed;
+            if ($bypassed !== null) {
+                return $bypassed;
             }
+        }
+
+        return $html;
+    }
+
+    /**
+     * Обходные пути, когда страница статьи закрыта antibot-проверкой.
+     *
+     * Порядок не случаен: RSS — один обычный запрос, а решение challenge
+     * поднимает браузерную сессию секунд на двадцать. Сперва дешёвое.
+     *
+     * RSS при этом покрывает только последние десять публикаций автора,
+     * поэтому для статей старше остаётся только headless-браузер — если он
+     * включён (FLARESOLVERR_URL).
+     */
+    private function fetchAroundChallenge(string $url): ?string
+    {
+        $fromFeed = $this->fetchArticleFromFeed($url);
+
+        if ($fromFeed !== null) {
+            return $fromFeed;
+        }
+
+        return $this->fetchViaChallengeSolver($url);
+    }
+
+    /**
+     * Забирает страницу через headless-браузер (FlareSolverr).
+     *
+     * Возвращает HTML целиком, как его увидел браузер, — дальше он идёт
+     * обычным путём через selector, поэтому подменять data['selector'] тут
+     * не нужно, в отличие от RSS-ветки.
+     */
+    private function fetchViaChallengeSolver(string $url): ?string
+    {
+        $solver = app(ChallengeSolverClient::class);
+
+        if (! $solver->isEnabled()) {
+            return null;
+        }
+
+        Log::info('StorePostJob: пробуем headless-браузер', ['url' => $url]);
+
+        $html = $solver->solve($url);
+
+        if ($html === null) {
+            return null;
+        }
+
+        // Challenge пройден, но под ним может оказаться что угодно —
+        // у medium.com так вскрылись удалённые статьи, которые Cloudflare
+        // маскировал своим 403.
+        if ($this->isChallengePage($html)) {
+            Log::warning('StorePostJob: headless-браузер тоже упёрся в заглушку', ['url' => $url]);
+
+            return null;
         }
 
         return $html;

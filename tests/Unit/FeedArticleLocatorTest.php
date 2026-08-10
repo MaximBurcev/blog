@@ -46,6 +46,12 @@ class FeedArticleLocatorTest extends TestCase
                 'https://blog.stackademic.com/some-post-abc123def456',
                 'https://blog.stackademic.com/feed',
             ],
+            // Поддомен medium: автор закодирован в хосте, путь из одного
+            // сегмента. Раньше тут возвращался null, и RSS не пробовался.
+            'поддомен medium' => [
+                'https://ecnmee.medium.com/the-4-memory-layers-7b5264ac78bd',
+                'https://ecnmee.medium.com/feed',
+            ],
         ];
     }
 
