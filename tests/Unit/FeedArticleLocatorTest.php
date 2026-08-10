@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Support\FeedArticleLocator;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -48,9 +49,7 @@ class FeedArticleLocatorTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider feedUrls
-     */
+    #[DataProvider('feedUrls')]
     public function test_derives_feed_url(string $article, string $expected): void
     {
         $this->assertSame($expected, FeedArticleLocator::feedUrlFor($article));

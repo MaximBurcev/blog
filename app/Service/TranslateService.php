@@ -37,7 +37,7 @@ class TranslateService
 
             $this->data['title'] = $this->googleTranslate->translate($this->data['title']);
 
-            $finder = new DomXPath($dom);
+            $finder = new DOMXPath($dom);
 
             $panels = $finder->query("//div[contains(@class, 'highlight__panel') and contains(@class, 'js-actions-panel')]");
 

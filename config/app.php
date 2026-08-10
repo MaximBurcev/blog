@@ -1,7 +1,16 @@
 <?php
 
+use App\Providers\AppServiceProvider;
+use App\Providers\AuthServiceProvider;
+use App\Providers\BroadcastServiceProvider;
+use App\Providers\EventServiceProvider;
+use App\Providers\Filament\FilamentPanelProvider;
+use App\Providers\RouteServiceProvider;
+use App\Providers\TelescopeServiceProvider;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\ServiceProvider;
+use Spatie\Html\Facades\Html;
+use Stichoza\GoogleTranslate\GoogleTranslate;
 
 return [
 
@@ -163,13 +172,13 @@ return [
         /*
          * Application Service Providers...
          */
-        App\Providers\AppServiceProvider::class,
-        App\Providers\AuthServiceProvider::class,
-        App\Providers\BroadcastServiceProvider::class,
-        App\Providers\EventServiceProvider::class,
-        App\Providers\Filament\FilamentPanelProvider::class,
-        App\Providers\RouteServiceProvider::class,
-        App\Providers\TelescopeServiceProvider::class,
+        AppServiceProvider::class,
+        AuthServiceProvider::class,
+        BroadcastServiceProvider::class,
+        EventServiceProvider::class,
+        FilamentPanelProvider::class,
+        RouteServiceProvider::class,
+        TelescopeServiceProvider::class,
     ])->toArray(),
 
     /*
@@ -184,8 +193,8 @@ return [
     */
 
     'aliases' => Facade::defaultAliases()->merge([
-        'GoogleTranslate' => Stichoza\GoogleTranslate\GoogleTranslate::class,
-        'Html' => Spatie\Html\Facades\Html::class,
+        'GoogleTranslate' => GoogleTranslate::class,
+        'Html' => Html::class,
     ])->toArray(),
 
 ];

@@ -662,7 +662,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        $finder = new DomXPath($dom);
+        $finder = new DOMXPath($dom);
         $ogImage = $finder->query("//meta[@property='og:image']/@content");
         if ($ogImage->length === 0) {
             return;
@@ -717,7 +717,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
     private function extractPublishedDateRaw(DOMDocument $dom): ?string
     {
-        $finder = new DomXPath($dom);
+        $finder = new DOMXPath($dom);
 
         return $this->findJsonLdDatePublished($dom)
             ?? $this->firstAttributeValue($finder, "//meta[@property='article:published_time']/@content")
@@ -834,7 +834,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         // а на этом этапе контент ещё не извлечён из DOM
         Log::debug('StorePostJob: extracting content', ['title' => $this->data['title'], 'category_id' => $this->data['category_id'] ?? null]);
 
-        $finder = new DomXPath($dom);
+        $finder = new DOMXPath($dom);
 
         $this->stripKnownJunk($finder);
 

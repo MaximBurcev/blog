@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -29,7 +30,7 @@ class RegisterMassAssignmentTest extends TestCase
 
         $response->assertRedirect();
 
-        $user = \App\Models\User::where('email', 'attacker@example.test')->firstOrFail();
+        $user = User::where('email', 'attacker@example.test')->firstOrFail();
 
         $this->assertNotSame(UserRole::Admin, $user->role);
     }
