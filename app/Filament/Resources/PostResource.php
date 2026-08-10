@@ -84,6 +84,10 @@ class PostResource extends Resource
                     ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
                     ->maxSize(5120)->label('Главное изображение'),
                 Forms\Components\Checkbox::make('published')->label('Опубликован'),
+                // Новость — тот же пост, просто в другой ленте: /news вместо
+                // главной. Разбор, перевод и страница у неё общие со статьями.
+                Forms\Components\Checkbox::make('is_news')->label('Новость')
+                    ->helperText('Попадёт в раздел «Новости» и не будет показана в общей ленте.'),
                 // Пост, который не удалось разобрать парсером, всё равно
                 // заводится — здесь видно, почему он пустой.
                 Forms\Components\Placeholder::make('parse_error_note')
@@ -163,6 +167,10 @@ class PostResource extends Resource
             ])
             ->defaultSort('id', 'desc')
             ->filters([
+                Tables\Filters\TernaryFilter::make('is_news')
+                    ->label('Новость')
+                    ->trueLabel('Только новости')
+                    ->falseLabel('Только статьи'),
                 // Был Filter::make('published') без ->query() — чекбокс ничего
                 // не фильтровал. Тернарный фильтр даёт оба состояния сразу.
                 Tables\Filters\TernaryFilter::make('published')

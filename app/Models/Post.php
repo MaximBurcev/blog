@@ -35,6 +35,7 @@ class Post extends Model
         'main_image',
         'code',
         'published',
+        'is_news',
         'url',
         'selector',
         'translate',
@@ -67,6 +68,7 @@ class Post extends Model
     }
 
     protected $casts = [
+        'is_news' => 'boolean',
         'translation_incomplete' => 'boolean',
         // Без каста в индекс Meilisearch уходит целочисленная 1, и фильтр
         // Post::search(...)->where('published', true) не находит ничего
@@ -296,6 +298,20 @@ class Post extends Model
         }
 
         return 'минут';
+    }
+
+    /**
+     * Новости и статьи — две ленты одного типа записей. Разделяем скоупами,
+     * чтобы нигде не пришлось помнить про `where('is_news', ...)` руками.
+     */
+    public function scopeNews(Builder $query): Builder
+    {
+        return $query->where('is_news', true);
+    }
+
+    public function scopeArticles(Builder $query): Builder
+    {
+        return $query->where('is_news', false);
     }
 
     public function scopePublished(Builder $query): Builder

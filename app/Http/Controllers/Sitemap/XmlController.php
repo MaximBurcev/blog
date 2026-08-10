@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Sitemap;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
-use App\Models\News;
 use App\Models\Post;
 use App\Models\Tag;
 
@@ -23,7 +22,7 @@ class XmlController extends Controller
 
         // Лента новостей попадает в карту, только когда в ней что-то есть:
         // пустой раздел в sitemap — приглашение поисковику на пустую страницу.
-        $hasNews = News::published()->exists();
+        $hasNews = Post::published()->news()->exists();
 
         return response()
             ->view('sitemap.xml.sitemap', compact('posts', 'categories', 'tags', 'hasNews'))

@@ -2,37 +2,31 @@
 
 namespace App\Service;
 
-use App\Models\News;
+use App\Jobs\StorePostJob;
+use App\Models\Post;
 use App\Support\NewsDigestParser;
 use Illuminate\Support\Facades\Log;
-use Stichoza\GoogleTranslate\GoogleTranslate;
 
 /**
  * Импорт новостей из секции дайджеста PHP Weekly.
  *
- * В отличие от статей, ничего не скачивается по ссылке: заголовок и описание
- * уже есть в самом дайджесте. Это и надёжнее (нет Cloudflare, разнобоя вёрстки
- * и заглушек), и честнее по отношению к источнику — читатель уходит читать
- * оригинал.
+ * Сервис только находит ссылки и ставит задачи — разбором занимается тот же
+ * StorePostJob, что и для статей. Поэтому у новости есть всё, что есть у
+ * поста: полный переведённый текст, локальные картинки, обход antibot
+ * (RSS и headless), ретраи, пост-заглушка с причиной при сбое и своя
+ * страница. Отличает её только флаг is_news.
+ *
+ * Дублировать пайплайн ради отдельной модели было бы ошибкой: каждая правка
+ * в нём делалась бы дважды.
  */
 class NewsImportService
 {
-    /**
-     * Заголовок секции в дайджесте. Вынесен в конфиг, потому что у соседних
-     * секций («Tutorials and Talks», «Interesting Projects») структура та же
-     * и импорт можно переиспользовать.
-     */
-    private function sectionHeading(): string
-    {
-        return (string) config('releases.news_section_heading', 'News and Announcements');
-    }
-
     public function __construct(
         private readonly ReleaseService $releaseService = new ReleaseService
     ) {}
 
     /**
-     * @return array{imported: int, updated: int, skipped: int}
+     * @return array{dispatched: int, skipped: int}
      */
     public function importFromDigest(string $digestUrl): array
     {
@@ -45,84 +39,51 @@ class NewsImportService
                 'section' => $this->sectionHeading(),
             ]);
 
-            return ['imported' => 0, 'updated' => 0, 'skipped' => 0];
+            return ['dispatched' => 0, 'skipped' => 0];
         }
 
-        $translator = $this->makeTranslator();
-        $stats = ['imported' => 0, 'updated' => 0, 'skipped' => 0];
+        $stats = ['dispatched' => 0, 'skipped' => 0];
 
         foreach ($items as $item) {
-            // Уже импортированное не переводим заново: перевод — самая
-            // дорогая часть, а дайджесты частично повторяют друг друга.
-            if (News::where('url', $item['url'])->exists()) {
+            // Уже разобранное не трогаем: повторный разбор — это внешний фетч,
+            // перевод и скачивание картинок заново. Неудачные заглушки
+            // (parse_status = failed) сознательно пробуем ещё раз.
+            $existing = Post::where('url', $item['url'])->first();
+
+            if ($existing !== null && $existing->parse_status !== Post::PARSE_STATUS_FAILED) {
                 $stats['skipped']++;
 
                 continue;
             }
 
-            $incomplete = false;
-
-            $title = $this->translate($translator, $item['title'], $incomplete);
-            $summary = $this->translate($translator, $item['summary'], $incomplete);
-
-            News::create([
+            StorePostJob::dispatch([
                 'url' => $item['url'],
-                'title' => $title,
-                'title_orig' => $item['title'],
-                'summary' => $summary,
-                'summary_orig' => $item['summary'],
-                'source_host' => parse_url($item['url'], PHP_URL_HOST) ?: null,
-                'published' => true,
-                'translation_incomplete' => $incomplete,
+                // Пустой селектор джоба разрешит сама по домену — правила
+                // из админки и конфига.
+                'selector' => '',
+                'tag_ids' => [],
+                'translate' => null,
+                'is_news' => true,
+                // Заголовок из дайджеста — запасной: если страница не отдаст
+                // <h1>, ссылка не потеряется и в админке будет видно, что это.
+                'link_text' => $item['title'],
             ]);
 
-            $stats['imported']++;
+            $stats['dispatched']++;
         }
 
-        Log::info('NewsImport: импорт завершён', $stats + ['digest' => $digestUrl]);
+        Log::info('NewsImport: задачи поставлены', $stats + ['digest' => $digestUrl]);
 
         return $stats;
     }
 
     /**
-     * Перевод с мягкой деградацией: сбой переводчика (лимит, сеть) не должен
-     * терять новость — сохраняем оригинал и помечаем запись для ревью, ровно
-     * как это делает пайплайн статей.
+     * Заголовок секции в дайджесте. В конфиге, потому что у соседних секций
+     * («Tutorials and Talks», «Interesting Projects») структура та же и
+     * импорт переиспользуется сменой значения.
      */
-    private function translate(GoogleTranslate $translator, string $text, bool &$incomplete): string
+    private function sectionHeading(): string
     {
-        if ($text === '') {
-            return $text;
-        }
-
-        try {
-            $translated = $translator->translate($text);
-        } catch (\Throwable $exception) {
-            Log::warning('NewsImport: перевод не удался, оставляем оригинал', [
-                'error' => mb_substr($exception->getMessage(), 0, 120),
-            ]);
-            $incomplete = true;
-
-            return $text;
-        }
-
-        if (! is_string($translated) || trim($translated) === '') {
-            $incomplete = true;
-
-            return $text;
-        }
-
-        return $translated;
-    }
-
-    private function makeTranslator(): GoogleTranslate
-    {
-        $translator = new GoogleTranslate('ru');
-
-        if ($proxy = config('releases.curl_proxy')) {
-            $translator->setOptions(['proxy' => 'socks5://'.$proxy]);
-        }
-
-        return $translator;
+        return (string) config('releases.news_section_heading', 'News and Announcements');
     }
 }

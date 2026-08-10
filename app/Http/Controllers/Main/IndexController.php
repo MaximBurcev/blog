@@ -21,7 +21,10 @@ class IndexController extends Controller
 
     public function __invoke()
     {
-        $posts = Post::published()
+        // articles(): новости — те же посты с флагом is_news, но у них свой
+        // раздел /news. В общей ленте они бы вытеснили статьи, потому что
+        // выходят чаще.
+        $posts = Post::published()->articles()
             ->select(['id', 'title', 'code', 'preview_image', 'category_id', 'created_at'])
             ->orderBy('created_at', 'desc')
             ->paginate(12);
@@ -30,7 +33,7 @@ class IndexController extends Controller
         // ним требует материализации до take(4). То же с whereHas по категориям
         // и тегам. Данные меняются медленно, а страница самая посещаемая,
         // поэтому держим готовый результат в кэше.
-        $popularPosts = Cache::remember('main:popular-posts', self::SIDEBAR_CACHE_TTL, fn () => Post::published()
+        $popularPosts = Cache::remember('main:popular-posts', self::SIDEBAR_CACHE_TTL, fn () => Post::published()->articles()
             ->select(['id', 'title', 'code', 'preview_image', 'category_id', 'created_at'])
             ->withCount(['views', 'likes', 'comments'])
             // Ранжируем по просмотрам; лайки+комментарии и свежесть — тай-брейкеры,

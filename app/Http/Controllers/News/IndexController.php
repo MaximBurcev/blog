@@ -3,31 +3,32 @@
 namespace App\Http\Controllers\News;
 
 use App\Http\Controllers\Controller;
-use App\Models\News;
+use App\Models\Post;
 use Illuminate\Contracts\View\View;
 
 /**
- * Лента новостей. Своих страниц у новости нет: в ней 2–4 строки описания и
- * ссылка на первоисточник, а отдельная страница под такой объём — тонкий
- * контент, за который поисковики понижают весь сайт.
+ * Лента новостей.
+ *
+ * Новость — тот же Post с флагом is_news: разбирается, переводится и
+ * хранится ровно тем же пайплайном, что и статья, поэтому у неё есть и
+ * полный текст, и своя страница (/posts/{code}). Отдельного адреса под
+ * новость не заводим — это был бы второй URL для того же контента.
  */
 class IndexController extends Controller
 {
-    private const PER_PAGE = 20;
+    private const PER_PAGE = 15;
 
     public function __invoke(): View
     {
-        $news = News::published()
-            // select() явно: в таблице лежат ещё и оригиналы (title_orig,
-            // summary_orig), они нужны только админке.
-            ->select(['id', 'url', 'title', 'summary', 'source_host', 'created_at'])
+        $posts = Post::published()->news()
+            ->select(['id', 'title', 'code', 'preview_image', 'category_id', 'created_at', 'url'])
             ->latest('created_at')
             ->paginate(self::PER_PAGE);
 
         return view('news.index', [
-            'news' => $news,
+            'posts' => $posts,
             'title' => 'Новости',
-            'description' => 'Новости и анонсы мира PHP: релизы фреймворков, инструменты и события — коротко, на русском.',
+            'description' => 'Новости и анонсы мира PHP: релизы фреймворков, инструменты и события — в переводе на русский.',
         ]);
     }
 }

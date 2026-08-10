@@ -25,7 +25,7 @@ class ImportNewsCommand extends Command
             return self::FAILURE;
         }
 
-        $total = ['imported' => 0, 'updated' => 0, 'skipped' => 0];
+        $total = ['dispatched' => 0, 'skipped' => 0];
 
         foreach ($urls as $url) {
             $this->line("Дайджест: {$url}");
@@ -38,7 +38,7 @@ class ImportNewsCommand extends Command
                 continue;
             }
 
-            $this->info("  добавлено {$stats['imported']}, пропущено {$stats['skipped']}");
+            $this->info("  поставлено задач {$stats['dispatched']}, пропущено {$stats['skipped']}");
 
             foreach ($stats as $k => $v) {
                 $total[$k] += $v;
@@ -46,7 +46,8 @@ class ImportNewsCommand extends Command
         }
 
         $this->newLine();
-        $this->info("Итого: добавлено {$total['imported']}, пропущено {$total['skipped']}");
+        $this->info("Итого: поставлено задач {$total['dispatched']}, пропущено {$total['skipped']}");
+        $this->line('Разбор идёт в очереди — следите за разделом «Посты» в админке.');
 
         return self::SUCCESS;
     }
