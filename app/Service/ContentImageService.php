@@ -370,7 +370,10 @@ class ContentImageService
                 // Подменяем только src, а не собираем тег заново: width и
                 // height из исходного тега нужны вёрстке (см. srcset в
                 // ImageVariantService), и терять их нельзя.
-                return preg_replace('/src="[^"]*"/i', 'src="'.$newImageUrl.'"', $matches[0], 1) ?? $matches[0];
+                // (?<![-\w]) — чтобы не переписать data-src вместо src:
+                // тег остался бы указывать на внешний адрес, хотя картинка
+                // уже скачана.
+                return preg_replace('/(?<![-\w])src="[^"]*"/i', 'src="'.$newImageUrl.'"', $matches[0], 1) ?? $matches[0];
             } catch (\Exception $e) {
                 Log::warning('ContentImageService: bare image download failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
 
@@ -389,9 +392,17 @@ class ContentImageService
         return str_starts_with($url, 'http') && ! $this->isLocalImage($url);
     }
 
+    /**
+     * Сверяем с реальным префиксом хранилища, а не ищем подстроку: источник
+     * мог назвать свою картинку https://evil.tld/images/content/pixel.gif и
+     * тем самым остаться внешним (утечка IP читателя в чужой CDN).
+     */
     private function isLocalImage(string $url): bool
     {
-        return str_contains($url, '/'.self::CONTENT_IMAGE_DIR.'/');
+        $prefix = rtrim(Storage::disk('public')->url(''), '/').'/'.self::CONTENT_IMAGE_DIR.'/';
+
+        return str_starts_with($url, $prefix)
+            || str_starts_with($url, '/storage/'.self::CONTENT_IMAGE_DIR.'/');
     }
 
     private function downloadToPublicUrl(string $imageUrl): ?string

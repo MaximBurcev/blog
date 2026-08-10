@@ -347,7 +347,15 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         // Дата из фида надёжнее той, что нашлась бы в синтезированном DOM.
         if ($article['published_at'] !== null) {
             try {
-                $this->data['created_at'] = Carbon::parse($article['published_at'])->toDateTimeString();
+                $date = Carbon::parse($article['published_at']);
+
+                // То же окно правдоподобия, что и у applyPublishedDate():
+                // pubDate тоже приходит из чужого фида, а по created_at
+                // сортируются все листинги, RSS и «популярное». Без проверки
+                // источник ставил себе 2099 год и висел первым вечно.
+                if (! $date->isFuture() && ! $date->lt(now()->subYears(5))) {
+                    $this->data['created_at'] = $date->toDateTimeString();
+                }
             } catch (\Throwable) {
                 // Некорректный pubDate — не повод терять статью.
             }

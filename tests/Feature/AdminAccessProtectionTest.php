@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Exceptions\LastAdminException;
 use App\Filament\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -68,6 +69,48 @@ class AdminAccessProtectionTest extends TestCase
         $this->actingAs($admin);
 
         $this->assertTrue(UserResource::canDelete($reader));
+    }
+
+    /**
+     * Регрессия на аудит 2026-08-10: disableOptionWhen в Filament — чисто
+     * визуальный контроль (getEnabledOptions() фреймворком нигде не
+     * вызывается, Rule::in из него не выводится), поэтому Livewire-запрос
+     * с role=Reader проходил мимо и отбирал доступ к панели безвозвратно.
+     * Инвариант обязан жить на модели.
+     */
+    public function test_last_admin_cannot_be_demoted(): void
+    {
+        User::query()->delete();
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        $this->expectException(LastAdminException::class);
+
+        $admin->update(['role' => UserRole::Reader]);
+    }
+
+    public function test_last_admin_role_survives_the_attempt(): void
+    {
+        User::query()->delete();
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+
+        try {
+            $admin->update(['role' => UserRole::Reader]);
+        } catch (LastAdminException) {
+            // ожидаемо
+        }
+
+        $this->assertSame(UserRole::Admin, $admin->fresh()->role);
+    }
+
+    public function test_admin_can_be_demoted_when_another_admin_remains(): void
+    {
+        User::query()->delete();
+        $admin = User::factory()->create(['role' => UserRole::Admin]);
+        User::factory()->create(['role' => UserRole::Admin]);
+
+        $admin->update(['role' => UserRole::Reader]);
+
+        $this->assertSame(UserRole::Reader, $admin->fresh()->role);
     }
 
     /**

@@ -71,15 +71,32 @@ class HtmlSanitizerService
      */
     private function stripTrackingPixels(string $html): string
     {
-        $cleaned = preg_replace_callback('/<img[^>]*>/i', function (array $matches): string {
-            foreach (self::TRACKING_PIXEL_PATTERNS as $pattern) {
-                if (preg_match($pattern, $matches[0]) === 1) {
-                    return '';
+        // Паттерн учитывает кавычки: наивный <img[^>]*> обрывался на первом
+        // '>', и `<img alt=">" src="https://medium.com/_/stat...">` проходил
+        // мимо фильтра целиком. Проверяется только значение src — иначе
+        // валидная картинка с упоминанием счётчика в alt удалялась бы.
+        $cleaned = preg_replace_callback(
+            '#<img\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>#i',
+            function (array $matches): string {
+                if (preg_match('/\bsrc\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))/i', $matches[0], $src) !== 1) {
+                    return $matches[0];
                 }
-            }
 
-            return $matches[0];
-        }, $html);
+                $url = $src[2] ?? '';
+                if ($url === '') {
+                    $url = $src[3] ?? $src[4] ?? '';
+                }
+
+                foreach (self::TRACKING_PIXEL_PATTERNS as $pattern) {
+                    if (preg_match($pattern, $url) === 1) {
+                        return '';
+                    }
+                }
+
+                return $matches[0];
+            },
+            $html
+        );
 
         return $cleaned ?? $html;
     }

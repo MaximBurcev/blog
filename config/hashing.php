@@ -29,7 +29,15 @@ return [
     */
 
     'bcrypt' => [
-        'rounds' => env('BCRYPT_ROUNDS', 10),
+        // 12, а не 10: дефолт подняли в Laravel 11, а конфиг у нас от 10-й
+        // ветки — composer его не обновляет. Cost 10 вчетверо дешевле для
+        // офлайнового перебора при утечке дампа users.
+        // Пересчёт бесшовный: hashing.rehash_on_login по умолчанию true,
+        // хэш доапгрейдится при следующем входе каждого пользователя.
+        'rounds' => env('BCRYPT_ROUNDS', 12),
+        // Без этого ключа BcryptHasher::$verifyAlgorithm остаётся false, и
+        // Hash::check() молча принимает хэш чужого алгоритма вместо ошибки.
+        'verify' => env('HASH_VERIFY', true),
     ],
 
     /*
@@ -44,6 +52,7 @@ return [
     */
 
     'argon' => [
+        'verify' => env('HASH_VERIFY', true),
         'memory' => 65536,
         'threads' => 1,
         'time' => 4,

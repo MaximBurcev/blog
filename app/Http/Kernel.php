@@ -21,9 +21,11 @@ use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull;
 use Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests;
+use Illuminate\Foundation\Http\Middleware\InvokeDeferredCallbacks;
 use Illuminate\Foundation\Http\Middleware\ValidatePostSize;
 use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Middleware\SetCacheHeaders;
+use Illuminate\Http\Middleware\ValidatePathEncoding;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Session\Middleware\AuthenticateSession;
@@ -40,6 +42,15 @@ class Kernel extends HttpKernel
      * @var array<int, class-string|string>
      */
     protected $middleware = [
+        // Появились в Laravel 11 и входят в дефолтный глобальный стек 13-й
+        // ветки (Foundation\Configuration\Middleware::getGlobalMiddleware).
+        // Мы остались на скелете от Laravel 10, где их взять было неоткуда,
+        // а базовый Kernel ничего не домешивает — этот массив и есть весь
+        // глобальный стек. ValidatePathEncoding отбивает запросы с битой
+        // percent-последовательностью в пути до роутинга; без
+        // InvokeDeferredCallbacks любой Support\defer() молча не выполнится.
+        ValidatePathEncoding::class,
+        InvokeDeferredCallbacks::class,
         // Абсолютные URL Laravel строит от заголовка Host, а он приходит от
         // клиента: без этого мидлваря `Host: evil.tld` на POST /password/email
         // отправлял жертве письмо с НАШЕГО адреса, но со ссылкой на чужой

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\UserRole;
+use App\Exceptions\LastAdminException;
 use App\Support\SecurityAudit;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
@@ -71,6 +72,18 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
     }
 
     /**
+     * Остался ли этот администратор единственным. Считаем по не удалённым
+     * записям — soft-deleted в панель всё равно не попадёт.
+     */
+    private static function isLastAdmin(self $user): bool
+    {
+        return self::query()
+            ->where('role', UserRole::Admin)
+            ->whereKeyNot($user->getKey())
+            ->doesntExist();
+    }
+
+    /**
      * Audit-trail изменений учётных записей (security-audit 2026-08-01, INF-7).
      *
      * Хуки модели, а не вызовы из UserResource: сменить роль или пароль можно
@@ -83,6 +96,25 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
      */
     protected static function booted(): void
     {
+        // Серверный инвариант, а не только UI. disableOptionWhen в Filament —
+        // чисто визуальный контроль: getEnabledOptions() фреймворком нигде не
+        // вызывается, и Rule::in из него не выводится. То есть Livewire-запрос
+        // с role=Reader для последнего админа проходил и отбирал доступ к
+        // панели безвозвратно (роль правится только руками в БД).
+        static::updating(function (User $user): void {
+            if (! $user->isDirty('role')) {
+                return;
+            }
+
+            $wasAdmin = $user->getOriginal('role') === UserRole::Admin;
+
+            if ($wasAdmin && $user->role !== UserRole::Admin && self::isLastAdmin($user)) {
+                throw new LastAdminException(
+                    'Нельзя снять роль администратора с последнего администратора.'
+                );
+            }
+        });
+
         static::updated(function (User $user): void {
             if ($user->wasChanged('role')) {
                 $original = $user->getOriginal('role');

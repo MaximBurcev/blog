@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Support\HostMatcher;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -27,6 +28,23 @@ use Illuminate\Support\Facades\Log;
  */
 class ChallengeSolverClient
 {
+    /**
+     * Совпадает ли хост итогового адреса с запрошенным. Сравнение по границе
+     * метки: поддомен того же сайта допустим (medium.com -> www.medium.com),
+     * чужой хост — нет.
+     */
+    private function isSameHost(string $requested, string $final): bool
+    {
+        $a = strtolower((string) parse_url($requested, PHP_URL_HOST));
+        $b = strtolower((string) parse_url($final, PHP_URL_HOST));
+
+        if ($a === '' || $b === '') {
+            return false;
+        }
+
+        return HostMatcher::matches($b, $a) || HostMatcher::matches($a, $b);
+    }
+
     public function isEnabled(): bool
     {
         return filled(config('releases.challenge_solver_url'));
@@ -84,8 +102,37 @@ class ChallengeSolverClient
 
         $html = $body['solution']['response'] ?? null;
         $status = $body['solution']['status'] ?? null;
+        $finalUrl = $body['solution']['url'] ?? null;
 
         if (! is_string($html) || $html === '') {
+            return null;
+        }
+
+        // Браузер идёт по редиректам сам, мимо UrlSafetyChecker и IP-пиннинга.
+        // Поэтому сверяем, где он в итоге оказался: чужая страница могла
+        // отдать 302 на 169.254.169.254 или во внутреннюю сеть, и её содержимое
+        // приехало бы к нам как «статья».
+        if (! is_string($finalUrl) || ! $this->isSameHost($url, $finalUrl)) {
+            Log::warning('ChallengeSolver: браузер ушёл на другой хост', [
+                'requested' => $url,
+                'final' => is_string($finalUrl) ? $finalUrl : null,
+            ]);
+
+            return null;
+        }
+
+        // Лимит размера: в curl-ветках стоит CURLOPT_MAXFILESIZE_LARGE, а здесь
+        // тело приезжает уже целиком в памяти. Страница на сотни мегабайт
+        // положила бы воркер очереди.
+        $maxLength = (int) config('releases.max_content_length');
+
+        if ($maxLength > 0 && strlen($html) > $maxLength) {
+            Log::warning('ChallengeSolver: ответ превышает лимит размера', [
+                'url' => $url,
+                'length' => strlen($html),
+                'limit' => $maxLength,
+            ]);
+
             return null;
         }
 

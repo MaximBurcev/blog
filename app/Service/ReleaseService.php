@@ -280,6 +280,17 @@ class ReleaseService
             return null;
         }
 
+        // Управляющие символы вырезаем ДО разбора: браузер по WHATWG URL
+        // выкидывает ASCII tab/newline из адреса, а parse_url на них
+        // спотыкается и не распознаёт схему. То есть "jav\tascript:alert(1)"
+        // проходил проверку как «относительная ссылка», а в браузере
+        // оставался рабочим javascript:-URI.
+        $href = (string) preg_replace('/[\x00-\x20\x7F]/', '', $href);
+
+        if ($href === '') {
+            return null;
+        }
+
         $scheme = strtolower((string) parse_url($href, PHP_URL_SCHEME));
 
         // Схема есть и она не http(s) — javascript:, data:, vbscript: и прочее.
@@ -289,6 +300,14 @@ class ReleaseService
             Log::warning('ReleaseService: ссылка с недопустимой схемой отброшена', [
                 'scheme' => $scheme,
             ]);
+
+            return null;
+        }
+
+        // Схема не распозналась, но двоеточие стоит до первого слэша —
+        // значит это всё-таки схема, просто нестандартная. Не пропускаем.
+        if ($scheme === '' && preg_match('#^[^/?\#]*:#', $href) === 1) {
+            Log::warning('ReleaseService: ссылка с нераспознанной схемой отброшена');
 
             return null;
         }

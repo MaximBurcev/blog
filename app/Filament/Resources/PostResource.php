@@ -107,7 +107,11 @@ class PostResource extends Resource
                         : null),
                 TextColumn::make('url')
                     ->label('Источник')
-                    ->url(fn (Post $record): ?string => $record->url)
+                    // Тот же гард, что и у Placeholder выше: схема приходит со страницы
+                    // стороннего дайджеста, а Blade экранирует кавычки, но не схему.
+                    ->url(fn (Post $record): ?string => Str::startsWith((string) $record->url, ['http://', 'https://'])
+                        ? $record->url
+                        : null)
                     ->openUrlInNewTab()
                     ->placeholder('—')
                     ->wrap()
