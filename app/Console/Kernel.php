@@ -28,6 +28,14 @@ class Kernel extends ConsoleKernel
             ->weekly()
             ->onOneServer();
 
+        // Новости из секции дайджеста. Дешёвая операция: сам дайджест уже
+        // заведён как релиз, скачивается только он, а перевод идёт лишь для
+        // новых элементов — повторные отсеиваются по url ещё до перевода.
+        $schedule->command('news:import')
+            ->dailyAt('07:00')
+            ->onOneServer()
+            ->withoutOverlapping();
+
         // Просроченные токены сброса пароля не удаляются сами: строки в
         // password_reset_tokens лежали вечно и уезжали в каждый бэкап.
         $schedule->command('auth:clear-resets')

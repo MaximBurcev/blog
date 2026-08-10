@@ -5,6 +5,15 @@
         <changefreq>daily</changefreq>
         <priority>1.0</priority>
     </url>
+    {{-- Лента новостей: индивидуальных страниц у новостей нет
+         (тонкий контент), поэтому в карту попадает только сама лента. --}}
+    @if($hasNews)
+        <url>
+            <loc>{{ route('news.index') }}</loc>
+            <changefreq>daily</changefreq>
+            <priority>0.7</priority>
+        </url>
+    @endif
     @foreach ($categories as $category)
         <url>
             <loc>{{ route('category.show', $category->code) }}</loc>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Sitemap;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\News;
 use App\Models\Post;
 use App\Models\Tag;
 
@@ -20,8 +21,12 @@ class XmlController extends Controller
         $categories = Category::whereHas('posts', fn ($q) => $q->published())->select('id', 'code')->get();
         $tags = Tag::whereHas('posts', fn ($q) => $q->published())->select('id', 'code')->get();
 
+        // Лента новостей попадает в карту, только когда в ней что-то есть:
+        // пустой раздел в sitemap — приглашение поисковику на пустую страницу.
+        $hasNews = News::published()->exists();
+
         return response()
-            ->view('sitemap.xml.sitemap', compact('posts', 'categories', 'tags'))
+            ->view('sitemap.xml.sitemap', compact('posts', 'categories', 'tags', 'hasNews'))
             ->header('Content-Type', 'text/xml');
     }
 }

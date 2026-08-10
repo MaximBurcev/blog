@@ -213,6 +213,18 @@ return [
     | Замеры: 123 МБ в покое, ~145 МБ под запросом, образ 717 МБ.
     |
     */
+    /*
+    |--------------------------------------------------------------------------
+    | News Section Heading
+    |--------------------------------------------------------------------------
+    |
+    | Заголовок секции дайджеста, из которой импортируются новости. У соседних
+    | секций («Tutorials and Talks», «Interesting Projects, Tools and Libraries»)
+    | структура ровно та же, так что импорт переиспользуется сменой значения.
+    |
+    */
+    'news_section_heading' => env('RELEASE_NEWS_SECTION', 'News and Announcements'),
+
     'challenge_solver_url' => env('FLARESOLVERR_URL'),
 
     'challenge_solver_timeout' => (int) env('FLARESOLVERR_TIMEOUT', 60),

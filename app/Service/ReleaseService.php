@@ -6,6 +6,7 @@ use App\Jobs\StorePostJob;
 use App\Models\Release;
 use App\Support\ContentSelectorResolver;
 use App\Support\HostMatcher;
+use App\Support\SanitizedHref;
 use App\Support\UrlSafetyChecker;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Uri;
@@ -115,7 +116,12 @@ class ReleaseService
      * UrlSafetyChecker (защита от SSRF на localhost/внутреннюю сеть/
      * метаданные облака).
      */
-    private function fetchHtmlContent(string $url): string
+    /**
+     * Публичный, потому что тем же защищённым путём ходит импорт новостей
+     * (NewsImportService): дайджест один и тот же, а заводить рядом пятую
+     * копию SSRF-логики с IP-пиннингом незачем.
+     */
+    public function fetchHtmlContent(string $url): string
     {
         $client = new Client([
             'timeout' => $this->config['timeout'],
@@ -274,45 +280,13 @@ class ReleaseService
      */
     private function sanitizeHref(?string $href): ?string
     {
-        $href = trim((string) $href);
+        $safe = SanitizedHref::fromString($href);
 
-        if ($href === '') {
-            return null;
+        if ($safe === null && trim((string) $href) !== '') {
+            Log::warning('ReleaseService: ссылка с недопустимой схемой отброшена');
         }
 
-        // Управляющие символы вырезаем ДО разбора: браузер по WHATWG URL
-        // выкидывает ASCII tab/newline из адреса, а parse_url на них
-        // спотыкается и не распознаёт схему. То есть "jav\tascript:alert(1)"
-        // проходил проверку как «относительная ссылка», а в браузере
-        // оставался рабочим javascript:-URI.
-        $href = (string) preg_replace('/[\x00-\x20\x7F]/', '', $href);
-
-        if ($href === '') {
-            return null;
-        }
-
-        $scheme = strtolower((string) parse_url($href, PHP_URL_SCHEME));
-
-        // Схема есть и она не http(s) — javascript:, data:, vbscript: и прочее.
-        // Относительные ссылки (схемы нет) оставляем как были: их разбор
-        // не менялся, и ломать сейчас поведение парсера незачем.
-        if ($scheme !== '' && ! in_array($scheme, ['http', 'https'], true)) {
-            Log::warning('ReleaseService: ссылка с недопустимой схемой отброшена', [
-                'scheme' => $scheme,
-            ]);
-
-            return null;
-        }
-
-        // Схема не распозналась, но двоеточие стоит до первого слэша —
-        // значит это всё-таки схема, просто нестандартная. Не пропускаем.
-        if ($scheme === '' && preg_match('#^[^/?\#]*:#', $href) === 1) {
-            Log::warning('ReleaseService: ссылка с нераспознанной схемой отброшена');
-
-            return null;
-        }
-
-        return $href;
+        return $safe;
     }
 
     private function extractLinksFromSections(Crawler $crawler, array $headings): array

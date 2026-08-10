@@ -72,6 +72,24 @@ All controllers are single-action classes — each HTTP action (index, show, sto
 
 `StoreUserJob` was removed on 2026-08-09: it was never dispatched anywhere, mass-assigned `$data` wholesale (including `role`, i.e. a ready-made privilege escalation for whoever wired it up), and put the plaintext password into the queue payload.
 
+### News section
+
+`/news` — лента новостей из секции «News and Announcements» дайджеста PHP Weekly
+(тех же `Release`, что питают статьи). Отдельная модель `News`, а не категория
+постов: полного текста нет, всегда есть ссылка на первоисточник, и смешивать их
+с постами означало бы исключать новости из общей ленты, поиска, RSS и sitemap
+в каждом запросе.
+
+По ссылке ничего не скачивается — заголовок и описание берутся прямо из
+дайджеста и переводятся. Это снимает Cloudflare, разнобой вёрстки и заглушки,
+которыми страдает пайплайн статей. Индивидуальных страниц у новости нет: 2–4
+строки описания — тонкий контент, за который поисковики понижают весь сайт.
+
+- `App\Support\NewsDigestParser` — разбор секции (без ввода-вывода, покрыт тестами)
+- `App\Service\NewsImportService` — перевод и сохранение; дедуп по `news.url` (UNIQUE)
+- `php artisan news:import [url]` — вручную; в планировщике ежедневно в 07:00
+- Импорт также доступен кнопкой в админке (Блог → Новости)
+
 ### Models & Relationships
 
 - `Post` — `belongsToMany(Tag)`, `belongsTo(Category)`, `hasMany(Comment)`, `hasMany(PostLike)`. Uses `SoftDeletes` and `Searchable` (Laravel Scout → Meilisearch)

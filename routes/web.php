@@ -55,6 +55,9 @@ Route::prefix('tags')->group(function () {
 // MustVerifyEmail). Троттлинг самих отправок — в VerificationController.
 Auth::routes(['verify' => true]);
 
+// Лента новостей. Индивидуальных страниц нет — см. News\IndexController.
+Route::get('/news', App\Http\Controllers\News\IndexController::class)->name('news.index');
+
 Route::get('/sitemap.xml', XmlController::class)->name('sitemap.xml');
 
 Route::get('/feed.xml', App\Http\Controllers\Feed\IndexController::class)->name('feed.index');

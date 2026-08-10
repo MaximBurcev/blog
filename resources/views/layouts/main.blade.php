@@ -158,6 +158,9 @@
                         <a class="nav-link" href="{{ route('main.index') }}">Главная</a>
                     </li>
                     <li>
+                        <a class="nav-link" href="{{ route('news.index') }}">Новости</a>
+                    </li>
+                    <li>
                         <a class="nav-link" href="{{ route('main.search') }}">Поиск</a>
                     </li>
                 </ul>
