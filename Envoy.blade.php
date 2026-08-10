@@ -225,3 +225,40 @@
     php artisan post:parse "{{$url}}" {{ isset($selector) ? '--selector=' . $selector : '' }} {{ isset($sync) ? '--sync' : '' }}
 @endtask
 
+
+{{--
+    Пересоздание контейнера FlareSolverr — headless-браузера, которым парсер
+    обходит antibot-проверки (см. config/releases.php, challenge_solver_url).
+
+    Отдельная команда, а НЕ шаг деплоя: контейнер живёт сам по себе с
+    --restart=unless-stopped и переживает перезагрузку сервера. Пересоздавать
+    его на каждый выкат незачем — это только сбрасывало бы браузерную сессию.
+
+    Запуск: ./vendor/bin/envoy run challenge_solver
+--}}
+@story('challenge-solver', ['on' => 'production'])
+    restart_challenge_solver
+@endstory
+
+@task('restart_challenge_solver', ['on' => 'production'])
+    echo '# Recreating FlareSolverr container';
+
+    sudo docker pull -q ghcr.io/flaresolverr/flaresolverr:latest;
+    sudo docker rm -f flaresolverr 2>/dev/null || true;
+
+    # --memory=900m проверено опытом: с 512m Chrome не укладывался в challenge
+    # и FlareSolverr отдавал «Timeout after 60.0 seconds». Пик нужен только на
+    # время решения, в покое контейнер держит ~110 МБ.
+    #
+    # Порт публикуется ТОЛЬКО на 127.0.0.1: наружу сервис торчать не должен —
+    # он умеет ходить по произвольным URL от имени сервера.
+    sudo docker run -d --name flaresolverr \
+        -p 127.0.0.1:8191:8191 \
+        --memory=900m --memory-swap=900m \
+        --restart=unless-stopped \
+        -e LOG_LEVEL=warning \
+        ghcr.io/flaresolverr/flaresolverr:latest;
+
+    echo '# Waiting for readiness';
+    for i in $(seq 1 40); do sleep 5; curl -sf --max-time 5 http://127.0.0.1:8191/ >/dev/null && echo '# FlareSolverr is ready' && break; done;
+@endtask

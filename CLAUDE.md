@@ -93,3 +93,16 @@ Blade templates for the public site; the admin UI is Filament's own. **Livewire 
 ### Deployment
 
 Laravel Envoy (`Envoy.blade.php`) deploys to production via SSH using a timestamped releases strategy (keeps last 5 releases). Requires env vars: `DEPLOY_USER`, `DEPLOY_USER_KEY`, `DEPLOY_SERVER`, `DEPLOY_REPOSITORY`, `DEPLOY_PATH`.
+
+After `envoy run deploy`, reload Apache — mod_php caches realpath and keeps serving the previous release for about two minutes otherwise.
+
+### Long-running services on production (outside the deploy)
+
+Two things run alongside the app and are **not** recreated by `envoy run deploy`:
+
+- **Reverb** (WebSocket) — supervisor program `blog-reverb`, listens on `127.0.0.1:8080`, proxied publicly by Apache at `/app`. The deploy does restart it, otherwise it would keep executing code from a release that gets purged.
+- **FlareSolverr** (headless browser) — Docker container, `127.0.0.1:8191`, used by the parser to get past antibot challenges that require JavaScript (`config/releases.php` → `challenge_solver_url`). Recreate with `./vendor/bin/envoy run challenge-solver`; the deploy deliberately leaves it alone since it survives reboots via `--restart=unless-stopped` and recreating would drop the browser session.
+
+`--memory=900m` for FlareSolverr is not arbitrary: with 512m Chrome fails to finish the challenge and the service returns `Timeout after 60.0 seconds`. The peak is only needed while solving — at rest the container holds ~110 MB.
+
+`composer.json` pins `config.platform.php` to the production PHP version. Raise it only together with PHP on the server, otherwise the lock resolves against the local (newer) PHP and produces a set of packages that cannot be installed on production.
