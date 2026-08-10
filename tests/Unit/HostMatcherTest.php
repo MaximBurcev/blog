@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Support\HostMatcher;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -25,9 +26,7 @@ class HostMatcherTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider matchingHosts
-     */
+    #[DataProvider('matchingHosts')]
     public function test_matches_host_and_its_subdomains(string $host, string $domain): void
     {
         $this->assertTrue(HostMatcher::matches($host, $domain));
@@ -45,9 +44,7 @@ class HostMatcherTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider nonMatchingHosts
-     */
+    #[DataProvider('nonMatchingHosts')]
     public function test_does_not_match_lookalike_hosts(string $host, string $domain): void
     {
         $this->assertFalse(HostMatcher::matches($host, $domain));

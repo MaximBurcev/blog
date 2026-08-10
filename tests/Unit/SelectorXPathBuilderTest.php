@@ -18,7 +18,9 @@ use Tests\TestCase;
  */
 class SelectorXPathBuilderTest extends TestCase
 {
-    private function query(string $html, string $xpath): \DOMNodeList
+    // Не query(): в Laravel 13 у Illuminate\Foundation\Testing\TestCase
+    // появился публичный query(), и приватный одноимённый метод роняет класс.
+    private function queryXPath(string $html, string $xpath): \DOMNodeList
     {
         $dom = new DOMDocument;
         @$dom->loadHTML($html);
@@ -30,7 +32,7 @@ class SelectorXPathBuilderTest extends TestCase
     {
         $html = '<html><body><div id="article-body">content</div></body></html>';
 
-        $nodes = $this->query($html, SelectorXPathBuilder::build('#article-body'));
+        $nodes = $this->queryXPath($html, SelectorXPathBuilder::build('#article-body'));
 
         $this->assertSame(1, $nodes->count());
     }
@@ -39,7 +41,7 @@ class SelectorXPathBuilderTest extends TestCase
     {
         $html = '<html><body><div class="article-body">content</div></body></html>';
 
-        $nodes = $this->query($html, SelectorXPathBuilder::build('.article-body'));
+        $nodes = $this->queryXPath($html, SelectorXPathBuilder::build('.article-body'));
 
         $this->assertSame(1, $nodes->count());
     }
@@ -48,7 +50,7 @@ class SelectorXPathBuilderTest extends TestCase
     {
         $html = '<html><body><div class="crayons-article__body">content</div></body></html>';
 
-        $nodes = $this->query($html, SelectorXPathBuilder::build('crayons-article__body'));
+        $nodes = $this->queryXPath($html, SelectorXPathBuilder::build('crayons-article__body'));
 
         $this->assertSame(1, $nodes->count());
     }
@@ -63,7 +65,7 @@ class SelectorXPathBuilderTest extends TestCase
 
         $payload = "article-body'] | //script | //*[@id='secret";
 
-        $nodes = $this->query($html, SelectorXPathBuilder::build('#'.$payload));
+        $nodes = $this->queryXPath($html, SelectorXPathBuilder::build('#'.$payload));
 
         // Экранированный литерал ищет id, буквально равный всему payload —
         // такого узла нет, значит результат пуст, а не script/secret
@@ -80,7 +82,7 @@ class SelectorXPathBuilderTest extends TestCase
         // Форма payload'а под старую прямую конкатенацию в TranslateService
         $payload = "article-body ')] | //script | //*[contains(concat(' ";
 
-        $nodes = $this->query($html, SelectorXPathBuilder::build($payload));
+        $nodes = $this->queryXPath($html, SelectorXPathBuilder::build($payload));
 
         $this->assertSame(0, $nodes->count());
     }
@@ -94,7 +96,7 @@ class SelectorXPathBuilderTest extends TestCase
         $xpath = SelectorXPathBuilder::build($payload);
 
         // Не должно бросить исключение из-за синтаксически некорректного XPath
-        $nodes = $this->query($html, $xpath);
+        $nodes = $this->queryXPath($html, $xpath);
 
         $this->assertSame(0, $nodes->count());
     }
