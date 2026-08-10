@@ -16,6 +16,13 @@ class ContentImageService
     private const MAX_REDIRECTS = 5;
 
     /**
+     * Каталог скачанных картинок на диске public. Вынесен в константу,
+     * потому что по нему же второй проход downloadAndReplaceImages()
+     * отличает уже локальную картинку от внешней.
+     */
+    private const CONTENT_IMAGE_DIR = 'images/content';
+
+    /**
      * Сколько картинок максимум тянем из одной статьи.
      *
      * releases.max_content_length ограничивает ОДИН ответ (20 МБ), но не их
@@ -256,7 +263,7 @@ class ContentImageService
             $extension = self::ALLOWED_IMAGE_TYPES[$type];
         }
 
-        $filename = 'images/content/'.Str::random(40).'.'.$extension;
+        $filename = self::CONTENT_IMAGE_DIR.'/'.Str::random(40).'.'.$extension;
         Storage::disk('public')->put($filename, $binary);
 
         return $filename;
@@ -298,37 +305,103 @@ class ContentImageService
         return $best;
     }
 
+    /**
+     * Скачивает картинки статьи и подменяет их адреса на локальные.
+     *
+     * Два прохода, и порядок важен. Сначала разбираются картинки, обёрнутые
+     * в ссылку (<a href><img></a>) — у них меняется и href, и src. Затем
+     * одиночные <img>: dev.to и Medium (а в content:encoded из RSS — всегда)
+     * отдают картинки без обёртки, и прежний единственный шаблон их
+     * пропускал. Такие картинки оставались внешними: IP читателя утекал
+     * в чужой CDN, а сама картинка пропадала, если её удаляли у источника.
+     *
+     * Второй проход пропускает уже локальные адреса, поэтому картинки,
+     * обработанные первым проходом (и replacePictureElements до него),
+     * не скачиваются повторно.
+     */
     public function downloadAndReplaceImages(string $content): string
     {
-        // reg expression to match image tags
+        return $this->replaceBareImages($this->replaceLinkedImages($content));
+    }
+
+    private function replaceLinkedImages(string $content): string
+    {
         $pattern = '/<a[^>]+href="([^"]+)"[^>]*>.*?<img[^>]+src="([^"]+)"[^>]*>.*?<\/a>/i';
 
         return preg_replace_callback($pattern, function ($matches) {
             $imageUrl = $matches[2];
 
-            // Skip local images
-            if (! str_starts_with($imageUrl, 'http') || ! $this->mayDownloadMore()) {
+            if (! $this->isDownloadableImageUrl($imageUrl) || ! $this->mayDownloadMore()) {
                 return $matches[0];
             }
 
-            // Download the image
             try {
-                $imageContent = $this->fetchBinary($imageUrl);
-                if ($imageContent === null) {
-                    return $matches[0];
-                }
+                $newImageUrl = $this->downloadToPublicUrl($imageUrl);
 
-                $filename = $this->storeImage($imageContent, $imageUrl);
-                $newImageUrl = Storage::disk('public')->url($filename);
-
-                // Replace the image URL with the local path
-                return '<a href="'.$newImageUrl.'"><img src="'.$newImageUrl.'"></a>';
+                return $newImageUrl === null
+                    ? $matches[0]
+                    : '<a href="'.$newImageUrl.'"><img src="'.$newImageUrl.'"></a>';
             } catch (\Exception $e) {
-                // If the download fails, leave the original URL
                 Log::warning('ContentImageService: link image download failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
 
                 return $matches[0];
             }
         }, $content);
+    }
+
+    private function replaceBareImages(string $content): string
+    {
+        $pattern = '/<img[^>]+src="([^"]+)"[^>]*>/i';
+
+        return preg_replace_callback($pattern, function ($matches) {
+            $imageUrl = $matches[1];
+
+            if (! $this->isDownloadableImageUrl($imageUrl) || ! $this->mayDownloadMore()) {
+                return $matches[0];
+            }
+
+            try {
+                $newImageUrl = $this->downloadToPublicUrl($imageUrl);
+
+                if ($newImageUrl === null) {
+                    return $matches[0];
+                }
+
+                // Подменяем только src, а не собираем тег заново: width и
+                // height из исходного тега нужны вёрстке (см. srcset в
+                // ImageVariantService), и терять их нельзя.
+                return preg_replace('/src="[^"]*"/i', 'src="'.$newImageUrl.'"', $matches[0], 1) ?? $matches[0];
+            } catch (\Exception $e) {
+                Log::warning('ContentImageService: bare image download failed', ['url' => $imageUrl, 'error' => $e->getMessage()]);
+
+                return $matches[0];
+            }
+        }, $content);
+    }
+
+    /**
+     * Стоит ли вообще пытаться скачать этот адрес: только http(s) и только
+     * то, что ещё не лежит у нас (иначе второй проход перекачивал бы
+     * результат первого).
+     */
+    private function isDownloadableImageUrl(string $url): bool
+    {
+        return str_starts_with($url, 'http') && ! $this->isLocalImage($url);
+    }
+
+    private function isLocalImage(string $url): bool
+    {
+        return str_contains($url, '/'.self::CONTENT_IMAGE_DIR.'/');
+    }
+
+    private function downloadToPublicUrl(string $imageUrl): ?string
+    {
+        $imageContent = $this->fetchBinary($imageUrl);
+
+        if ($imageContent === null) {
+            return null;
+        }
+
+        return Storage::disk('public')->url($this->storeImage($imageContent, $imageUrl));
     }
 }
