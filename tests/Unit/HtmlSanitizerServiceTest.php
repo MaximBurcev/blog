@@ -60,4 +60,49 @@ class HtmlSanitizerServiceTest extends TestCase
         $this->assertStringContainsString('<code>echo 1;</code>', $result);
         $this->assertStringContainsString('src="https://example.com/a.png"', $result);
     }
+
+    /**
+     * Medium вставляет счётчик просмотров прямо в content:encoded своего RSS,
+     * откуда мы теперь берём статьи. После публикации он сообщал бы Medium
+     * о каждом просмотре страницы на нашем сайте — IP, User-Agent, реферер.
+     * HTMLPurifier его не ловит: это обычный разрешённый <img> с http-адресом.
+     */
+    public function test_strips_medium_tracking_pixel(): void
+    {
+        $html = '<p>Текст статьи.</p>'.
+            '<img src="https://medium.com/_/stat?event=post.clientViewed&amp;referrerSource=full_rss" width="1" height="1">';
+
+        $result = (new HtmlSanitizerService)->sanitize($html);
+
+        $this->assertStringContainsString('Текст статьи.', $result);
+        $this->assertStringNotContainsString('medium.com/_/stat', $result);
+        $this->assertStringNotContainsString('<img', $result);
+    }
+
+    public function test_strips_other_known_counters(): void
+    {
+        $html = '<p>Текст.</p>'.
+            '<img src="https://www.google-analytics.com/collect?v=1">'.
+            '<img src="https://pixel.wp.com/g.gif?blog=1">'.
+            '<img src="https://b.scorecardresearch.com/p?c1=2">';
+
+        $result = (new HtmlSanitizerService)->sanitize($html);
+
+        $this->assertStringNotContainsString('<img', $result);
+        $this->assertStringContainsString('Текст.', $result);
+    }
+
+    /**
+     * Обычные картинки статьи вырезаться не должны — в том числе с того же
+     * домена, что и счётчик.
+     */
+    public function test_keeps_real_images_including_from_medium(): void
+    {
+        $html = '<img src="https://miro.medium.com/v2/resize:fit:1400/1*abc.png" alt="Схема" width="700">';
+
+        $result = (new HtmlSanitizerService)->sanitize($html);
+
+        $this->assertStringContainsString('miro.medium.com', $result);
+        $this->assertStringContainsString('alt="Схема"', $result);
+    }
 }

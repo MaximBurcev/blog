@@ -36,9 +36,52 @@ class HtmlSanitizerService
      */
     private ?HTMLPurifier $purifier = null;
 
+    /**
+     * Счётчики, которые источники вставляют в тело статьи под видом картинки.
+     *
+     * Medium кладёт `<img src="https://medium.com/_/stat?event=post.clientViewed...">`
+     * прямо в content:encoded своего RSS — и после публикации у нас этот
+     * пиксель сообщал бы Medium о КАЖДОМ просмотре страницы на нашем сайте:
+     * IP читателя, User-Agent, реферер. HTMLPurifier такое не ловит: с его
+     * точки зрения это обычный разрешённый <img> с http-адресом.
+     *
+     * Остальные шаблоны — не про Medium: это счётчики, которые попадаются
+     * в скрейпленных статьях с других площадок.
+     */
+    private const TRACKING_PIXEL_PATTERNS = [
+        '#medium\.com/_/stat#i',
+        '#google-analytics\.com#i',
+        '#stats\.wordpress\.com#i',
+        '#pixel\.wp\.com#i',
+        '#scorecardresearch\.com#i',
+        '#doubleclick\.net#i',
+        '#feedburner\.com#i',
+    ];
+
     public function sanitize(string $html): string
     {
-        return $this->purifier()->purify($this->demoteTopHeadings($html));
+        return $this->purifier()->purify(
+            $this->stripTrackingPixels($this->demoteTopHeadings($html))
+        );
+    }
+
+    /**
+     * Вырезает <img>-счётчики целиком (вместе с тегом), а не только их src:
+     * пустой <img> в тексте статьи — такой же мусор, просто безвредный.
+     */
+    private function stripTrackingPixels(string $html): string
+    {
+        $cleaned = preg_replace_callback('/<img[^>]*>/i', function (array $matches): string {
+            foreach (self::TRACKING_PIXEL_PATTERNS as $pattern) {
+                if (preg_match($pattern, $matches[0]) === 1) {
+                    return '';
+                }
+            }
+
+            return $matches[0];
+        }, $html);
+
+        return $cleaned ?? $html;
     }
 
     private function purifier(): HTMLPurifier
