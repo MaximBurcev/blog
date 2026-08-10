@@ -39,7 +39,15 @@ class UserResource extends Resource
             ->schema([
                 TextInput::make('name')->required()->label('Имя'),
                 TextInput::make('email')->required()->email()->unique(ignoreRecord: true),
-                TextInput::make('password')->required()->password()->rule(Password::default())->label('Пароль'),
+                // Только на создании. На редактировании пароль меняется
+                // действием «Сменить пароль», которое идёт через
+                // changePassword() и ротирует remember_token — здесь же
+                // сохранение шло обычным save(), то есть мимо ротации.
+                // Побочно чинится UX: required() на форме Edit требовал
+                // переустанавливать пароль ради правки имени или роли.
+                TextInput::make('password')->required()->password()
+                    ->rule(Password::default())->label('Пароль')
+                    ->visibleOn('create'),
                 // Роли не было ни в одной форме приложения: созданный из панели
                 // пользователь получал role = NULL (колонка nullable без
                 // default) и в саму панель попасть уже не мог —

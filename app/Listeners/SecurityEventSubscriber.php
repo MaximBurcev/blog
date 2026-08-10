@@ -60,8 +60,10 @@ class SecurityEventSubscriber
     }
 
     /**
-     * Сработавший throttle: либо подбор пароля, либо перебор адресов через
-     * форму сброса. Самое ценное событие в этом списке.
+     * Сработавший throttle на ФОРМЕ ВХОДА — и только на ней: событие Lockout
+     * шлёт ThrottlesLogins из laravel/ui, а ThrottleRequests не диспатчит
+     * ничего. Лимиты на регистрации и сбросе пароля пишет отдельно
+     * RouteServiceProvider (событие auth.rate_limited).
      */
     public function handleLockout(Lockout $event): void
     {

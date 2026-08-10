@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Support\SecurityAudit;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
 use Illuminate\Http\Request;
@@ -54,9 +55,24 @@ class RouteServiceProvider extends ServiceProvider
         // по IP это спам-регистрации и рассылка писем сброса на чужие ящики
         // через нашу инфраструктуру.
         RateLimiter::for('auth-sensitive', function (Request $request) {
+            // Событие Lockout шлёт только ThrottlesLogins из laravel/ui, то есть
+            // исключительно POST /login. ThrottleRequests не диспатчит ничего,
+            // поэтому 429 на /register и /password/email в audit-trail не
+            // попадали вовсе — а перебор адресов через форму сброса это ровно
+            // тот сценарий, ради которого мы подавили user enumeration, и
+            // видеть его надо обязательно.
+            $onLimit = function (Request $request) {
+                SecurityAudit::log('auth.rate_limited', [
+                    'route' => $request->route()?->getName(),
+                    'email' => $request->input('email'),
+                ]);
+
+                abort(429);
+            };
+
             return [
-                Limit::perMinute(5)->by('auth-minute:'.$request->ip()),
-                Limit::perHour(20)->by('auth-hour:'.$request->ip()),
+                Limit::perMinute(5)->by('auth-minute:'.$request->ip())->response($onLimit),
+                Limit::perHour(20)->by('auth-hour:'.$request->ip())->response($onLimit),
             ];
         });
 

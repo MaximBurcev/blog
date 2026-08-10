@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Session\Middleware\AuthenticateSession;
 use Opcodes\LogViewer\Http\Middleware\AuthorizeLogViewer;
 use Opcodes\LogViewer\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
@@ -97,6 +98,13 @@ return [
 
     'api_middleware' => [
         EnsureFrontendRequestsAreStateful::class,
+        // Собственный мини-пайплайн EnsureFrontendRequestsAreStateful
+        // (EncryptCookies -> StartSession -> VerifyCsrfToken) идёт мимо группы
+        // web, и AuthenticateSession туда не попадает. Без него смена пароля
+        // не выбрасывала угнанную сессию на /log-viewer/api/*, хотя UI-страницу
+        // (middleware выше — группа web) уже закрывала. А отдают эти маршруты
+        // содержимое логов, включая канал security с e-mail, IP и user-agent.
+        AuthenticateSession::class,
         AuthorizeLogViewer::class,
     ],
 
