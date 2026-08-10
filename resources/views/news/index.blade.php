@@ -12,7 +12,7 @@
             @forelse($posts as $post)
                 <article class="news-item mb-4 pb-4 border-bottom" data-aos="fade-up">
                     <h2 class="h5 mb-1">
-                        <a href="{{ route('post.show', $post->code) }}">{{ $post->title }}</a>
+                        <a href="{{ route('news.show', $post->code) }}">{{ $post->title }}</a>
                     </h2>
 
                     <div class="text-muted small mb-2">

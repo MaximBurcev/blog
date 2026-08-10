@@ -154,6 +154,16 @@
     sudo chmod -R g+rX,g-w,o-rwx {{$dirCurrentRelease}};
     sudo chmod -R ug+rwX,o-rwx {{$dirShared}};
 
+    # setgid на каталогах shared: подкаталоги, созданные ЛЮБЫМ пользователем,
+    # наследуют группу www-data вместо группы создателя.
+    #
+    # Без этого artisan, запущенный от deployer (шаги деплоя ниже, планировщик,
+    # ручной прогон команды), создавал в storage/framework/cache каталоги с
+    # группой deployer — и веб-процесс в них писать не мог. Ронялся весь сайт
+    # пятисоткой на file_put_contents, причём не при деплое, а позже, когда
+    # кэш впервые попадал в такой каталог.
+    sudo find {{$dirShared}} -type d -exec chmod g+s {} \; ;
+
     echo "# Optimising installation";
     php artisan clear-compiled --env={{$env}};
     php artisan optimize --env={{$env}};

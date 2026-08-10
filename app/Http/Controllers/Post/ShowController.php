@@ -14,6 +14,17 @@ class ShowController extends Controller
     {
         $post = Post::where('code', $code)->published()->with(['category', 'tags'])->firstOrFail();
 
+        // Статьи живут на /posts/{code}, новости — на /news/{code}. Один и тот
+        // же материал не должен открываться по двум адресам: для поисковика
+        // это дубль. Поэтому обращение по «чужому» адресу — 301 на правильный,
+        // а не вторая рабочая копия страницы (301, чтобы уже проиндексированные
+        // ссылки передали вес новому адресу).
+        $expected = $post->is_news ? 'news.show' : 'post.show';
+
+        if ($request->route()?->getName() !== $expected) {
+            return redirect()->route($expected, $post->code, 301);
+        }
+
         $postViewService->record($post, $request);
 
         $date = Carbon::parse($post->created_at);

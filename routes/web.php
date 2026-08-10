@@ -58,6 +58,10 @@ Auth::routes(['verify' => true]);
 // Лента новостей. Индивидуальных страниц нет — см. News\IndexController.
 Route::get('/news', App\Http\Controllers\News\IndexController::class)->name('news.index');
 
+// Страница новости. Контроллер общий со статьями — материал один и тот же,
+// различается только раздел и адрес (см. редирект внутри ShowController).
+Route::get('/news/{code}', ShowController::class)->name('news.show');
+
 Route::get('/sitemap.xml', XmlController::class)->name('sitemap.xml');
 
 Route::get('/feed.xml', App\Http\Controllers\Feed\IndexController::class)->name('feed.index');

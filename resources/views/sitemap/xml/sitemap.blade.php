@@ -30,7 +30,7 @@
     @endforeach
     @foreach ($posts as $post)
         <url>
-            <loc>{{ route('post.show', $post->code) }}</loc>
+            <loc>{{ route($post->is_news ? 'news.show' : 'post.show', $post->code) }}</loc>
             <lastmod>{{ $post->updated_at->tz('UTC')->toAtomString() }}</lastmod>
             <changefreq>weekly</changefreq>
             <priority>0.8</priority>

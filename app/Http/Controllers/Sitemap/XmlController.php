@@ -14,8 +14,11 @@ class XmlController extends Controller
         // without('category') — Post::$with грузит category на каждый запрос
         // по умолчанию, тут она не нужна вообще; select() узких колонок
         // вместо всего поста (в т.ч. большого content).
+        // is_news нужен шаблону: у новости свой адрес (/news/{code}), и в
+        // карте должен стоять именно он, иначе поисковик пойдёт по /posts и
+        // получит 301 на каждой строке.
         $posts = Post::published()->without('category')
-            ->select('id', 'code', 'updated_at')
+            ->select('id', 'code', 'updated_at', 'is_news')
             ->orderBy('updated_at', 'desc')->get();
         $categories = Category::whereHas('posts', fn ($q) => $q->published())->select('id', 'code')->get();
         $tags = Tag::whereHas('posts', fn ($q) => $q->published())->select('id', 'code')->get();

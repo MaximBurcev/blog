@@ -67,8 +67,7 @@ class NewsSectionTest extends TestCase
     }
 
     /**
-     * У новости полноценная страница — тот же адрес, что у статьи. Второй URL
-     * под тот же контент заводить нельзя: это дубль для поисковика.
+     * У новости полноценная страница с текстом — на своём адресе /news/{code}.
      */
     public function test_news_has_a_full_page(): void
     {
@@ -80,11 +79,44 @@ class NewsSectionTest extends TestCase
 
         $this->get(route('news.index'))
             ->assertOk()
-            ->assertSee(route('post.show', $news->code), escape: false);
+            ->assertSee(route('news.show', $news->code), escape: false);
 
-        $this->get(route('post.show', $news->code))
+        $this->get(route('news.show', $news->code))
             ->assertOk()
             ->assertSee('Полный переведённый текст новости');
+    }
+
+    /**
+     * Один материал не должен открываться по двум адресам — это дубль для
+     * поисковика. Обращение по «чужому» разделу отдаёт 301 на правильный,
+     * чтобы уже проиндексированные ссылки передали вес.
+     */
+    public function test_news_on_posts_url_redirects_to_news_url(): void
+    {
+        $news = $this->makePost(['is_news' => true]);
+
+        $this->get(route('post.show', $news->code))
+            ->assertRedirect(route('news.show', $news->code))
+            ->assertStatus(301);
+    }
+
+    public function test_article_on_news_url_redirects_to_posts_url(): void
+    {
+        $article = $this->makePost(['is_news' => false]);
+
+        $this->get(route('news.show', $article->code))
+            ->assertRedirect(route('post.show', $article->code))
+            ->assertStatus(301);
+    }
+
+    public function test_sitemap_uses_the_news_url_for_news(): void
+    {
+        $news = $this->makePost(['is_news' => true]);
+
+        $this->get('/sitemap.xml')
+            ->assertOk()
+            ->assertSee(route('news.show', $news->code), escape: false)
+            ->assertDontSee(route('post.show', $news->code), escape: false);
     }
 
     public function test_empty_listing_does_not_break(): void
