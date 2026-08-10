@@ -6,6 +6,7 @@ use App\Http\Controllers\Post\Comment\StoreController;
 use App\Http\Controllers\Post\IndexController as PostIndexController;
 use App\Http\Controllers\Post\Like\StoreController as PostLikeStoreController;
 use App\Http\Controllers\Post\ShowController;
+use App\Http\Controllers\Sitemap\XmlController;
 use App\Livewire\Counter;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -25,7 +26,7 @@ Route::get('/', IndexController::class)->name('main.index');
 
 Route::get('/search', SearchController::class)->name('main.search')->middleware('throttle:interactions');
 
-Route::get('/sitemap', [\App\Http\Controllers\Sitemap\IndexController::class, 'index'])->name('sitemap.index');
+Route::get('/sitemap', [App\Http\Controllers\Sitemap\IndexController::class, 'index'])->name('sitemap.index');
 
 Route::prefix('posts')->group(function () {
     // Отдельного листинга у /posts нет — раньше сюда был подвешен
@@ -54,8 +55,8 @@ Route::prefix('tags')->group(function () {
 // MustVerifyEmail). Троттлинг самих отправок — в VerificationController.
 Auth::routes(['verify' => true]);
 
-Route::get('/sitemap.xml', \App\Http\Controllers\Sitemap\XmlController::class)->name('sitemap.xml');
+Route::get('/sitemap.xml', XmlController::class)->name('sitemap.xml');
 
-Route::get('/feed.xml', \App\Http\Controllers\Feed\IndexController::class)->name('feed.index');
+Route::get('/feed.xml', App\Http\Controllers\Feed\IndexController::class)->name('feed.index');
 
 Route::get('/counter', Counter::class);

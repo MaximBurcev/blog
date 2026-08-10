@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Events\PostLiked;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\User;
@@ -71,7 +72,7 @@ class EmailVerificationTest extends TestCase
 
     public function test_verified_user_can_like_post(): void
     {
-        Event::fake([\App\Events\PostLiked::class]);
+        Event::fake([PostLiked::class]);
 
         $post = $this->publishedPost();
         $user = User::factory()->create();

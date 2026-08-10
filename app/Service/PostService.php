@@ -7,6 +7,7 @@ use App\Events\PostCreated;
 use App\Exceptions\PostPersistenceException;
 use App\Models\Post;
 use App\Support\PostCode;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -41,11 +42,11 @@ class PostService
             $data['selector'] = '';
             $data['content'] = $data['content'] ?? '';
 
-            if (array_key_exists('preview_image', $data) && $data['preview_image'] instanceof \Illuminate\Http\UploadedFile) {
+            if (array_key_exists('preview_image', $data) && $data['preview_image'] instanceof UploadedFile) {
                 $data['preview_image'] = Storage::disk('public')->put('/images', $data['preview_image']);
             }
 
-            if (array_key_exists('main_image', $data) && $data['main_image'] instanceof \Illuminate\Http\UploadedFile) {
+            if (array_key_exists('main_image', $data) && $data['main_image'] instanceof UploadedFile) {
                 $data['main_image'] = Storage::disk('public')->put('/images', $data['main_image']);
             }
 
@@ -164,11 +165,11 @@ class PostService
             $tagIds = $data['tag_ids'] ?? [];
             unset($data['tag_ids']);
 
-            if (array_key_exists('preview_image', $data) && $data['preview_image'] instanceof \Illuminate\Http\UploadedFile) {
+            if (array_key_exists('preview_image', $data) && $data['preview_image'] instanceof UploadedFile) {
                 $data['preview_image'] = Storage::disk('public')->put('/images', $data['preview_image']);
             }
 
-            if (array_key_exists('main_image', $data) && $data['main_image'] instanceof \Illuminate\Http\UploadedFile) {
+            if (array_key_exists('main_image', $data) && $data['main_image'] instanceof UploadedFile) {
                 $data['main_image'] = Storage::disk('public')->put('/images', $data['main_image']);
             }
 
