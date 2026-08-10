@@ -9,6 +9,7 @@ use App\Service\ChallengeSolverClient;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
+use App\Support\ContentSelectorResolver;
 use App\Support\FeedArticleLocator;
 use App\Support\PinnedTarget;
 use App\Support\SelectorXPathBuilder;
@@ -910,7 +911,15 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
         $this->stripKnownJunk($finder);
 
-        $selector = $this->data['selector'];
+        // Пустой селектор разрешаем сами, а не доверяем вызывающему:
+        // SelectorXPathBuilder::build('') даёт запрос, матчащий всю страницу,
+        // и в статью молча попадали навигация сайта, сайдбар и подвал
+        // (у laravel-news.com это 113 ссылок и 48 картинок вместо 26 и 5).
+        // Резолвер тот же, что у post:parse — правила из админки и конфига.
+        $selector = filled($this->data['selector'] ?? null)
+            ? $this->data['selector']
+            : app(ContentSelectorResolver::class)->resolve((string) ($this->data['url'] ?? ''));
+
         $xpathQuery = SelectorXPathBuilder::build($selector);
         $nodes = $finder->query($xpathQuery);
 

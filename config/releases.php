@@ -95,7 +95,10 @@ return [
         'dev.to' => '#article-body',
         'medium.com' => 'article',
         'gitconnected.com' => 'article',
-        'laravel-news.com' => 'article',
+        // article берёт весь каркас страницы вместе с навигацией сайта и
+        // сайдбаром: 60 ссылок и 6029 символов против 26 и 5145 у самого
+        // текста. Тело статьи лежит в div.article-content.
+        'laravel-news.com' => 'article-content',
         'symfony.com' => 'article',
         'langchain.com' => '.w-richtext',
         'stackademic.com' => 'article',
