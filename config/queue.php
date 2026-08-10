@@ -39,9 +39,9 @@ return [
             'table' => 'jobs',
             'queue' => 'default',
             // retry_after обязан превышать самый большой $timeout среди джоб этого
-            // соединения (StorePostJob::$timeout = 300), иначе очередь отдаст ещё
+            // соединения (StorePostJob::$timeout = 420), иначе очередь отдаст ещё
             // выполняющуюся задачу второму воркеру и она выполнится дважды.
-            'retry_after' => 360,
+            'retry_after' => 480,
             'after_commit' => false,
         ],
 

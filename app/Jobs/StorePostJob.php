@@ -51,7 +51,17 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
     private const MAX_REDIRECTS = 5;
 
-    public int $timeout = 300;
+    /**
+     * 420, а не 300: на боевом (1 ядро) разбор статьи с переводом и
+     * скачиванием картинок занимает до ~210 с, а обход antibot-проверки
+     * через headless-браузер добавляет сверху ещё ~20 с. Прежнего потолка
+     * хватало впритык, и длинная статья с challenge выбивала джобу по
+     * таймауту — то есть превращалась в заглушку на ровном месте.
+     *
+     * Инвариант: queue.connections.database.retry_after обязан оставаться
+     * больше этого значения (сейчас 480).
+     */
+    public int $timeout = 420;
 
     public int $tries = 3;
 
