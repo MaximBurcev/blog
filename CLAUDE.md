@@ -116,10 +116,21 @@ After `envoy run deploy`, reload Apache — mod_php caches realpath and keeps se
 
 ### Long-running services on production (outside the deploy)
 
-Two things run alongside the app and are **not** recreated by `envoy run deploy`:
+Three things run alongside the app and are **not** recreated by `envoy run deploy`:
 
 - **Reverb** (WebSocket) — supervisor program `blog-reverb`, listens on `127.0.0.1:8080`, proxied publicly by Apache at `/app`. The deploy does restart it, otherwise it would keep executing code from a release that gets purged.
 - **FlareSolverr** (headless browser) — Docker container, `127.0.0.1:8191`, used by the parser to get past antibot challenges that require JavaScript (`config/releases.php` → `challenge_solver_url`). Recreate with `./vendor/bin/envoy run challenge-solver`; the deploy deliberately leaves it alone since it survives reboots via `--restart=unless-stopped` and recreating would drop the browser session.
+- **Cron планировщика** — `/etc/cron.d/blog-scheduler`, ставится командой `./vendor/bin/envoy run scheduler-cron`. Без него `app/Console/Kernel.php` не выполняется вообще. Именно так и было до 11.08.2026: расписание с `backup:run` лежало в коде с 3 августа, а бэкапов физически не существовало. Запись от `www-data` — под тем же пользователем работают Apache и `queue:work`; под root артефакты в `storage/` получали бы `root:root` и отбирали запись у веба.
+
+### Бэкапы
+
+`spatie/laravel-backup`, расписание в `app/Console/Kernel.php`: `backup:clean` в 01:00, `backup:run` в 01:30, `backup:monitor` в 06:00 — все под `environments(['production'])`.
+
+- Архив шифруется AES-256 паролем из `BACKUP_ARCHIVE_PASSWORD`. **Пароль обязан храниться вне сервера**: он лежит в том же `.env`, который пропадёт вместе с машиной.
+- `.env` намеренно исключён из архива — восстановление двухсоставное: архив + `.env` из менеджера паролей.
+- `storage_path('app/public')` включён в `include` явно. На проде `storage/app` — симлинк в `shared/`, а `follow_links = false`: без явного пути картинки постов (единственное, чего нет в git) в архив не попадали.
+- Каталог архивов зовётся `blog` (`BACKUP_NAME`), а не `APP_NAME`: пробелы и кириллица в пути ломают ручной `rsync`/`scp` при восстановлении.
+- Системный `unzip` эти архивы распаковать не может («unsupported compression or encoding» — он не знает WinZip AES). Восстанавливать через `7z x` или PHP `ZipArchive::setPassword()`.
 
 `--memory=900m` for FlareSolverr is not arbitrary: with 512m Chrome fails to finish the challenge and the service returns `Timeout after 60.0 seconds`. The peak is only needed while solving — at rest the container holds ~110 MB.
 

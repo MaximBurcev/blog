@@ -17,8 +17,11 @@ return [
         /*
          * The name of this application. You can use this name to monitor
          * the backups.
+         *
+         * Не APP_NAME: он равен «Блог Максима Бурцева», и каталог с пробелами
+         * и кириллицей ломает любой ручной rsync/scp при восстановлении.
          */
-        'name' => env('APP_NAME', 'laravel-backup'),
+        'name' => env('BACKUP_NAME', 'blog'),
 
         'source' => [
             'files' => [
@@ -27,6 +30,12 @@ return [
                  */
                 'include' => [
                     base_path(),
+                    // storage/app на проде — симлинк в shared/ (переживает деплой), а
+                    // follow_links ниже выключен: без явного пути картинки постов —
+                    // единственное, чего нет в git, — в архив не попадали вовсе.
+                    // Включаем только public/: сами архивы лежат в storage/app/<name>
+                    // и рекурсивно попали бы в следующий бэкап.
+                    storage_path('app/public'),
                 ],
 
                 /*
@@ -278,7 +287,7 @@ return [
      */
     'monitor_backups' => [
         [
-            'name' => env('APP_NAME', 'laravel-backup'),
+            'name' => env('BACKUP_NAME', 'blog'),
             'disks' => ['local'],
             'health_checks' => [
                 MaximumAgeInDays::class => 1,

@@ -237,6 +237,47 @@
 
 
 {{--
+    Установка cron для планировщика Laravel.
+
+    Отдельная команда, а НЕ шаг деплоя: запись в /etc/cron.d переживает выкаты,
+    а переписывать её каждый раз — лишний sudo в горячем пути деплоя.
+
+    Заводить обязательно: без этой строки app/Console/Kernel.php не выполняется
+    вообще — ни backup:run, ни telescope:prune, ни news:import. Именно так и было
+    до 11.08.2026: расписание лежало в коде, бэкапов при этом не существовало.
+
+    Пользователь www-data — тот же, под которым работают Apache и queue:work.
+    Под root артефакты в storage/ получали бы root:root и отбирали запись у веба.
+    umask 002 — чтобы deployer (он в группе www-data) мог читать и выгружать архивы.
+
+    Запуск: ./vendor/bin/envoy run scheduler-cron
+--}}
+@story('scheduler-cron', ['on' => 'production'])
+    install_scheduler_cron
+@endstory
+
+@task('install_scheduler_cron', ['on' => 'production'])
+    echo '# Installing /etc/cron.d/blog-scheduler';
+
+    # stdout глушим: schedule:run печатает строку на каждый холостой запуск,
+    # это 1440 строк в сутки. stderr — наоборот, единственный сигнал о том,
+    # что планировщик падает ещё до записи в laravel.log.
+    printf '%s\n' \
+        'SHELL=/bin/sh' \
+        'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+        '* * * * * www-data umask 002 && cd {{$dirCurrent}} && php artisan schedule:run >/dev/null 2>>{{$dirShared}}/storage/logs/scheduler-error.log' \
+        | sudo tee /etc/cron.d/blog-scheduler > /dev/null;
+
+    # cron молча игнорирует файл с правами шире 0644 или с чужим владельцем.
+    sudo chown root:root /etc/cron.d/blog-scheduler;
+    sudo chmod 0644 /etc/cron.d/blog-scheduler;
+
+    echo '# Installed:';
+    cat /etc/cron.d/blog-scheduler;
+@endtask
+
+
+{{--
     Пересоздание контейнера FlareSolverr — headless-браузера, которым парсер
     обходит antibot-проверки (см. config/releases.php, challenge_solver_url).
 
