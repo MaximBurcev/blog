@@ -75,18 +75,14 @@ All controllers are single-action classes — each HTTP action (index, show, sto
 ### News section
 
 `/news` — лента новостей из секции «News and Announcements» дайджеста PHP Weekly
-(тех же `Release`, что питают статьи). Отдельная модель `News`, а не категория
-постов: полного текста нет, всегда есть ссылка на первоисточник, и смешивать их
-с постами означало бы исключать новости из общей ленты, поиска, RSS и sitemap
-в каждом запросе.
-
-По ссылке ничего не скачивается — заголовок и описание берутся прямо из
-дайджеста и переводятся. Это снимает Cloudflare, разнобой вёрстки и заглушки,
-которыми страдает пайплайн статей. Индивидуальных страниц у новости нет: 2–4
-строки описания — тонкий контент, за который поисковики понижают весь сайт.
+(тех же `Release`, что питают статьи). Новость — это `Post` с флагом `is_news`,
+а не отдельная модель: разбирается, переводится и хранится тем же пайплайном,
+поэтому у неё есть полный текст, картинки и своя страница `/news/{code}`.
+Отдельная модель означала бы дублирование всего `StorePostJob` целиком.
+Ленты не смешиваются: главная, RSS и sitemap статей фильтруют по `is_news`.
 
 - `App\Support\NewsDigestParser` — разбор секции (без ввода-вывода, покрыт тестами)
-- `App\Service\NewsImportService` — перевод и сохранение; дедуп по `news.url` (UNIQUE)
+- `App\Service\NewsImportService` — перевод и сохранение; дедуп по `posts.url` (UNIQUE)
 - `php artisan news:import [url]` — вручную; в планировщике ежедневно в 07:00
 - Импорт также доступен кнопкой в админке (Блог → Новости)
 
@@ -106,7 +102,11 @@ Laravel Scout with **Meilisearch** backend (container on port 7720→7700). Meil
 
 ### Frontend
 
-Blade templates for the public site; the admin UI is Filament's own. **Livewire 3** powers Filament and the standalone `app/Livewire/Counter`. Vite for asset bundling.
+Blade templates for the public site; the admin UI is Filament's own. **Livewire 3** powers Filament. Vite for asset bundling.
+
+Демо-страница `/counter` из туториала Livewire (`app/Livewire/Counter`, макет `components/layouts/app.blade.php`) удалена 13.08.2026: она отдавала 200, не была закрыта в `robots.txt` и рендерила `<head>` без описания и без `robots` — единственная такая страница на сайте, из-за которой Яндекс.Вебмастер продолжал показывать «Отсутствуют метатеги &lt;Description&gt;» уже после общего фикса метатегов. Описание гарантируют только макеты (`layouts.main` через композер в `AppServiceProvider`, `layouts.app` через фолбэк), поэтому любая страница мимо них снова окажется пустой.
+
+Вместе с демо-страницей удалён `components/layouts/app.blade.php` — макет full-page компонентов Livewire по умолчанию. Своих full-page компонентов в проекте нет, а если появится, Livewire упадёт с «View not found»: это нужное поведение, макет надо завести заново с метатегами, а не восстанавливать `livewire:publish`. В `SeoFeedSitemapTest` адреса без параметров теперь берутся из таблицы маршрутов (страницы с параметрами по-прежнему перечислены поимённо), так что следующая такая страница упадёт в тестах.
 
 ### Deployment
 

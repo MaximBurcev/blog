@@ -7,7 +7,6 @@ use App\Http\Controllers\Post\IndexController as PostIndexController;
 use App\Http\Controllers\Post\Like\StoreController as PostLikeStoreController;
 use App\Http\Controllers\Post\ShowController;
 use App\Http\Controllers\Sitemap\XmlController;
-use App\Livewire\Counter;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -55,7 +54,7 @@ Route::prefix('tags')->group(function () {
 // MustVerifyEmail). Троттлинг самих отправок — в VerificationController.
 Auth::routes(['verify' => true]);
 
-// Лента новостей. Индивидуальных страниц нет — см. News\IndexController.
+// Лента новостей: те же Post, но с флагом is_news — см. News\IndexController.
 Route::get('/news', App\Http\Controllers\News\IndexController::class)->name('news.index');
 
 // Страница новости. Контроллер общий со статьями — материал один и тот же,
@@ -65,5 +64,3 @@ Route::get('/news/{code}', ShowController::class)->name('news.show');
 Route::get('/sitemap.xml', XmlController::class)->name('sitemap.xml');
 
 Route::get('/feed.xml', App\Http\Controllers\Feed\IndexController::class)->name('feed.index');
-
-Route::get('/counter', Counter::class);

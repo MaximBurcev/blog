@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Category;
 use App\Models\Post;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class SeoFeedSitemapTest extends TestCase
@@ -72,7 +73,13 @@ class SeoFeedSitemapTest extends TestCase
     /**
      * Вебмастер жаловался на «Отсутствуют метатеги Description»: под
      * layouts.app метатега не было вовсе, а Post::excerpt() умеет вернуть
-     * пустую строку. Проверяем каждый публичный тип страницы разом.
+     * пустую строку.
+     *
+     * Адреса без параметров собираются из таблицы маршрутов, а не
+     * перечисляются руками: ровно мимо рукописного списка прошла демо-страница
+     * /counter из туториала Livewire — 200, открыта для индексации и <head>
+     * без единого метатега. Параметрические адреса задать автоматически
+     * нечем — они по-прежнему перечислены ниже поимённо.
      */
     public function test_every_public_page_has_non_empty_meta_description(): void
     {
@@ -89,27 +96,86 @@ class SeoFeedSitemapTest extends TestCase
                 'published' => 1,
                 'category_id' => $category->id,
             ]);
+            Post::create([
+                'title' => 'Published news',
+                'code' => 'published-news',
+                'content' => '<pre><code>echo 2;</code></pre>',
+                'published' => 1,
+                'is_news' => 1,
+                'category_id' => $category->id,
+            ]);
         });
 
-        $urls = [
-            route('main.index'),
+        // Страницы с параметрами в адресе таблица маршрутов за нас заполнить не
+        // может — и именно они интереснее прочих (описание берётся из текста
+        // материала), поэтому тут никаких послаблений: строго 200 и метатег.
+        foreach ([
             route('post.show', 'published-post'),
-            route('category.index'),
+            route('news.show', 'published-news'),
             route('category.show', $category->code),
-            route('tag.index'),
-            route('sitemap.index'),
-            route('main.search'),
-            route('login'),
-            route('register'),
-        ];
-
-        foreach ($urls as $url) {
+        ] as $url) {
             $response = $this->get($url);
 
             $response->assertOk();
             $this->assertNotSame('', $this->metaDescription($response->getContent()),
                 "Пустой или отсутствующий meta description: {$url}");
         }
+
+        $checked = [];
+
+        foreach ($this->parameterlessGetUrls() as $url) {
+            $response = $this->get($url);
+
+            // Метатеги бывают только у страниц: редиректы (/posts), XML-выдача
+            // (sitemap, RSS) и закрытые для гостя разделы сюда не относятся.
+            if ($response->status() !== 200
+                || ! str_contains((string) $response->headers->get('Content-Type'), 'text/html')) {
+                continue;
+            }
+
+            $this->assertNotSame('', $this->metaDescription($response->getContent()),
+                "Пустой или отсутствующий meta description: {$url}");
+
+            $checked[] = $url;
+        }
+
+        // Без этого обход остаётся зелёным, даже если из него выпало всё:
+        // и сборка списка, и пропуск по статусу отсеивают адреса молча.
+        foreach ([route('main.index'), route('news.index'), route('login')] as $url) {
+            $this->assertContains($url, $checked, "Страница выпала из обхода: {$url}");
+        }
+    }
+
+    /**
+     * Адреса всех GET-маршрутов приложения, которым не нужны параметры.
+     *
+     * Чужие маршруты отбираются по namespace обработчика, а не по списку
+     * префиксов: список пришлось бы дописывать после каждого composer require,
+     * а до тех пор тест падал бы на разметке Horizon или Pulse. Замыкания
+     * (обработчика-класса у них нет) — это всегда код из routes/.
+     */
+    private function parameterlessGetUrls(): array
+    {
+        $urls = [];
+
+        foreach (Route::getRoutes() as $route) {
+            if (! in_array('GET', $route->methods(), true) || $route->parameterNames() !== []) {
+                continue;
+            }
+
+            $handler = $route->getAction('controller');
+
+            // Livewire-компонент тоже подходит: демо-страница /counter, ради
+            // которой этот обход и появился, была не контроллером, а
+            // App\Livewire\Counter.
+            if (is_string($handler) && ! str_starts_with($handler, 'App\\')) {
+                continue;
+            }
+
+            $urls[] = url(ltrim($route->uri(), '/'));
+        }
+
+        return $urls;
     }
 
     public function test_paginated_listing_varies_description_per_page(): void
