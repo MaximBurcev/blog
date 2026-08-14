@@ -18,7 +18,11 @@ class ShowController extends Controller
         $canonical = $posts->currentPage() > 1
             ? $posts->url($posts->currentPage())
             : url()->current();
+        // См. Category\ShowController: пустой список закрываем от индексации,
+        // а не отдаём 404 — теги наполняются по мере публикации постов.
+        // isEmpty() ловит и ?page=N за пределами пагинации.
+        $robots = $posts->isEmpty() ? 'noindex, follow' : null;
 
-        return view('tags.show', compact('posts', 'tag', 'title', 'description', 'canonical'));
+        return view('tags.show', compact('posts', 'tag', 'title', 'description', 'canonical', 'robots'));
     }
 }

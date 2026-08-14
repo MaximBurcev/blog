@@ -37,8 +37,8 @@
         '@graph' => [
             [
                 '@type' => 'BlogPosting',
-                '@id' => route('post.show', $post->code).'#article',
-                'mainEntityOfPage' => ['@type' => 'WebPage', '@id' => route('post.show', $post->code)],
+                '@id' => $post->permalink().'#article',
+                'mainEntityOfPage' => ['@type' => 'WebPage', '@id' => $post->permalink()],
                 'headline' => Str::limit($post->title, 110, ''),
                 'description' => $post->excerpt(),
                 'image' => $post->main_image ? asset('storage/'.$post->main_image) : asset(config('seo.default_image')),
@@ -280,7 +280,7 @@
                                         @if($relatedPost->category)
                                             <p class="post-category">{{ $relatedPost->category->title }}</p>
                                         @endif
-                                        <a href="{{ route('post.show', $relatedPost->code) }}"><h3
+                                        <a href="{{ $relatedPost->permalink() }}"><h3
                                                     class="post-title">{{ $relatedPost->title }}</h3></a>
                                     </div>
                                 @endforeach

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Category;
 use App\Models\Post;
+use App\Models\Tag;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
@@ -200,6 +201,153 @@ class SeoFeedSitemapTest extends TestCase
         $this->assertNotSame('', $first);
         $this->assertNotSame($first, $second);
         $this->assertStringContainsString('страница 2', $second);
+    }
+
+    /**
+     * HTML-карта сайта и листинги разделов перечисляли Category::all() и
+     * Tag::all(), тогда как sitemap.xml фильтровал по published. Из-за этого
+     * на сайте висели ссылки на разделы с нулём материалов: страница отдаёт
+     * 200 с пустым списком, в XML-карту не попадает, а поисковик приходит на
+     * неё по ссылке и записывает в малополезные. Тегов это касалось особенно:
+     * их проставляет TagDetectorService при парсинге, задолго до публикации.
+     */
+    public function test_listings_hide_sections_without_published_posts(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $filledCategory = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+            $emptyCategory = Category::create(['title' => 'MySQL', 'code' => 'mysql']);
+            $filledTag = Tag::create(['title' => 'Redis', 'code' => 'redis']);
+            $emptyTag = Tag::create(['title' => 'Kubernetes', 'code' => 'kubernetes']);
+
+            $published = Post::create([
+                'title' => 'Published post',
+                'code' => 'published-post',
+                'content' => 'content',
+                'published' => 1,
+                'category_id' => $filledCategory->id,
+            ]);
+            $published->tags()->attach($filledTag);
+
+            // Черновик раздел не «зажигает»: пока пост не опубликован, ссылок
+            // на его категорию и тег быть не должно.
+            $draft = Post::create([
+                'title' => 'Draft post',
+                'code' => 'draft-post',
+                'content' => 'content',
+                'published' => 0,
+                'category_id' => $emptyCategory->id,
+            ]);
+            $draft->tags()->attach($emptyTag);
+        });
+
+        $expectations = [
+            route('sitemap.index') => [
+                'see' => [route('category.show', 'laravel'), route('tag.show', 'redis')],
+                'dont' => [route('category.show', 'mysql'), route('tag.show', 'kubernetes')],
+            ],
+            route('category.index') => [
+                'see' => [route('category.show', 'laravel')],
+                'dont' => [route('category.show', 'mysql')],
+            ],
+            route('tag.index') => [
+                'see' => [route('tag.show', 'redis')],
+                'dont' => [route('tag.show', 'kubernetes')],
+            ],
+        ];
+
+        foreach ($expectations as $url => $expected) {
+            $response = $this->get($url);
+
+            $response->assertOk();
+
+            foreach ($expected['see'] as $link) {
+                $response->assertSee($link, false);
+            }
+
+            foreach ($expected['dont'] as $link) {
+                $response->assertDontSee($link, false);
+            }
+        }
+    }
+
+    /**
+     * Ссылок на пустые разделы больше нет, но адреса, которые Вебмастер уже
+     * успел проиндексировать, сами из выдачи не уйдут — закрываем их
+     * метатегом. Именно noindex, а не 404: посты в разделе появятся при
+     * следующей публикации, а отданная единожды 404 выбьет адрес насовсем.
+     */
+    public function test_section_without_published_posts_is_noindex(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $filledCategory = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+            Category::create(['title' => 'MySQL', 'code' => 'mysql']);
+            $filledTag = Tag::create(['title' => 'Redis', 'code' => 'redis']);
+            Tag::create(['title' => 'Kubernetes', 'code' => 'kubernetes']);
+
+            $published = Post::create([
+                'title' => 'Published post',
+                'code' => 'published-post',
+                'content' => 'content',
+                'published' => 1,
+                'category_id' => $filledCategory->id,
+            ]);
+            $published->tags()->attach($filledTag);
+        });
+
+        $noindex = 'name="robots" content="noindex, follow"';
+
+        $this->get(route('category.show', 'mysql'))->assertOk()->assertSee($noindex, false);
+        $this->get(route('tag.show', 'kubernetes'))->assertOk()->assertSee($noindex, false);
+
+        // Наполненный раздел закрывать нельзя — ради него всё и затевалось.
+        $this->get(route('category.show', 'laravel'))->assertOk()->assertDontSee($noindex, false);
+        $this->get(route('tag.show', 'redis'))->assertOk()->assertDontSee($noindex, false);
+
+        // Страница за пределами пагинации — тоже пустой список, причём
+        // канонический сам на себя. С проверкой по total() она оставалась
+        // открытой для индексации, потому что посты в разделе-то есть.
+        $this->get(route('category.show', 'laravel').'?page=99')->assertOk()->assertSee($noindex, false);
+        $this->get(route('tag.show', 'redis').'?page=99')->assertOk()->assertSee($noindex, false);
+    }
+
+    /**
+     * Новость и статья — один и тот же Post, но живут по разным адресам, и
+     * Post\ShowController отдаёт 301 при обращении по «чужому». Значит,
+     * ссылка на новость через route('post.show') — это ссылка в редирект.
+     * Карты сайта это учитывали, а листинги, поиск, RSS и блок «похожие» —
+     * нет, хотя новости попадают в них наравне со статьями (у новости есть и
+     * категория, и теги — их проставляет парсер).
+     */
+    public function test_news_is_linked_by_its_own_url_everywhere(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+            $tag = Tag::create(['title' => 'Redis', 'code' => 'redis']);
+
+            $news = Post::create([
+                'title' => 'Published news',
+                'code' => 'published-news',
+                'content' => 'news content',
+                'published' => 1,
+                'is_news' => 1,
+                'category_id' => $category->id,
+            ]);
+            $news->tags()->attach($tag);
+        });
+
+        foreach ([
+            route('sitemap.index'),
+            route('sitemap.xml'),
+            route('feed.index'),
+            route('category.show', 'laravel'),
+            route('tag.show', 'redis'),
+        ] as $url) {
+            $response = $this->get($url);
+
+            $response->assertOk();
+            $response->assertSee(route('news.show', 'published-news'), false);
+            $response->assertDontSee(route('post.show', 'published-news'), false);
+        }
     }
 
     /**

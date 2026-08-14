@@ -5,8 +5,9 @@
         <changefreq>daily</changefreq>
         <priority>1.0</priority>
     </url>
-    {{-- Лента новостей: индивидуальных страниц у новостей нет
-         (тонкий контент), поэтому в карту попадает только сама лента. --}}
+    {{-- Лента новостей. Сами новости идут ниже общим списком постов: с тех
+         пор, как у новости появилась своя страница /news/{code}, отдельного
+         обхода они не требуют — адрес подставляет Post::permalink(). --}}
     @if($hasNews)
         <url>
             <loc>{{ route('news.index') }}</loc>
@@ -30,7 +31,7 @@
     @endforeach
     @foreach ($posts as $post)
         <url>
-            <loc>{{ route($post->is_news ? 'news.show' : 'post.show', $post->code) }}</loc>
+            <loc>{{ $post->permalink() }}</loc>
             <lastmod>{{ $post->updated_at->tz('UTC')->toAtomString() }}</lastmod>
             <changefreq>weekly</changefreq>
             <priority>0.8</priority>

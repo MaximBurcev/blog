@@ -79,16 +79,45 @@ All controllers are single-action classes — each HTTP action (index, show, sto
 а не отдельная модель: разбирается, переводится и хранится тем же пайплайном,
 поэтому у неё есть полный текст, картинки и своя страница `/news/{code}`.
 Отдельная модель означала бы дублирование всего `StorePostJob` целиком.
-Ленты не смешиваются: главная, RSS и sitemap статей фильтруют по `is_news`.
+
+Главная (`Main\IndexController`) фильтрует по `is_news` через скоуп `articles()`.
+Остальные выборки — нет: у новости есть категория и теги (их проставляет
+парсер), поэтому она равноправно попадает в `/categories/{code}`,
+`/tags/{code}`, поиск, RSS и блок «похожие». Ссылку на неё обязан давать
+**`Post::permalink()`**, а не `route('post.show')`: адреса разведены, и
+`Post\ShowController` отвечает на «чужой» 301-м редиректом — то есть каждая
+такая ссылка была бы лишним хопом. Метод зовётся `permalink()`, а не `url()`,
+потому что колонка `posts.url` (адрес первоисточника) уже занята: одноимённый
+метод Eloquent принимает за связь и валит `$post->url` в LogicException.
+Выборкам с сужающим `select()` нужен `is_news` в списке колонок — иначе он
+молча читается как `null` и все новости получают адрес статьи.
 
 - `App\Support\NewsDigestParser` — разбор секции (без ввода-вывода, покрыт тестами)
 - `App\Service\NewsImportService` — перевод и сохранение; дедуп по `posts.url` (UNIQUE)
 - `php artisan news:import [url]` — вручную; в планировщике ежедневно в 07:00
 - Импорт также доступен кнопкой в админке (Блог → Новости)
 
+### Пустые категории и теги
+
+Ссылаться можно только на раздел, в котором есть хоть один опубликованный пост:
+`Category::hasPublishedPosts()` / `Tag::hasPublishedPosts()` — один скоуп на обе
+карты сайта, оба листинга и сайдбар главной. Раньше условие стояло дословно в
+шести местах и разъехалось: `sitemap.xml` фильтровал, а `/sitemap`,
+`/categories` и `/tags` перечисляли `Category::all()` — и вели на разделы с
+нулём материалов. Теги страдают сильнее категорий: их проставляет
+`TagDetectorService` прямо при парсинге, задолго до публикации.
+
+Сама страница пустого раздела остаётся доступной (200), но отдаёт
+`robots: noindex, follow` — адреса, которые Вебмастер уже проиндексировал,
+иначе из выдачи не уйдут. Не 404: посты в разделе появятся при следующей
+публикации, а отданная единожды 404 выбьет адрес насовсем. Условие —
+`$posts->isEmpty()`, а не `total() === 0`: последнее считает пустыми только
+разделы без постов вообще и оставляет открытым `?page=99` наполненной
+категории — нулевой список, канонический сам на себя.
+
 ### Models & Relationships
 
-- `Post` — `belongsToMany(Tag)`, `belongsTo(Category)`, `hasMany(Comment)`, `hasMany(PostLike)`. Uses `SoftDeletes` and `Searchable` (Laravel Scout → Meilisearch)
+- `Post` — `belongsToMany(Tag)`, `belongsTo(Category)`, `hasMany(Comment)`, `hasMany(PostLike)`. Uses `SoftDeletes` and `Searchable` (Laravel Scout → Meilisearch). `permalink()` — публичный адрес с учётом `is_news`
 - `User` — roles: `ROLE_ADMIN = 0`, `ROLE_READER = 1`. Implements `FilamentUser` for Filament access
 - `Release` — stores source URLs for the scraper pipeline
 

@@ -34,7 +34,7 @@
                                     <a href="{{ route('category.show', $post->category->code) }}">{{ $post->category->title }}</a>
                                 </p>
                             @endif
-                            <a href="{{ route('post.show', $post->code) }}" class="blog-post-permalink">
+                            <a href="{{ $post->permalink() }}" class="blog-post-permalink">
                                 <h2 class="blog-post-title">{{ $post->title }}</h2>
                             </a>
                         </div>

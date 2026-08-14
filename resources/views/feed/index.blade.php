@@ -8,8 +8,8 @@
         @foreach ($posts as $post)
             <item>
                 <title>{{ $post->title }}</title>
-                <link>{{ route('post.show', $post->code) }}</link>
-                <guid isPermaLink="true">{{ route('post.show', $post->code) }}</guid>
+                <link>{{ $post->permalink() }}</link>
+                <guid isPermaLink="true">{{ $post->permalink() }}</guid>
                 <pubDate>{{ $post->created_at->toRssString() }}</pubDate>
                 <description>{{ $post->excerpt() }}</description>
             </item>
