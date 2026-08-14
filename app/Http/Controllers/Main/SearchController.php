@@ -42,8 +42,14 @@ class SearchController extends Controller
                     // Выдача рисует только карточку, а без сужения колонок с
                     // каждым результатом тянулись content и content_orig — два
                     // LONGTEXT на строку.
+                    //
+                    // is_news в списке обязателен: карточка строит адрес через
+                    // permalink(), а без колонки флаг молча читается как null,
+                    // и каждая найденная новость ведёт на адрес статьи, то
+                    // есть через 301. С индексацией оригинала находиться стало
+                    // заметно больше материалов, новостей в том числе.
                     ->query(fn (Builder $builder) => $builder
-                        ->select(['id', 'title', 'code', 'preview_image', 'category_id'])
+                        ->select(['id', 'title', 'code', 'preview_image', 'category_id', 'is_news'])
                         ->with('category:id,title,code'))
                     ->paginate(self::PER_PAGE)
                     ->withQueryString();

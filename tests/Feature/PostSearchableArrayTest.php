@@ -9,8 +9,7 @@ use Tests\TestCase;
 
 /**
  * Регрессия на audit-2026-08-01: без toSearchableArray() Scout отправлял в
- * Meilisearch модель целиком — вместе с content и content_orig, двумя LONGTEXT
- * на запись.
+ * Meilisearch модель целиком — со всеми служебными полями парсера.
  *
  * Второй тест закрывает ошибку, допущенную при этой же правке: из документа
  * пропало поле published, а SearchController фильтрует по нему
@@ -37,13 +36,43 @@ class PostSearchableArrayTest extends TestCase
         });
     }
 
-    public function test_original_content_is_not_sent_to_the_index(): void
+    public function test_service_fields_are_not_sent_to_the_index(): void
     {
         $document = $this->makePost()->toSearchableArray();
 
-        $this->assertArrayNotHasKey('content_orig', $document);
         $this->assertArrayNotHasKey('parse_error', $document);
         $this->assertArrayNotHasKey('url', $document);
+    }
+
+    /**
+     * Оригинал в индексе — ровно ради терминов, которые в переводе не
+     * остались английскими: «queue worker», «readonly properties», имена
+     * методов. Без него запрос по ним не находил статью, которая целиком про
+     * них.
+     */
+    public function test_original_text_is_searchable(): void
+    {
+        $document = $this->makePost()->toSearchableArray();
+
+        $this->assertArrayHasKey('content_orig', $document);
+        $this->assertStringContainsString('Original English content', $document['content_orig']);
+        // Разметка вырезана так же, как у перевода: иначе запрос «href»
+        // находил бы все статьи со ссылками.
+        $this->assertStringNotContainsString('<', $document['content_orig']);
+    }
+
+    public function test_post_without_original_indexes_an_empty_string(): void
+    {
+        // У постов, написанных руками, content_orig пуст. В документе поле
+        // должно остаться строкой: null сломал бы фильтры Meilisearch по нему.
+        $post = Post::withoutSyncingToSearch(fn () => Post::create([
+            'title' => 'Своя статья',
+            'code' => 'svoya-statya',
+            'content' => '<p>Текст.</p>',
+            'published' => true,
+        ]));
+
+        $this->assertSame('', $post->toSearchableArray()['content_orig']);
     }
 
     public function test_published_flag_is_indexed_as_boolean(): void

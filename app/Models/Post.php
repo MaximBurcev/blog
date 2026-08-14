@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Laravel\Scout\Searchable;
 
@@ -23,6 +24,12 @@ class Post extends Model
 
     /** Пост создан, но контент вытащить не удалось — причина в parse_error. */
     public const PARSE_STATUS_FAILED = 'failed';
+
+    /**
+     * Значение ?lang=, включающее показ исходного текста. Язык у всех
+     * первоисточников один — дайджест PHP Weekly англоязычный.
+     */
+    public const ORIGINAL_LANG = 'en';
 
     protected $table = 'posts';
 
@@ -125,13 +132,17 @@ class Post extends Model
      * Что уходит в Meilisearch.
      *
      * Без этого метода Scout берёт toArray(), то есть отправляет модель
-     * целиком — включая content и content_orig, два LONGTEXT на запись. Причём
-     * content_orig это англоязычный оригинал: искать по нему на русском сайте
-     * незачем, а место в индексе он занимал наравне с переводом.
+     * целиком — со всеми служебными полями парсера.
      *
-     * Разметку из content вырезаем: имена тегов и атрибуты не должны попадать
-     * в поисковый индекс, иначе запрос вроде «href» находит все статьи со
-     * ссылками.
+     * content_orig раньше в индекс не шёл: «искать по английскому оригиналу на
+     * русском сайте незачем». Это оказалось неверно ровно для той аудитории,
+     * ради которой блог и существует: термины вроде «queue worker», «PSR-15»
+     * или «readonly properties» в переводе остаются английскими не всегда, и
+     * запрос по ним не находил статью, которая целиком про них. Оригинал уже
+     * лежит в БД, так что цена — только место в индексе.
+     *
+     * Разметку вырезаем: имена тегов и атрибуты не должны попадать в поисковый
+     * индекс, иначе запрос вроде «href» находит все статьи со ссылками.
      *
      * @return array<string, mixed>
      */
@@ -141,7 +152,8 @@ class Post extends Model
             'id' => (int) $this->id,
             'title' => (string) $this->title,
             'code' => (string) $this->code,
-            'content' => $this->plainContent(),
+            'content' => $this->plainText($this->content),
+            'content_orig' => $this->plainText($this->content_orig),
             'category' => (string) ($this->category?->title ?? ''),
             'created_at' => $this->created_at?->timestamp,
             // Обязателен, хотя shouldBeSearchable() и так пускает в индекс
@@ -155,13 +167,13 @@ class Post extends Model
     }
 
     /**
-     * Текст статьи без разметки: теги заменяются пробелом (а не вырезаются
-     * встык, иначе на границах блоков склеиваются слова — «в PHP 8.Ключевое»),
+     * Текст без разметки: теги заменяются пробелом (а не вырезаются встык,
+     * иначе на границах блоков склеиваются слова — «в PHP 8.Ключевое»),
      * пробельные последовательности схлопываются.
      */
-    private function plainContent(): string
+    private function plainText(?string $html): string
     {
-        $text = preg_replace('#<[^>]+>#', ' ', (string) $this->content) ?? '';
+        $text = preg_replace('#<[^>]+>#', ' ', (string) $html) ?? '';
 
         return trim((string) preg_replace('/\s+/u', ' ', html_entity_decode($text)));
     }
@@ -231,10 +243,10 @@ class Post extends Model
     }
 
     /**
-     * content_orig нигде сейчас не рендерится, но хранится как обычный
-     * скрейпленный HTML — санитайзим по той же причине, что и content:
-     * мина для будущего diff/API-эндпоинта, который однажды выведет его как
-     * есть.
+     * content_orig — такой же чужой скрейпленный HTML, и с 14.08.2026 он
+     * рендерится на странице ?lang=en. Мутатор закрывает новые записи, старые
+     * (до 27.07.2026) — posts:resanitize и санитайзинг на выводе, см.
+     * originalBody().
      */
     public function setContentOrigAttribute(?string $value): void
     {
@@ -254,7 +266,22 @@ class Post extends Model
      */
     public function excerpt(int $length = 160): string
     {
-        $html = preg_replace('#<(pre|code|table)\b[^>]*>.*?</\1>#is', ' ', (string) $this->content) ?? '';
+        return $this->excerptFrom($this->content, $length);
+    }
+
+    /**
+     * То же для исходного текста: страница с ?lang=en описывает английское
+     * тело, а не перевод — иначе ссылкой на оригинал в мессенджер уезжало бы
+     * русское описание чужого английского текста.
+     */
+    public function originalExcerpt(int $length = 160): string
+    {
+        return $this->excerptFrom($this->content_orig, $length);
+    }
+
+    private function excerptFrom(?string $source, int $length): string
+    {
+        $html = preg_replace('#<(pre|code|table)\b[^>]*>.*?</\1>#is', ' ', (string) $source) ?? '';
         $text = html_entity_decode(preg_replace('/<[^>]+>/u', ' ', $html), ENT_QUOTES, 'UTF-8');
         $text = trim(preg_replace('/\s+/u', ' ', $text));
 
@@ -319,6 +346,93 @@ class Post extends Model
     public function permalink(): string
     {
         return route($this->is_news ? 'news.show' : 'post.show', $this->code);
+    }
+
+    /**
+     * Адрес страницы с исходным (английским) текстом.
+     *
+     * Отдельный query-параметр, а не свой маршрут: материал тот же самый,
+     * различается только язык тела. Индексироваться этот адрес не должен —
+     * Post\ShowController отдаёт на нём noindex и canonical на перевод, иначе
+     * получилась бы англоязычная копия чужой статьи в выдаче.
+     */
+    public function originalPermalink(): string
+    {
+        return $this->permalink().'?'.http_build_query(['lang' => self::ORIGINAL_LANG]);
+    }
+
+    /**
+     * Есть ли что показывать в оригинале.
+     *
+     * content_orig заполняет только парсер, поэтому у постов, написанных
+     * руками, и у всего, что заведено до 22.02.2026, его нет.
+     */
+    public function hasOriginal(): bool
+    {
+        return filled($this->content_orig);
+    }
+
+    /**
+     * Исходный текст, пригодный для рендера через {!! !!}.
+     *
+     * Санитайзинг именно на выводе, хотя мутатор уже чистит запись: колонка
+     * пишется с 22.02.2026, а setContentOrigAttribute появился только
+     * 27.07.2026 — то есть в БД лежат сотни записей с необработанным HTML
+     * страницы-источника (на проде у двух из них уцелел <iframe>). Полагаться
+     * на то, что posts:resanitize прогнали на каждом окружении, для
+     * stored XSS нельзя: цена ошибки — исполнение чужого скрипта у читателя.
+     *
+     * Результат кладётся в кэш до следующей правки поста: HTMLPurifier на
+     * статью в десятки килобайт — это десятки миллисекунд, а текст между
+     * сохранениями не меняется.
+     */
+    public function originalBody(): string
+    {
+        return Cache::remember(
+            'post:'.$this->getKey().':original-body:'.($this->updated_at?->timestamp ?? 0),
+            now()->addDay(),
+            fn (): string => app(HtmlSanitizerService::class)
+                ->sanitize((string) $this->content_orig, stripRemoteImages: true),
+        );
+    }
+
+    /**
+     * Адрес первоисточника, но только если по нему можно безопасно перейти.
+     *
+     * url приходит со страницы стороннего дайджеста, и Blade экранирует
+     * кавычки, но не схему: `javascript:` в href остался бы рабочим — и в
+     * админке, где CSP ослаблена до 'unsafe-inline', в первую очередь.
+     * Проверка на выводе, а не только на входе: посты с чужой схемой могли
+     * попасть в БД раньше.
+     */
+    public function sourceUrl(): ?string
+    {
+        return Str::startsWith((string) $this->url, ['http://', 'https://'])
+            ? $this->url
+            : null;
+    }
+
+    /** Домен первоисточника — «medium.com» вместо простыни из адреса. */
+    public function sourceHost(): ?string
+    {
+        return $this->sourceUrl() === null
+            ? null
+            : (parse_url($this->sourceUrl(), PHP_URL_HOST) ?: null);
+    }
+
+    /**
+     * Текст статьи — машинный перевод чужого материала, а не авторский.
+     *
+     * Одного url мало: он остаётся и у заглушки, которую парсер не осилил
+     * (parse_status = failed), а её текст админ вписывает руками — назвать
+     * такую статью машинным переводом значит соврать про собственный текст.
+     * Признак перевода — сохранённый оригинал либо успешно разобранный
+     * источник.
+     */
+    public function isMachineTranslated(): bool
+    {
+        return $this->hasOriginal()
+            || ($this->sourceUrl() !== null && ! $this->hasParseError());
     }
 
     /**

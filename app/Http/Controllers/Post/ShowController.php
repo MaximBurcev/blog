@@ -22,17 +22,41 @@ class ShowController extends Controller
         $expected = $post->is_news ? 'news.show' : 'post.show';
 
         if ($request->route()?->getName() !== $expected) {
-            return redirect()->route($expected, $post->code, 301);
+            // Query сохраняем: без него переключение на оригинал с «чужого»
+            // адреса возвращало бы читателя в перевод.
+            $queryString = $request->getQueryString();
+
+            return redirect()->to(
+                route($expected, $post->code).($queryString ? '?'.$queryString : ''),
+                301
+            );
+        }
+
+        // Оригинал показывается по тому же адресу с ?lang=en — материал один и
+        // тот же, различается только язык тела статьи.
+        $showOriginal = $request->query('lang') === Post::ORIGINAL_LANG;
+
+        // Оригинал запросили там, где его нет: content_orig заполняет только
+        // парсер. Уводим на перевод, а не показываем ту же страницу по второму
+        // адресу — иначе к каждому посту добавился бы дубль.
+        //
+        // 302, а не 301: оригинал у поста может появиться позже — при
+        // повторном разборе заглушки с parse_status = failed. Постоянный
+        // редирект браузер кэширует бессрочно, и для такого читателя ?lang=en
+        // навсегда остался бы переводом, минуя сервер.
+        if ($showOriginal && ! $post->hasOriginal()) {
+            return redirect()->to($post->permalink());
         }
 
         $postViewService->record($post, $request);
 
         $date = Carbon::parse($post->created_at);
-        $title = $post->title;
+        $title = $showOriginal ? $post->title.' — оригинал' : $post->title;
         // excerpt() выбрасывает из текста код и таблицы, поэтому для статьи,
         // состоящей из одних листингов, он возвращает пустую строку — без
         // фолбэка в разметку уходило бы content="".
-        $description = $post->excerpt() ?: 'Статья «'.$post->title.'» в блоге о веб-разработке.';
+        $description = ($showOriginal ? $post->originalExcerpt() : $post->excerpt())
+            ?: 'Статья «'.$post->title.'» в блоге о веб-разработке.';
         $ogImage = $post->main_image ? asset('storage/'.$post->main_image) : null;
         $ogType = 'article';
         // og:type=article требует своих полей: без них Facebook/LinkedIn не
@@ -51,7 +75,19 @@ class ShowController extends Controller
 
         $comments = $post->comments()->published()->with('user')->latest()->get();
 
+        // Страница оригинала — англоязычная копия чужой статьи, в поиске ей
+        // делать нечего: noindex, follow (по ссылкам краулер пусть идёт).
+        //
+        // canonical при этом самоссылочный, а не на перевод. Пара «noindex +
+        // canonical на другой адрес» — противоречивые указания: Google
+        // документированно может перенести noindex на цель канонизации, то
+        // есть выбить из выдачи саму статью-перевод. Склейку с переводом
+        // делает не canonical, а сам факт того, что версия оригинала
+        // неиндексируема и на неё нет внешних ссылок.
+        $robots = $showOriginal ? 'noindex, follow' : null;
+        $canonical = $showOriginal ? $post->originalPermalink() : $post->permalink();
+
         return view('post.show',
-            compact('post', 'date', 'relatedPosts', 'title', 'description', 'ogImage', 'ogType', 'articleMeta', 'isLiked', 'comments', 'viewsCount'));
+            compact('post', 'date', 'relatedPosts', 'title', 'description', 'ogImage', 'ogType', 'articleMeta', 'isLiked', 'comments', 'viewsCount', 'showOriginal', 'robots', 'canonical'));
     }
 }

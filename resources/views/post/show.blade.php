@@ -1,11 +1,47 @@
 @extends('layouts.main')
 
 @php
+    // Тело страницы: перевод или исходный текст (?lang=en). Читается один раз
+    // и здесь, чтобы ниже не пришлось помнить про $showOriginal в каждом
+    // месте, где нужен текст статьи.
+    $showOriginal = $showOriginal ?? false;
+    // originalBody(), а не сырая колонка: записи до 27.07.2026 сохранялись
+    // мимо санитайзера, а картинки в оригинале ведут на чужой CDN.
+    $body = $showOriginal ? $post->originalBody() : $post->content;
+
     // highlight.js весит 120 КБ и раньше грузился с cdnjs на каждой странице
     // сайта. Теперь он локальный и подключается только там, где есть что
-    // подсвечивать — то есть в посте реально встретился блок <pre>.
-    $hasCode = str_contains($post->content, '<pre');
+    // подсвечивать — то есть в посте реально встретился блок <pre>. Считаем по
+    // отображаемому телу: в оригинале листинги те же, но текст вокруг другой.
+    $hasCode = str_contains((string) $body, '<pre');
 @endphp
+
+@push('head')
+    {{-- Стили плашки о переводе держим здесь, а не в инлайновом <style>
+         макета: на главной, в категориях и в поиске этих классов нет, а
+         инлайн в <head> блокирует отрисовку каждой страницы сайта. --}}
+    {{-- Без nonce: в style-src его нет, там 'unsafe-inline' — так же, как у
+         инлайновых стилей главной и макета. --}}
+    <style>
+        /* Намеренно не alert-цвета: это контекст, а не ошибка, а переводная
+           у нас почти каждая статья — кричать на каждой нельзя. */
+        .post-translation-notice {
+            margin-top: 1.25rem;
+            padding: 0.75rem 1rem;
+            border-left: 3px solid #cfd4da;
+            background-color: #f6f7f9;
+            font-size: 0.9rem;
+            color: #4a5056;
+        }
+
+        /* Неполный перевод — уже предупреждение: часть текста читатель
+           встретит по-английски прямо посреди статьи. */
+        .post-translation-notice-warning {
+            border-left-color: #e0a800;
+            background-color: #fdf8e8;
+        }
+    </style>
+@endpush
 
 @if($hasCode)
     @push('head')
@@ -31,6 +67,10 @@
     @endpush
 @endif
 
+{{-- На странице оригинала разметки нет: она описывает материал блога, а тот
+     живёт по адресу перевода (@id ведёт именно туда). Дублировать её на
+     noindex-копии значит заявлять поисковику две страницы с одним @id. --}}
+@unless($showOriginal)
 @push('schema')
     @include('partials.json-ld', ['data' => [
         '@context' => 'https://schema.org',
@@ -51,8 +91,11 @@
                 'articleSection' => $post->category?->title,
                 'keywords' => $post->tags->pluck('title')->implode(', '),
                 // isBasedOn — честная отметка, что это перевод чужого
-                // материала, а не оригинальная публикация.
-                'isBasedOn' => $post->url ?: null,
+                // материала, а не оригинальная публикация. sourceUrl(), а не
+                // сырая колонка: в url со страницы дайджеста может лежать
+                // что угодно вплоть до javascript:, и в разметке для
+                // поисковика такому адресу не место.
+                'isBasedOn' => $post->sourceUrl(),
             ],
             [
                 '@type' => 'BreadcrumbList',
@@ -65,6 +108,7 @@
         ],
     ]])
 @endpush
+@endunless
 
 @section('content')
     <main class="blog-post">
@@ -80,6 +124,37 @@
             <p class="edica-blog-post-meta" data-aos="fade-up"
                data-aos-delay="200">{{ $date->translatedFormat('F') }} {{ $date->day }}, {{ $date->year }}
                 • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $comments->count() }} Комментария</p>
+            {{-- Статья переводная — читатель должен знать это до того, как
+                 споткнётся о машинную фразу, а не после. Заодно это
+                 единственное место, откуда доступен исходный текст: он лежит
+                 в content_orig с 22.02.2026 и до сих пор не показывался
+                 нигде. --}}
+            @if($post->isMachineTranslated())
+                {{-- Класс собираем строкой, а не @if внутри атрибута: иначе в
+                     разметку уезжают лишние пробелы, и «есть ли warning» уже
+                     не проверить точным совпадением. --}}
+                <aside class="post-translation-notice{{ $post->translation_incomplete && ! $showOriginal ? ' post-translation-notice-warning' : '' }}"
+                       data-aos="fade-up" data-aos-delay="250">
+                    @if($showOriginal)
+                        Исходный текст@if($post->sourceHost()) статьи с {{ $post->sourceHost() }}@endif.
+                        <a href="{{ $post->permalink() }}">Вернуться к переводу</a>
+                    @else
+                        @if($post->sourceUrl())
+                            Машинный перевод статьи с
+                            <a href="{{ $post->sourceUrl() }}" target="_blank" rel="noopener noreferrer nofollow">{{ $post->sourceHost() }}</a>.
+                        @else
+                            Машинный перевод: возможны неточности.
+                        @endif
+                        @if($post->translation_incomplete)
+                            Часть блоков осталась без перевода.
+                        @endif
+                        @if($post->hasOriginal())
+                            <a href="{{ $post->originalPermalink() }}">Показать оригинал</a>
+                        @endif
+                    @endif
+                </aside>
+            @endif
+
             <section class="blog-post-featured-img" data-aos="fade-up" data-aos-delay="300">
                 {{-- Обложка — LCP-элемент страницы: грузим её приоритетно и
                      не откладываем, в отличие от картинок в листингах.
@@ -93,16 +168,19 @@
                               sizes="(max-width: 767px) calc(100vw - 30px), (max-width: 991px) 690px, (max-width: 1199px) 930px, 1110px"/>
 
             </section>
-            <section class="post-content">
-                {!! $post->content !!}
+            {{-- lang на секции, а не на <html>: заголовок, меню и подписи
+                 вокруг остаются русскими, английский тут только у тела
+                 статьи. Для скринридера это разница между английским
+                 произношением и русским по буквам. --}}
+            <section class="post-content"@if($showOriginal) lang="{{ \App\Models\Post::ORIGINAL_LANG }}"@endif>
+                {!! $body !!}
             </section>
 
-            {{-- Ссылку строим только для http(s): url приходит со страницы
-                 стороннего дайджеста, и `javascript:` в href пережил бы
-                 экранирование Blade (оно защищает от выхода из атрибута,
-                 но не от схемы). --}}
-            @if(\Illuminate\Support\Str::startsWith($post->url, ['http://', 'https://']))
-                <p class="post-original-source">Оригинал: <a href="{{ $post->url }}" target="_blank" rel="noopener noreferrer nofollow">{{ $post->url }}</a></p>
+            {{-- Схему адреса проверяет sourceUrl(): url приходит со страницы
+                 стороннего дайджеста, а Blade экранирует кавычки, но не
+                 схему — `javascript:` в href остался бы рабочим. --}}
+            @if($post->sourceUrl())
+                <p class="post-original-source">Оригинал: <a href="{{ $post->sourceUrl() }}" target="_blank" rel="noopener noreferrer nofollow">{{ $post->sourceUrl() }}</a></p>
             @endif
 
             {{-- Ссылки на категорию и теги: без них страница поста была

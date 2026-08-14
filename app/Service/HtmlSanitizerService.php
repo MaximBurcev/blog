@@ -58,11 +58,25 @@ class HtmlSanitizerService
         '#feedburner\.com#i',
     ];
 
-    public function sanitize(string $html): string
+    /**
+     * @param  bool  $stripRemoteImages  Вырезать картинки, которые грузятся с
+     *                                   чужих доменов. Нужно там, где
+     *                                   показывается текст, не прошедший через
+     *                                   ContentImageService — то есть
+     *                                   content_orig: в нём остались адреса
+     *                                   первоисточника, и браузер читателя
+     *                                   ходил бы за каждой картинкой на
+     *                                   medium/dev.to, отдавая им свой IP.
+     */
+    public function sanitize(string $html, bool $stripRemoteImages = false): string
     {
-        return $this->purifier()->purify(
-            $this->stripTrackingPixels($this->demoteTopHeadings($html))
-        );
+        $html = $this->stripTrackingPixels($this->demoteTopHeadings($html));
+
+        if ($stripRemoteImages) {
+            $html = $this->stripRemoteImages($html);
+        }
+
+        return $this->purifier()->purify($html);
     }
 
     /**
@@ -71,13 +85,52 @@ class HtmlSanitizerService
      */
     private function stripTrackingPixels(string $html): string
     {
-        // Паттерн учитывает кавычки: наивный <img[^>]*> обрывался на первом
-        // '>', и `<img alt=">" src="https://medium.com/_/stat...">` проходил
-        // мимо фильтра целиком. Проверяется только значение src — иначе
-        // валидная картинка с упоминанием счётчика в alt удалялась бы.
+        return $this->stripImagesWhere($html, function (string $url): bool {
+            foreach (self::TRACKING_PIXEL_PATTERNS as $pattern) {
+                if (preg_match($pattern, $url) === 1) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
+    }
+
+    /**
+     * Вырезает картинки с чужих доменов.
+     *
+     * Свои (относительные и с нашего хоста) остаются: в content они как раз
+     * локальные — их скачал ContentImageService. Те же иллюстрации читатель
+     * видит в переводе, поэтому их отсутствие в оригинале ничего не теряет,
+     * зато страница перестаёт быть хотлинком на чужой CDN — а он на запросы
+     * со стороны отвечает и 403, то есть битой картинкой.
+     */
+    private function stripRemoteImages(string $html): string
+    {
+        $ownHost = parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        return $this->stripImagesWhere($html, function (string $url) use ($ownHost): bool {
+            $host = parse_url($url, PHP_URL_HOST);
+
+            return $host !== null && $host !== '' && $host !== $ownHost;
+        });
+    }
+
+    /**
+     * Общий разбор <img> для обоих фильтров.
+     *
+     * Паттерн учитывает кавычки: наивный <img[^>]*> обрывался на первом '>',
+     * и `<img alt=">" src="https://medium.com/_/stat...">` проходил мимо
+     * фильтра целиком. Проверяется только значение src — иначе валидная
+     * картинка с упоминанием счётчика в alt удалялась бы.
+     *
+     * @param  callable(string): bool  $shouldRemove
+     */
+    private function stripImagesWhere(string $html, callable $shouldRemove): string
+    {
         $cleaned = preg_replace_callback(
             '#<img\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>#i',
-            function (array $matches): string {
+            function (array $matches) use ($shouldRemove): string {
                 if (preg_match('/\bsrc\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))/i', $matches[0], $src) !== 1) {
                     return $matches[0];
                 }
@@ -87,13 +140,7 @@ class HtmlSanitizerService
                     $url = $src[3] ?? $src[4] ?? '';
                 }
 
-                foreach (self::TRACKING_PIXEL_PATTERNS as $pattern) {
-                    if (preg_match($pattern, $url) === 1) {
-                        return '';
-                    }
-                }
-
-                return $matches[0];
+                return $shouldRemove($url) ? '' : $matches[0];
             },
             $html
         );

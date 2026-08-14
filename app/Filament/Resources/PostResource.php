@@ -19,7 +19,6 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
-use Illuminate\Support\Str;
 
 class PostResource extends Resource
 {
@@ -43,17 +42,16 @@ class PostResource extends Resource
                 // написанного руками: сам url в форме больше нигде не виден.
                 Forms\Components\Placeholder::make('source_url')
                     ->label('Источник')
-                    // Кликабельной ссылку делаем только для http(s). url берётся
-                    // со страницы стороннего дайджеста; e() экранирует кавычки,
-                    // но не схему — `javascript:` в href остался бы рабочим,
-                    // причём именно здесь, в панели, где CSP намеренно ослаблена
-                    // до 'unsafe-inline'. Проверка на выводе, а не только на
-                    // входе: посты с чужой схемой могли попасть в БД раньше.
+                    // Кликабельной ссылку делаем только для http(s), и гард на
+                    // схему живёт в Post::sourceUrl(): тот же адрес выводит
+                    // публичная страница поста, и правило там обязано быть
+                    // одно. Здесь оно критичнее — в панели CSP намеренно
+                    // ослаблена до 'unsafe-inline'.
                     ->content(fn (?Post $record): HtmlString => new HtmlString(
-                        Str::startsWith((string) $record?->url, ['http://', 'https://'])
+                        $record?->sourceUrl()
                             ? sprintf(
                                 '<a href="%1$s" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline dark:text-primary-400">%1$s</a>',
-                                e($record->url)
+                                e($record->sourceUrl())
                             )
                             : e((string) $record?->url)
                     ))
@@ -106,16 +104,10 @@ class PostResource extends Resource
                 TextColumn::make('title')->label('Заголовок')->sortable()->wrap()
                     // Домен источника прямо под заголовком: в списке важно
                     // отличить спарсенные посты от заведённых вручную.
-                    ->description(fn (Post $record): ?string => $record->url
-                        ? parse_url($record->url, PHP_URL_HOST)
-                        : null),
+                    ->description(fn (Post $record): ?string => $record->sourceHost()),
                 TextColumn::make('url')
                     ->label('Источник')
-                    // Тот же гард, что и у Placeholder выше: схема приходит со страницы
-                    // стороннего дайджеста, а Blade экранирует кавычки, но не схему.
-                    ->url(fn (Post $record): ?string => Str::startsWith((string) $record->url, ['http://', 'https://'])
-                        ? $record->url
-                        : null)
+                    ->url(fn (Post $record): ?string => $record->sourceUrl())
                     ->openUrlInNewTab()
                     ->placeholder('—')
                     ->wrap()
