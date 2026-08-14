@@ -31,8 +31,12 @@ use Symfony\Component\HttpFoundation\Response;
 class SecurityHeaders
 {
     /**
-     * Пути, где инлайновые скрипты вставляет чужой код (Filament, Livewire,
-     * log-viewer, Telescope) и nonce к ним не приделать.
+     * Пути под ослабленной политикой — те, где страницу собирает чужой код
+     * (Filament, Livewire, log-viewer, Telescope): инлайновые скрипты там без
+     * nonce, а превью загруженного файла рисуется из blob:.
+     *
+     * Константа управляет двумя директивами сразу, script-src и img-src:
+     * добавляя сюда путь ради скриптов, вы заодно разрешаете там blob:-картинки.
      */
     private const RELAXED_PATHS = ['filament', 'filament/*', 'livewire/*', 'log-viewer', 'log-viewer/*', 'telescope', 'telescope/*'];
 
@@ -90,9 +94,9 @@ class SecurityHeaders
      *
      * @return array<int, string>
      */
-    private function scriptSourceMode(Request $request): array
+    private function scriptSourceMode(Request $request, bool $relaxed): array
     {
-        if ($request->is(self::RELAXED_PATHS) || Vite::isRunningHot()) {
+        if ($relaxed || Vite::isRunningHot()) {
             return ["'unsafe-inline'", "'unsafe-eval'"];
         }
 
@@ -101,6 +105,7 @@ class SecurityHeaders
 
     private function csp(Request $request): string
     {
+        $relaxed = $request->is(self::RELAXED_PATHS);
         $extra = (array) config('security.csp.extra_hosts', []);
         // Dev-сервер Vite отдаёт модули со своего порта и держит там же
         // HMR-сокет — без этих источников `npm run dev` умрёт под CSP
@@ -110,7 +115,7 @@ class SecurityHeaders
             'default-src' => ["'self'"],
             'script-src' => array_merge(
                 ["'self'", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
-                $this->scriptSourceMode($request),
+                $this->scriptSourceMode($request, $relaxed),
                 $vite,
                 $extra
             ),
@@ -125,8 +130,16 @@ class SecurityHeaders
             ),
             // В контенте старых постов остались ссылки на внешние картинки
             // (ContentImageService скачивает не всё), а картинка сама по себе
-            // не исполняемый вектор
-            'img-src' => array_merge(["'self'", 'data:', 'https:'], $extra),
+            // не исполняемый вектор.
+            //
+            // blob: — только на ослабленных путях. FilePond (поля
+            // «Превью-изображение» и «Главное изображение» в Filament)
+            // скачивает уже сохранённый файл, заворачивает его в Blob и
+            // рисует превью из blob:-URL, а не по адресу файла; без этого
+            // источника поле показывает одну строку с именем файла, и правка
+            // поста выглядит как потеря картинки. Публичным страницам blob:
+            // не нужен — там все изображения приходят по http(s).
+            'img-src' => array_merge(["'self'", 'data:', 'https:'], $relaxed ? ['blob:'] : [], $extra),
             'connect-src' => array_merge(["'self'"], $this->reverbOrigins(), $vite, $extra),
             'object-src' => ["'none'"],
             'base-uri' => ["'self'"],
