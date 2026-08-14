@@ -2,6 +2,9 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Analytics\Widgets\PostViewsChart;
+use App\Filament\Analytics\Widgets\PostViewsOverview;
+use App\Filament\Analytics\Widgets\TopPostsByViews;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -45,6 +48,25 @@ class FilamentPanelProvider extends PanelProvider
             ->widgets([
                 Widgets\AccountWidget::class,
                 Widgets\FilamentInfoWidget::class,
+            ])
+            // Виджеты страницы «Аналитика» намеренно лежат вне
+            // app/Filament/Widgets: всё, что попадает в discoverWidgets выше,
+            // Filament автоматически выводит на дашборде, а им место на своей
+            // странице с фильтром периода.
+            //
+            // Но регистрация в Livewire нужна всё равно. Первый рендер
+            // проходит и без неё (@livewire() резолвит по имени класса), а вот
+            // обратный путь — snapshot с именем
+            // «app.filament.analytics.widgets.…» → класс — работает только
+            // через реестр компонентов. Без этой строки любое действие внутри
+            // виджета (смена периода, сортировка и пагинация топа) отвечало бы
+            // ComponentNotFoundException, то есть страница была бы полностью
+            // неинтерактивной. livewireComponents() даёт только алиас и в
+            // Filament::getWidgets() не пишет — на дашборде они не появятся.
+            ->livewireComponents([
+                PostViewsOverview::class,
+                PostViewsChart::class,
+                TopPostsByViews::class,
             ])
             ->middleware([
                 EncryptCookies::class,
