@@ -35,8 +35,9 @@ class SecurityHeaders
      * (Filament, Livewire, log-viewer, Telescope): инлайновые скрипты там без
      * nonce, а превью загруженного файла рисуется из blob:.
      *
-     * Константа управляет двумя директивами сразу, script-src и img-src:
-     * добавляя сюда путь ради скриптов, вы заодно разрешаете там blob:-картинки.
+     * Константа управляет сразу тремя директивами — script-src, img-src и
+     * worker-src: добавляя сюда путь ради скриптов, вы заодно разрешаете там
+     * blob:-картинки и blob:-воркеры.
      */
     private const RELAXED_PATHS = ['filament', 'filament/*', 'livewire/*', 'log-viewer', 'log-viewer/*', 'telescope', 'telescope/*'];
 
@@ -146,6 +147,20 @@ class SecurityHeaders
             'form-action' => ["'self'"],
             'frame-ancestors' => ["'self'"],
         ];
+
+        // Вторая половина того же превью: саму картинку FilePond декодирует и
+        // рисует в Web Worker, собранном из blob:. Своей директивы у воркеров
+        // не было, они падали в script-src, где blob: нет — и поле разворачивало
+        // пустую серую панель нужного размера вместо картинки. На публичной
+        // части директива по-прежнему не выставляется: воркеров там нет вовсе,
+        // и наследование от script-src остаётся строже.
+        // $extra здесь тоже нужен: до появления этой директивы воркеры
+        // наследовали script-src вместе с CSP_EXTRA_HOSTS, и без него
+        // задокументированная отдушина для новых хостов молча перестала бы
+        // покрывать воркеры.
+        if ($relaxed) {
+            $directives['worker-src'] = array_merge(["'self'", 'blob:'], $extra);
+        }
 
         if ($request->secure()) {
             $directives['upgrade-insecure-requests'] = [];

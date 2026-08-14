@@ -94,18 +94,22 @@ class SecurityHeadersTest extends TestCase
     }
 
     /**
-     * Превью картинки в Filament рисуется из blob:-URL: без этого источника
-     * поля «Превью-изображение» и «Главное изображение» показывали одну
-     * строку с именем файла вместо самой картинки. Публичной части blob: не
-     * нужен — лишний источник в политике там ничем не оправдан.
+     * Превью картинки в Filament строится из blob: дважды: сам файл
+     * заворачивается в Blob для <img>, а декодирует и рисует его Web Worker,
+     * собранный тоже из blob:. Без первого источника поле показывало строку с
+     * именем файла, без второго — пустую серую панель. Публичной части blob:
+     * не нужен: воркеров там нет, а картинки приходят по http(s).
      */
-    public function test_csp_allows_blob_images_in_admin_panel_only(): void
+    public function test_csp_allows_blob_images_and_workers_in_admin_panel_only(): void
     {
         $admin = $this->get('/filament/login')->headers->get('Content-Security-Policy');
         $public = $this->get('/')->headers->get('Content-Security-Policy');
 
         $this->assertMatchesRegularExpression('/img-src[^;]*blob:/', $admin);
+        $this->assertMatchesRegularExpression('/worker-src[^;]*blob:/', $admin);
+
         $this->assertDoesNotMatchRegularExpression('/img-src[^;]*blob:/', $public);
+        $this->assertStringNotContainsString('worker-src', $public);
     }
 
     /**
