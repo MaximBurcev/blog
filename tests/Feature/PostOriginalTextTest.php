@@ -22,7 +22,7 @@ class PostOriginalTextTest extends TestCase
 
         $response = $this->get($post->permalink());
 
-        $response->assertSee('Машинный перевод статьи');
+        $response->assertSee('Перевод статьи с');
         $response->assertSee('dev.to');
         $response->assertSee($post->originalPermalink(), escape: false);
     }
@@ -42,10 +42,16 @@ class PostOriginalTextTest extends TestCase
     {
         // Ни источника, ни оригинала — плашке неоткуда взяться, иначе она
         // висела бы на собственных статьях блога.
+        //
+        // Ищем открытие атрибута class, а не текст плашки: «перевод статьи» —
+        // обычное сочетание слов, оно попадает и в тело статьи, и в meta
+        // description через excerpt(). Ассерция по тексту держалась бы только
+        // на регистре первой буквы и падала бы от правки фикстуры. Само имя
+        // класса как подстрока не годится — оно есть в стилях страницы.
         $post = $this->createPost(['url' => null, 'content_orig' => null]);
 
         $this->get($post->permalink())
-            ->assertDontSee('Машинный перевод')
+            ->assertDontSee('class="post-translation-notice', escape: false)
             ->assertDontSee('Показать оригинал');
     }
 
@@ -182,14 +188,14 @@ class PostOriginalTextTest extends TestCase
     public function test_stub_post_edited_by_hand_is_not_called_a_translation(): void
     {
         // Парсер не осилил статью, админ вписал текст руками — url от заглушки
-        // остался. Называть такой текст машинным переводом значит соврать.
+        // остался. Называть такой текст переводом значит соврать.
         $post = $this->createPost([
             'content_orig' => null,
             'parse_status' => Post::PARSE_STATUS_FAILED,
         ]);
 
         $this->get($post->permalink())
-            ->assertDontSee('Машинный перевод');
+            ->assertDontSee('class="post-translation-notice', escape: false);
     }
 
     public function test_javascript_scheme_in_source_url_is_not_rendered_as_a_link(): void
