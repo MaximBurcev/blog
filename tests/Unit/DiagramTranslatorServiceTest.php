@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Service\DiagramTranslatorService;
+use Illuminate\Support\Facades\Log;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 use Tests\TestCase;
 
@@ -89,6 +90,87 @@ class DiagramTranslatorServiceTest extends TestCase
         $this->assertSame($before, file_get_contents($path));
 
         @unlink($path);
+    }
+
+    /**
+     * Регрессия: на проде Tesseract не был установлен, а вызов глушил stderr —
+     * «command not found» приходил пустой строкой и трактовался как «на
+     * картинке нет текста». Лог показывал штатную работу (124 записи
+     * «no text detected», ноль перерисовок), пока причину не нашли руками.
+     */
+    public function test_missing_ocr_binary_is_reported_as_a_problem(): void
+    {
+        config(['releases.ocr_binary' => '/nonexistent/tesseract']);
+        Log::spy();
+
+        $path = $this->makeTestImage('Hello world');
+        // Переводчик подменён, хотя до него дойти не должно: если ветку
+        // сломают, тест обязан упасть на ассерте, а не уйти в сеть за
+        // настоящим Google Translate и повиснуть там без интернета.
+        $service = new DiagramTranslatorService($this->fakeTranslator('Привет мир'));
+
+        $this->assertFalse($service->translate($path));
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message): bool => str_contains($message, 'OCR'))
+            ->once();
+        // Именно эта запись раньше и вводила в заблуждение.
+        Log::shouldNotHaveReceived('info', [\Mockery::pattern('/no text detected/'), \Mockery::any()]);
+
+        @unlink($path);
+    }
+
+    /**
+     * Вторая половина того же фикса: когда OCR отработал и текста на картинке
+     * правда нет, сообщение должно остаться прежним. Иначе «починить» баг
+     * можно было бы, схлопнув оба случая обратно в один.
+     */
+    public function test_blank_image_is_still_reported_as_having_no_text(): void
+    {
+        if (! $this->tesseractAvailable()) {
+            $this->markTestSkipped('tesseract бинарник недоступен в этом окружении');
+        }
+
+        Log::spy();
+
+        $path = $this->makeBlankImage();
+        $service = new DiagramTranslatorService($this->fakeTranslator('Привет мир'));
+
+        $this->assertFalse($service->translate($path));
+
+        Log::shouldHaveReceived('info')
+            ->withArgs(fn (string $message): bool => str_contains($message, 'no text detected'))
+            ->once();
+
+        @unlink($path);
+    }
+
+    private function fakeTranslator(string $result): GoogleTranslate
+    {
+        return new class($result) extends GoogleTranslate
+        {
+            public function __construct(private readonly string $result)
+            {
+                parent::__construct('ru');
+            }
+
+            public function translate(string $string): ?string
+            {
+                return $this->result;
+            }
+        };
+    }
+
+    private function makeBlankImage(): string
+    {
+        $image = imagecreatetruecolor(200, 80);
+        imagefilledrectangle($image, 0, 0, 200, 80, imagecolorallocate($image, 255, 255, 255));
+
+        $path = tempnam(sys_get_temp_dir(), 'diagram_blank_').'.png';
+        imagepng($image, $path);
+        imagedestroy($image);
+
+        return $path;
     }
 
     private function tesseractAvailable(): bool

@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 
 /**
@@ -21,6 +22,15 @@ class DiagramTranslatorService
     private const MIN_CONFIDENCE = 40;
 
     private const PADDING = 4;
+
+    /**
+     * Потолок на распознавание одной картинки.
+     *
+     * Дефолтные 60 секунд Illuminate\Process опасны рядом с StorePostJob: у
+     * задачи свой лимит 420 секунд на всю статью, а картинок в ней бывает до
+     * сорока. Десять секунд с запасом хватает даже на крупный скриншот.
+     */
+    private const OCR_TIMEOUT = 10;
 
     /**
      * Переводчик можно подменить явно (тесты); по умолчанию null — сервис
@@ -57,7 +67,17 @@ class DiagramTranslatorService
     {
         try {
             $lines = $this->detectTextLines($imagePath);
-            if (empty($lines)) {
+
+            // null — OCR не отработал (нет бинаря, ошибка запуска), [] — текста
+            // на картинке нет. Разница принципиальна: первое чинится
+            // администратором, второе нормально. Пока оба случая сводились к
+            // «no text detected», прод три недели молча не переводил ни одной
+            // картинки — 124 записи в логе и ни одной перерисовки.
+            if ($lines === null) {
+                return false;
+            }
+
+            if ($lines === []) {
                 Log::info('DiagramTranslator: no text detected', ['path' => $imagePath]);
 
                 return false;
@@ -115,15 +135,20 @@ class DiagramTranslatorService
      * коротких метках (воспроизведено: "WORKING" на синем фоне читалось как
      * "WAL}" с psm 6, но верно распознавалось с psm 3)
      *
-     * @return array<int, array{text: string, left: int, top: int, width: int, height: int}>
+     * Возвращает null, если распознавание не выполнялось: это не то же самое,
+     * что пустой массив («текста нет»).
+     *
+     * @return array<int, array{text: string, left: int, top: int, width: int, height: int}>|null
      */
-    private function detectTextLines(string $imagePath): array
+    private function detectTextLines(string $imagePath): ?array
     {
-        $tsv = shell_exec(
-            'tesseract '.escapeshellarg($imagePath).' stdout --psm 3 -l eng tsv 2>/dev/null'
-        );
+        $tsv = $this->runOcr($imagePath);
 
-        if (empty($tsv)) {
+        if ($tsv === null) {
+            return null;
+        }
+
+        if (trim($tsv) === '') {
             return [];
         }
 
@@ -164,6 +189,53 @@ class DiagramTranslatorService
         }
 
         return $lines;
+    }
+
+    /**
+     * Запускает Tesseract и отдаёт TSV, либо null, если запустить не удалось.
+     *
+     * proc_open со списком аргументов, а не строка в shell_exec: shell_exec
+     * возвращал одно и то же пустое значение и когда текста нет, и когда
+     * бинаря нет, а `2>/dev/null` дописанный к команде глушил ровно то
+     * сообщение, которое объясняло причину («command not found»). Ошибка
+     * маскировалась под штатный результат — на проде Tesseract не был
+     * установлен вовсе, и это выяснилось только через ручной разбор.
+     *
+     * Побочно снимается вопрос экранирования: без шелла имя файла не может
+     * быть истолковано как часть команды.
+     */
+    private function runOcr(string $imagePath): ?string
+    {
+        $binary = (string) config('releases.ocr_binary', 'tesseract');
+
+        // Illuminate\Process, а не proc_open вручную: Symfony Process под ним
+        // читает stdout и stderr одновременно. При ручном чтении «сначала весь
+        // stdout, потом stderr» процесс, заполнивший буфер stderr, встал бы
+        // намертво, а вместе с ним и воркер очереди.
+        //
+        // Аргументы списком — команда не проходит через шелл, поэтому имя файла
+        // не может быть истолковано как её часть.
+        $result = Process::timeout(self::OCR_TIMEOUT)
+            ->run([$binary, $imagePath, 'stdout', '--psm', '3', '-l', 'eng', 'tsv']);
+
+        if ($result->failed()) {
+            Log::warning('DiagramTranslator: OCR не отработал — текст на картинках не переводится', [
+                'binary' => $binary,
+                'exit_code' => $result->exitCode(),
+                'stderr' => mb_substr(trim($result->errorOutput()), 0, 500),
+                // Голое имя ищется в PATH процесса PHP, а не логин-шелла:
+                // у воркера под supervisor он легко оказывается урезанным, и
+                // тогда «бинарь не найден» означает не «не установлен».
+                'path' => getenv('PATH'),
+                'hint' => $result->exitCode() === 127
+                    ? 'бинарь не найден: ./vendor/bin/envoy run ocr-install'
+                    : null,
+            ]);
+
+            return null;
+        }
+
+        return $result->output();
     }
 
     private function translateLine(GoogleTranslate $translator, string $text): ?string

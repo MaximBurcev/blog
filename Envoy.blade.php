@@ -313,3 +313,50 @@
     echo '# Waiting for readiness';
     for i in $(seq 1 40); do sleep 5; curl -sf --max-time 5 http://127.0.0.1:8191/ >/dev/null && echo '# FlareSolverr is ready' && break; done;
 @endtask
+
+{{--
+    Tesseract OCR — им DiagramTranslatorService читает текст на картинках
+    (диаграммы, скриншоты, обложки статей), чтобы перевести его на русский.
+
+    Отдельная команда, а НЕ шаг деплоя: это системный пакет, он ставится один
+    раз на машину и переживает выкаты. Локально его ставит docker/8.4/Dockerfile
+    — на сервере ставить было некому, и до 17.08.2026 перевод текста на
+    картинках не работал ни разу: 124 записи «no text detected» и ноль
+    перерисованных картинок. Ошибку скрывал `2>/dev/null` в вызове, из-за
+    которого «command not found» выглядел как «на картинке нет текста».
+
+    Языковой пакет нужен английский: распознаём исходный текст, а переводит уже
+    Google Translate.
+
+    Запуск: ./vendor/bin/envoy run ocr-install
+--}}
+@story('ocr-install', ['on' => 'production'])
+    install_ocr
+@endstory
+
+@task('install_ocr', ['on' => 'production'])
+    echo '# Installing Tesseract OCR';
+
+    # sudo env VAR=val, а не sudo VAR=val: при env_reset в sudoers второй
+    # вариант отвергается («not allowed to set the following environment
+    # variables») и задача падает целиком.
+    #
+    # Языковой набор тот же, что в docker/8.4/Dockerfile: расхождение сред —
+    # ровно то, из-за чего OCR молчал на проде, и заводить его заново незачем.
+    sudo apt-get update -qq;
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tesseract-ocr tesseract-ocr-eng tesseract-ocr-rus;
+
+    # Шрифт с кириллицей нужен уже не OCR, а отрисовке перевода поверх картинки
+    # (DiagramTranslatorService::FONT). Без него GD молча рисует пустоту.
+    test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf \
+        || sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fonts-dejavu-core;
+
+    # Проверка обязана уметь провалить задачу. `tesseract --version | head -1`
+    # этого не умеет: под set -e статус пайплайна берётся от head и всегда 0,
+    # то есть шаг рапортовал бы успех и при неустановленном пакете.
+    echo '# Verifying';
+    command -v tesseract;
+    tesseract --list-langs 2>&1 | grep -qx eng;
+    test -f /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf;
+    echo "# OCR ready: $(tesseract --version 2>&1 | head -1)";
+@endtask
