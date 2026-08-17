@@ -452,6 +452,94 @@ class DiagramTranslatorServiceTest extends TestCase
         return $method->invoke(new DiagramTranslatorService, $text);
     }
 
+    /**
+     * Уже переведённую картинку трогать нельзя.
+     *
+     * Массовый прогон по архиву показал, во что это обходится: часть обложек
+     * была русской, английская модель прочитала кириллицу как латиницу
+     * («Топ-16 обязательных ресурсов» → «Ton-16 pecypcosB»), перевод мусора
+     * лёг поверх нормального текста. Файл перезаписывается на месте — без
+     * бэкапа это потеря навсегда.
+     */
+    #[DataProvider('alreadyRussian')]
+    public function test_russian_text_is_not_translated_again(string $text): void
+    {
+        $this->assertTrue($this->isAlreadyTranslated($text), "«{$text}» уже по-русски, переводить нельзя");
+    }
+
+    #[DataProvider('stillEnglish')]
+    public function test_english_text_is_still_translated(string $text): void
+    {
+        $this->assertFalse($this->isAlreadyTranslated($text), "«{$text}» по-английски, перевод нужен");
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function alreadyRussian(): array
+    {
+        return [
+            'чистый русский' => ['Лучшие практики загрузки файлов'],
+            'русский с терминами' => ['Топ-16 обязательных ресурсов для продвинутой разработки PHP (Laravel и Symfony)'],
+            'русский с числами' => ['Ошибки PHP № 11-20 и как их чинить'],
+            // Худший реалистичный случай: русских слов мало, латинских
+            // терминов много. По буквам доля тут 0.13 — ниже любого разумного
+            // порога, и картинку бы испортило. По словам 2 из 9.
+            'техзаголовок с обилием терминов' => ['Разбор N+1 в Eloquent: Laravel Debugbar, Telescope, Clockwork, Xdebug'],
+        ];
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function stillEnglish(): array
+    {
+        return [
+            'чистый английский' => ['File Upload Best Practices in Laravel'],
+            'английский с подписью' => ['Software Solutions DEV Jul 27'],
+            // Одиночная кириллическая буква вместо похожей латинской — обычная
+            // ошибка OCR, из-за неё вся обложка не должна остаться без перевода.
+            'английский с ошибкой распознавания' => ['Realtime Аpps with Laravel Reverb and WebSockets'],
+            // Короткая метка диаграммы: «CPU» с подменёнными С и Р даёт долю
+            // кириллицы 1.0, но судить по трём буквам нельзя.
+            'короткая метка с гомоглифами' => ['СРU'],
+            'пусто' => [''],
+            'только цифры и знаки' => ['12345 -- ++ ###'],
+        ];
+    }
+
+    /**
+     * Сквозной инвариант, ради которого делалась защита: уже русская картинка
+     * выходит из сервиса побайтово той же.
+     *
+     * Заодно единственный тест, который заметит откат `-l eng+rus` обратно на
+     * `-l eng`: одной английской моделью кириллица читается как латиница, текст
+     * не опознаётся русским и картинка уходит в перевод.
+     */
+    public function test_already_russian_image_is_left_untouched(): void
+    {
+        if (! $this->tesseractAvailable()) {
+            $this->markTestSkipped('tesseract бинарник недоступен в этом окружении');
+        }
+
+        $path = $this->makeMultilineImage(['Лучшие практики загрузки', 'файлов в Laravel']);
+        $before = file_get_contents($path);
+
+        $service = new DiagramTranslatorService($this->fakeTranslator('Что угодно другое'));
+
+        $this->assertFalse($service->translate($path, headingOnly: true));
+        $this->assertSame($before, file_get_contents($path), 'русская картинка была перезаписана');
+
+        @unlink($path);
+    }
+
+    private function isAlreadyTranslated(string $text): bool
+    {
+        $method = new \ReflectionMethod(DiagramTranslatorService::class, 'looksAlreadyTranslated');
+
+        return $method->invoke(new DiagramTranslatorService, $text);
+    }
+
     private function makeMultilineImage(array $lines, bool $centered = false): string
     {
         $image = imagecreatetruecolor(560, 160);

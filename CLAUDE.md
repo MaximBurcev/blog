@@ -274,7 +274,39 @@ After `envoy run deploy`, reload Apache — mod_php caches realpath and keeps se
 - **Reverb** (WebSocket) — supervisor program `blog-reverb`, listens on `127.0.0.1:8080`, proxied publicly by Apache at `/app`. The deploy does restart it, otherwise it would keep executing code from a release that gets purged.
 - **FlareSolverr** (headless browser) — Docker container, `127.0.0.1:8191`, used by the parser to get past antibot challenges that require JavaScript (`config/releases.php` → `challenge_solver_url`). Recreate with `./vendor/bin/envoy run challenge-solver`; the deploy deliberately leaves it alone since it survives reboots via `--restart=unless-stopped` and recreating would drop the browser session.
 - **Cron планировщика** — `/etc/cron.d/blog-scheduler`, ставится командой `./vendor/bin/envoy run scheduler-cron`. Без него `app/Console/Kernel.php` не выполняется вообще. Именно так и было до 11.08.2026: расписание с `backup:run` лежало в коде с 3 августа, а бэкапов физически не существовало. Запись от `www-data` — под тем же пользователем работают Apache и `queue:work`; под root артефакты в `storage/` получали бы `root:root` и отбирали запись у веба.
-- **Tesseract OCR** — системный пакет `tesseract-ocr` + `tesseract-ocr-eng`, ставится командой `./vendor/bin/envoy run ocr-install`. Им `DiagramTranslatorService` читает текст на картинках (диаграммы, скриншоты, обложки), чтобы перевести его на русский. Локально пакет ставит `docker/8.4/Dockerfile`, на сервере ставить было некому — и до 17.08.2026 перевод текста на картинках **не сработал ни разу**: 124 записи «no text detected» и ноль перерисовок. Причину скрывал `2>/dev/null`, дописанный к вызову: «command not found» приходил пустой строкой, неотличимой от «на картинке нет текста». Теперь вызов идёт через `proc_open` со списком аргументов, а неудачный запуск логируется как предупреждение (`config/releases.php` → `ocr_binary`, регрессия закрыта `DiagramTranslatorServiceTest::test_missing_ocr_binary_is_reported_as_a_problem`). Отрисовке перевода нужен ещё шрифт с кириллицей — `fonts-dejavu-core`, без него GD молча рисует пустоту.
+- **Tesseract OCR** — системный пакет `tesseract-ocr` + `tesseract-ocr-eng`, ставится командой `./vendor/bin/envoy run ocr-install`. Им `DiagramTranslatorService` читает текст на картинках (диаграммы, скриншоты, обложки), чтобы перевести его на русский. Локально пакет ставит `docker/8.4/Dockerfile`, на сервере ставить было некому — и до 17.08.2026 перевод текста на картинках **не сработал ни разу**: 124 записи «no text detected» и ноль перерисовок. Причину скрывал `2>/dev/null`, дописанный к вызову: «command not found» приходил пустой строкой, неотличимой от «на картинке нет текста». Теперь вызов идёт через `Illuminate\Process` со списком аргументов, а неудачный запуск логируется как предупреждение (`config/releases.php` → `ocr_binary`, регрессия закрыта `DiagramTranslatorServiceTest::test_missing_ocr_binary_is_reported_as_a_problem`). Отрисовке перевода нужен ещё шрифт с кириллицей — `fonts-dejavu-core`, без него GD молча рисует пустоту.
+
+### Перевод текста на картинках
+
+Единица перевода — **параграф**, а не строка: фраза, разорванная переносом,
+уходила в переводчик половинками, и «The Easiest Way to Look Up / GeoIP in
+Laravel» превращалось в «Самый простой способ посмотреть вверх».
+
+Обложки переводятся в режиме `headingOnly` — только самый крупный блок текста
+(`StorePostJob::translateCoverImage()`, флаг `--heading-only` у
+`image:translate`). Причина в геометрии: Tesseract сваливает значок автора, его
+имя и логотип DEV — разнесённые по разным краям картинки — в одну «строку»,
+её bbox тянется через всю ширину, и закраска стирает логотип просто потому, что
+он внутри. Плюс имя автора переводить нельзя, а отличить его от текста нечем.
+Крупный блок ищется по **медиане высот слов**: логотип высотой 51px внутри
+мелкой подписи задирает габарит строки до 70px заголовка, и по габариту подпись
+проходит фильтр целиком.
+
+**OCR запускается с `-l eng+rus`, и текст с долей кириллицы ≥ ⅓ не
+переводится.** Это не перестраховка: массовый прогон по архиву 17.08.2026
+показал, что часть обложек уже была на русском, английская модель прочитала
+кириллицу как латиницу («Топ-16 обязательных ресурсов» → «Ton-16 pecypcosB»),
+и перевод этого мусора лёг поверх нормального текста. Файл перезаписывается на
+месте — без бэкапа потеря безвозвратна. На английских картинках вторая модель
+ничего не меняет: замерено на обложке dev.to, те же 19 слов и та же средняя
+уверенность 88.
+
+**Массово по архиву гонять нельзя.** Обложки трёх разных видов, и режим
+рассчитан на один: стандартная dev.to (переводится хорошо), уже русская
+(теперь отсеивается) и дизайнерская иллюстрация с логотипами и метками
+(«PHP», «Xdebug», «VS Code») — на таких либо OCR ничего не находит, либо
+перевод разрушает композицию. Отличить обложку от иллюстрации автоматически
+нечем; это задача для модели, которая видит картинку целиком.
 
 ### Бэкапы
 
