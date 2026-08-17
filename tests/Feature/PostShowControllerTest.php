@@ -100,4 +100,48 @@ class PostShowControllerTest extends TestCase
         $this->assertTrue($related->pluck('code')->contains('category-only-match'));
         $this->assertFalse($related->pluck('code')->contains('unpublished-match'));
     }
+
+    /**
+     * Обложка в теле статьи не выводится, но остаётся превью для соцсетей.
+     *
+     * У переводных статей обложка — это og:image площадки-источника, то есть
+     * картинка, состоящая из заголовка статьи, имени автора и логотипа
+     * площадки. Под <h1> она давала тот же заголовок второй раз, ещё и
+     * по-английски. В превью ссылки такая картинка, наоборот, уместна.
+     */
+    public function test_cover_is_not_shown_in_the_article_body_but_stays_in_link_preview(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+
+            Post::create([
+                'title' => 'Пост с обложкой',
+                'code' => 'post-with-cover',
+                'content' => '<p>Тело статьи</p>',
+                'published' => 1,
+                'category_id' => $category->id,
+                'main_image' => 'images/content/cover.webp',
+                'preview_image' => 'images/content/cover.webp',
+            ]);
+        });
+
+        $response = $this->get(route('post.show', 'post-with-cover'));
+
+        $response->assertOk();
+
+        [$head, $body] = explode('</head>', $response->getContent(), 2);
+
+        // Именно тег og:image, а не путь где-то в HTML: путь есть ещё и в
+        // JSON-LD, поэтому поиск по всей странице пережил бы удаление
+        // og:image и ничего не заметил.
+        $this->assertStringContainsString(
+            '<meta property="og:image" content="'.asset('storage/images/content/cover.webp').'">',
+            $head,
+        );
+
+        // В теле пути нет вообще — проверка ловит возврат картинки любым
+        // способом: с другим классом, без обёртки и через srcset, где варианты
+        // строятся от того же имени файла.
+        $this->assertStringNotContainsString('images/content/cover.webp', $body);
+    }
 }
