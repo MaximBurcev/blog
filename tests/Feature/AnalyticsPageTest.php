@@ -56,9 +56,9 @@ class AnalyticsPageTest extends TestCase
     {
         $panelWidgets = Filament::getDefaultPanel()->getWidgets();
 
-        $this->assertNotContains(PostViewsOverview::class, $panelWidgets);
-        $this->assertNotContains(PostViewsChart::class, $panelWidgets);
-        $this->assertNotContains(TopPostsByViews::class, $panelWidgets);
+        foreach ($this->analyticsWidgets() as $widget) {
+            $this->assertNotContains($widget, $panelWidgets);
+        }
     }
 
     /**
@@ -74,13 +74,33 @@ class AnalyticsPageTest extends TestCase
     {
         $registry = app(ComponentRegistry::class);
 
-        foreach ([PostViewsOverview::class, PostViewsChart::class, TopPostsByViews::class] as $widget) {
+        foreach ($this->analyticsWidgets() as $widget) {
             $this->assertSame(
                 $widget,
                 $registry->getClass($registry->getName($widget)),
                 "Виджет {$widget} не зарегистрирован в Livewire — интерактив страницы работать не будет",
             );
         }
+    }
+
+    /**
+     * Список берётся у самой страницы, а не перечисляется здесь.
+     *
+     * Пока он был захардкожен, обе проверки молчали про новый виджет: их
+     * приходилось помнить и дописывать руками, то есть страж защищал ровно от
+     * той ошибки, которую сам же и допускал. Так добавленный виджет попадает
+     * под обе проверки автоматически.
+     *
+     * @return array<int, class-string>
+     */
+    private function analyticsWidgets(): array
+    {
+        $widgets = (new ReflectionMethod(Analytics::class, 'getFooterWidgets'))
+            ->invoke(new Analytics);
+
+        $this->assertNotEmpty($widgets, 'Страница аналитики не отдала ни одного виджета');
+
+        return $widgets;
     }
 
     public function test_page_passes_selected_period_to_widgets(): void

@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
 use App\Filament\Analytics\Widgets\TopPostsByViews;
+use App\Filament\Analytics\Widgets\TrafficSources;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -66,6 +67,7 @@ class FilamentPanelProvider extends PanelProvider
             ->livewireComponents([
                 PostViewsOverview::class,
                 PostViewsChart::class,
+                TrafficSources::class,
                 TopPostsByViews::class,
             ])
             ->middleware([

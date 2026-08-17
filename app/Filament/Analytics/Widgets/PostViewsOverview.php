@@ -134,6 +134,9 @@ class PostViewsOverview extends BaseWidget
             // прошлое ни одна из плиток не смотрит, а без этого условия
             // условная агрегация прочитала бы всю таблицу.
             ->where('viewed_at', '>=', $previousStart)
+            // Запрос идёт мимо Eloquent, поэтому глобальный скоуп
+            // PostView::HUMANS_ONLY здесь не применяется — условие ставим сами.
+            ->where('is_bot', false)
             ->first() ?? (object) [];
     }
 
@@ -148,9 +151,13 @@ class PostViewsOverview extends BaseWidget
     private function total(): int
     {
         return Cache::remember(
-            'analytics:post-views-total',
+            // Версия в ключе: смысл значения изменился (теперь без роботов), а
+            // старое пролежало бы в кэше ещё 10 минут после выката и разошлось
+            // бы с плиткой периода на глазах у админа.
+            'analytics:post-views-total:humans',
             now()->addMinutes(10),
-            fn (): int => DB::table('post_views')->count(),
+            // Мимо Eloquent, поэтому фильтр роботов явный — см. counters().
+            fn (): int => DB::table('post_views')->where('is_bot', false)->count(),
         );
     }
 

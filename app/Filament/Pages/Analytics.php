@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
 use App\Filament\Analytics\Widgets\TopPostsByViews;
+use App\Filament\Analytics\Widgets\TrafficSources;
 use App\Support\AnalyticsPeriod;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Form;
@@ -60,6 +61,7 @@ class Analytics extends Page
         return [
             PostViewsOverview::class,
             PostViewsChart::class,
+            TrafficSources::class,
             TopPostsByViews::class,
         ];
     }
