@@ -8,12 +8,16 @@ use Stichoza\GoogleTranslate\GoogleTranslate;
 
 /**
  * Переводит текст, нарисованный внутри картинки (диаграммы, скриншоты, инфографика,
- * обложки статей): распознаёт слова с координатами через Tesseract OCR, группирует
- * их в строки, переводит каждую строку, закрашивает исходный текст цветом фона и
- * рисует перевод на его месте. Работает с произвольной картинкой независимо от
- * расположения/цвета фона — в отличие от прежнего ImageTranslatorService, который
- * требовал найти отдельную светлую область под текст и не работал на сплошных
- * цветных обложках.
+ * обложки статей): распознаёт слова с координатами через Tesseract OCR, собирает их
+ * в строки и параграфы, переводит параграф целиком, закрашивает исходный текст
+ * цветом фона и раскладывает перевод обратно по строкам оригинала. Работает с
+ * произвольной картинкой независимо от расположения/цвета фона — в отличие от
+ * прежнего ImageTranslatorService, который требовал найти отдельную светлую область
+ * под текст и не работал на сплошных цветных обложках.
+ *
+ * Единица перевода — параграф, а не строка: фраза, разорванная переносом, теряла
+ * контекст, и «The Easiest Way to Look Up / GeoIP in Laravel» превращалось в
+ * «Самый простой способ посмотреть вверх».
  */
 class DiagramTranslatorService
 {
@@ -31,6 +35,9 @@ class DiagramTranslatorService
      * сорока. Десять секунд с запасом хватает даже на крупный скриншот.
      */
     private const OCR_TIMEOUT = 10;
+
+    /** Ниже этого кегля перерисованный текст уже нечитаем. */
+    private const MIN_FONT_SIZE = 8;
 
     /**
      * Переводчик можно подменить явно (тесты); по умолчанию null — сервис
@@ -93,14 +100,13 @@ class DiagramTranslatorService
             $translator = $this->makeTranslator();
             $redrawn = 0;
 
-            foreach ($lines as $line) {
-                $translated = $this->translateLine($translator, $line['text']);
-                if ($translated === null || mb_strtolower(trim($translated)) === mb_strtolower(trim($line['text']))) {
+            foreach ($lines as $paragraph) {
+                $translated = $this->translateLine($translator, $paragraph['text']);
+                if ($translated === null || mb_strtolower(trim($translated)) === mb_strtolower(trim($paragraph['text']))) {
                     continue;
                 }
 
-                $this->redrawLine($image, $line, $translated);
-                $redrawn++;
+                $redrawn += $this->redrawParagraph($image, $paragraph['lines'], $translated) ? 1 : 0;
             }
 
             if ($redrawn === 0) {
@@ -112,7 +118,9 @@ class DiagramTranslatorService
             $this->saveImage($image, $imagePath);
             imagedestroy($image);
 
-            Log::info('DiagramTranslator: done', ['path' => $imagePath, 'lines_total' => count($lines), 'lines_redrawn' => $redrawn]);
+            // Считаем параграфы, а не строки: именно по этому логу разбирали
+            // прошлый инцидент, и имена полей не должны врать о единице счёта.
+            Log::info('DiagramTranslator: done', ['path' => $imagePath, 'paragraphs_total' => count($lines), 'paragraphs_redrawn' => $redrawn]);
 
             return true;
         } catch (\Throwable $e) {
@@ -138,7 +146,7 @@ class DiagramTranslatorService
      * Возвращает null, если распознавание не выполнялось: это не то же самое,
      * что пустой массив («текста нет»).
      *
-     * @return array<int, array{text: string, left: int, top: int, width: int, height: int}>|null
+     * @return array<int, array{text: string, lines: array<int, array{left: int, top: int, width: int, height: int}>}>|null
      */
     private function detectTextLines(string $imagePath): ?array
     {
@@ -177,10 +185,45 @@ class DiagramTranslatorService
             $grouped[$key]['bottom'] = max($grouped[$key]['bottom'] ?? 0, (int) $top + (int) $height);
         }
 
-        $lines = [];
-        foreach ($grouped as $group) {
-            $lines[] = [
-                'text' => implode(' ', $group['words']),
+        return $this->groupIntoParagraphs($grouped);
+    }
+
+    /**
+     * Собирает распознанные строки в параграфы — по block и par, отбрасывая
+     * номер строки.
+     *
+     * Раньше единицей перевода была строка, и фраза, разорванная переносом,
+     * уходила в переводчик половинками. На обложке dev.to «The Easiest Way to
+     * Look Up» / «GeoIP in Laravel» первая половина заканчивалась висящим
+     * фразовым глаголом, и получалось «Самый простой способ посмотреть вверх»
+     * вместо «найти». Целый параграф даёт переводчику контекст — заодно это
+     * один запрос вместо N, что для скрейпера Google Translate без
+     * rate-limit'а тоже небезразлично.
+     *
+     * @param  array<string, array{words: array<int, string>, left: int, top: int, right: int, bottom: int}>  $lines
+     * @return array<int, array{text: string, lines: array<int, array{left: int, top: int, width: int, height: int}>}>
+     */
+    private function groupIntoParagraphs(array $lines): array
+    {
+        $paragraphs = [];
+
+        foreach ($lines as $key => $group) {
+            $text = implode(' ', $group['words']);
+
+            // Отсев идёт по строке, а не по готовому параграфу: логотип и
+            // домен занимают свою строку, но попадают в общий block.par с
+            // соседним текстом. Проверив только склейку, мы бы нашли в ней
+            // осмысленные слова, перевели всё вместе и закрасили бокс строки
+            // с логотипом — то есть ровно то, от чего эти проверки защищают.
+            if ($this->looksLikeDomain($text) || $this->looksLikeGlyphNoise($text)) {
+                continue;
+            }
+
+            // Ключ строки — "block.par.line"; параграф — всё, кроме последнего.
+            $paragraphKey = implode('.', array_slice(explode('.', $key), 0, 2));
+
+            $paragraphs[$paragraphKey][] = [
+                'text' => $text,
                 'left' => $group['left'],
                 'top' => $group['top'],
                 'width' => $group['right'] - $group['left'],
@@ -188,7 +231,23 @@ class DiagramTranslatorService
             ];
         }
 
-        return $lines;
+        return array_values(array_map(function (array $rows): array {
+            // Порядок строк сверху вниз — на нём держится вся раскладка
+            // перевода. Tesseract печатает слова в порядке чтения, но это
+            // свойство его вывода, а не гарантия структуры: перестановка
+            // строк дала бы не падение, а тихо перепутанный текст.
+            usort($rows, static fn (array $a, array $b): int => $a['top'] <=> $b['top']);
+
+            return [
+                'text' => implode(' ', array_column($rows, 'text')),
+                'lines' => array_map(static fn (array $row): array => [
+                    'left' => $row['left'],
+                    'top' => $row['top'],
+                    'width' => $row['width'],
+                    'height' => $row['height'],
+                ], $rows),
+            ];
+        }, $paragraphs));
     }
 
     /**
@@ -247,6 +306,10 @@ class DiagramTranslatorService
             return null;
         }
 
+        if ($this->looksLikeGlyphNoise($text)) {
+            return null;
+        }
+
         try {
             $translated = $translator->translate($text);
 
@@ -256,6 +319,29 @@ class DiagramTranslatorService
 
             return null;
         }
+    }
+
+    /**
+     * Распознанное — не текст, а разобранный на буквы логотип или иконка.
+     *
+     * Tesseract читает как текст всё, что похоже на буквы: логотип DEV в
+     * чёрном квадрате приходит строкой «o m <», значок автора — «®». Раньше
+     * такие фрагменты переводились и перерисовывались, то есть сервис
+     * аккуратно замазывал чужой логотип и писал поверх «ом<».
+     *
+     * Признак — отсутствие хотя бы одного настоящего слова: три буквы подряд.
+     * Осмысленная подпись на диаграмме их почти всегда содержит, набор
+     * обрывков глифов — нет. Заодно отсеиваются «CI/CD», «N+1», «5 ms», «x86»
+     * и прочие технические токены: переводить в них нечего.
+     *
+     * Проверка ловит логотип ровно потому, что OCR разбирает его на глифы.
+     * Логотип, прочитанный как настоящее слово, отличить нечем — «DEV» здесь
+     * пройдёт как обычный текст. Спасает следующая ступень: перевод, совпавший
+     * с оригиналом, не перерисовывается.
+     */
+    private function looksLikeGlyphNoise(string $text): bool
+    {
+        return preg_match('/\p{L}{3,}/u', $text) !== 1;
     }
 
     /**
@@ -271,24 +357,208 @@ class DiagramTranslatorService
     }
 
     /**
+     * Раскладывает перевод параграфа обратно по строкам оригинала.
+     *
+     * Закрашиваем и рисуем построчно, а не одним прямоугольником на весь
+     * параграф: цвет фона берётся из полосы над каждой строкой, и на градиенте
+     * или цветной плашке единая заливка по объединённому боксу дала бы
+     * заметную заплату.
+     *
+     * Размер шрифта общий на параграф — иначе строки одной фразы вышли бы
+     * разного кегля.
+     */
+    private function redrawParagraph(\GdImage $image, array $lines, string $text): bool
+    {
+        $layout = $this->layoutParagraph($text, $lines);
+
+        if ($layout === null) {
+            // Однострочную подпись рисуем как раньше — с автоподбором кегля до
+            // минимума и правом чуть вылезти за бокс. Иначе короткие метки
+            // диаграмм («Home» → «Домашняя страница») перестали бы
+            // переводиться вовсе: перевод длиннее оригинала почти всегда, а
+            // раскладывать его тут некуда.
+            if (count($lines) === 1) {
+                $color = $this->eraseLine($image, $lines[0]);
+                $this->drawLineText($image, $lines[0], $text, $color, null);
+
+                return true;
+            }
+
+            // Многострочный параграф — другое дело: обрезать половину фразы
+            // хуже, чем оставить её непереведённой.
+            Log::info('DiagramTranslator: перевод не помещается в исходные строки, параграф оставлен как есть', [
+                'text' => mb_substr($text, 0, 120),
+                'lines' => count($lines),
+            ]);
+
+            return false;
+        }
+
+        // Два прохода, а не один: бокс строки берётся с запасом PADDING сверху
+        // и снизу, и при плотной интерлиньяже (в заголовках это норма) он
+        // перекрывает соседний. Закрашивая и рисуя в одном цикле, заливка
+        // следующей строки съедала бы нижние выносные элементы уже
+        // нарисованной предыдущей — «р», «у», «д».
+        $colors = [];
+
+        foreach ($lines as $index => $line) {
+            $colors[$index] = $this->eraseLine($image, $line);
+        }
+
+        foreach ($lines as $index => $line) {
+            $row = $layout['rows'][$index] ?? '';
+
+            if (trim($row) === '') {
+                continue;
+            }
+
+            $this->drawLineText($image, $line, $row, $colors[$index], $layout['font_size']);
+        }
+
+        return true;
+    }
+
+    /**
+     * Подбирает кегль и разбивает перевод на столько строк, сколько было в
+     * оригинале, укладываясь в ширину каждой.
+     *
+     * Русский текст длиннее английского примерно на пятнадцать процентов,
+     * поэтому кегль почти всегда приходится уменьшать — начинаем с высоты
+     * первой строки и спускаемся до предела читаемости.
+     *
+     * @param  array<int, array{left: int, top: int, width: int, height: int}>  $lines
+     * @return array{font_size: int, rows: array<int, string>}|null
+     */
+    private function layoutParagraph(string $text, array $lines): ?array
+    {
+        $words = preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        if ($words === [] || $lines === []) {
+            return null;
+        }
+
+        // Кегль общий на параграф, поэтому считается от САМОЙ НИЗКОЙ строки, а
+        // не от первой: строка с выносными элементами («Way to Look Up») выше
+        // соседней без них, и размер, подобранный по ней, не влез бы в бокс
+        // второй — перевод налез бы на соседние строки сверху и снизу.
+        $lowest = min(array_column($lines, 'height'));
+        $startSize = max(self::MIN_FONT_SIZE, min(28, (int) ($lowest * 0.9)));
+
+        for ($fontSize = $startSize; $fontSize >= self::MIN_FONT_SIZE; $fontSize--) {
+            $rows = $this->wrapWords($words, $lines, $fontSize);
+
+            if ($rows !== null) {
+                return ['font_size' => $fontSize, 'rows' => $rows];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Жадно раскладывает слова по строкам: в каждую берём, пока помещается по
+     * ширине. null — не уложилось (слова кончились не все либо одно слово шире
+     * своей строки), значит кегль нужно уменьшить.
+     *
+     * @param  array<int, string>  $words
+     * @param  array<int, array{left: int, top: int, width: int, height: int}>  $lines
+     * @return array<int, string>|null
+     */
+    private function wrapWords(array $words, array $lines, int $fontSize): ?array
+    {
+        $rows = [];
+        $index = 0;
+        $total = count($words);
+
+        foreach ($lines as $line) {
+            $available = $line['width'] + self::PADDING * 2;
+            $current = '';
+
+            while ($index < $total) {
+                $candidate = $current === '' ? $words[$index] : $current.' '.$words[$index];
+
+                if ($this->textWidth($candidate, $fontSize) > $available) {
+                    break;
+                }
+
+                $current = $candidate;
+                $index++;
+            }
+
+            if ($current === '' && $index < $total) {
+                // Даже одно слово не влезает в эту строку — кегль велик.
+                return null;
+            }
+
+            $rows[] = $current;
+        }
+
+        return $index >= $total ? $rows : null;
+    }
+
+    private function textWidth(string $text, int $fontSize): int
+    {
+        if ($text === '') {
+            return 0;
+        }
+
+        $bbox = imagettfbbox($fontSize, 0, self::FONT, $text);
+
+        return (int) abs($bbox[4] - $bbox[0]);
+    }
+
+    /**
      * Закрашивает исходную строку цветом фона (самый частый цвет в узкой полосе
      * сразу над строкой — там текста нет) и рисует перевод тем же по центру
      * бокса, автоматически подбирая размер шрифта и контрастный цвет текста.
      */
-    private function redrawLine(\GdImage $image, array $line, string $text): void
+    /**
+     * Стирает исходную строку, заливая её боксом цвета фона, и возвращает этот
+     * цвет — он же нужен, чтобы подобрать контрастный цвет текста поверх.
+     *
+     * @return array{0: int, 1: int, 2: int}
+     */
+    private function eraseLine(\GdImage $image, array $line): array
     {
-        $left = max(0, $line['left'] - self::PADDING);
-        $top = max(0, $line['top'] - self::PADDING);
-        $width = $line['width'] + self::PADDING * 2;
-        $height = $line['height'] + self::PADDING * 2;
-
         $bgColor = $this->detectBackgroundColor($image, $line);
         [$bgR, $bgG, $bgB] = $bgColor;
         $fill = imagecolorallocate($image, $bgR, $bgG, $bgB);
+
+        [$left, $top, $width, $height] = $this->paddedBox($line);
         imagefilledrectangle($image, $left, $top, $left + $width, $top + $height, $fill);
 
-        $textColor = $this->contrastingTextColor($bgColor);
-        $this->drawFittedText($image, $text, $left, $top, $width, $height, $textColor);
+        return $bgColor;
+    }
+
+    /**
+     * Рисует строку перевода в уже очищенном боксе.
+     *
+     * $fontSize = null означает «подбери сам» — так рисуются одиночные подписи,
+     * где раскладывать нечего.
+     *
+     * @param  array{0: int, 1: int, 2: int}  $bgColor
+     */
+    private function drawLineText(\GdImage $image, array $line, string $text, array $bgColor, ?int $fontSize): void
+    {
+        [$left, $top, $width, $height] = $this->paddedBox($line);
+
+        $this->drawFittedText($image, $text, $left, $top, $width, $height, $this->contrastingTextColor($bgColor), $fontSize);
+    }
+
+    /**
+     * Бокс строки с запасом: OCR отдаёт координаты по глифам вплотную, и без
+     * припуска у букв оставались бы недотёртые кромки.
+     *
+     * @return array{0: int, 1: int, 2: int, 3: int}
+     */
+    private function paddedBox(array $line): array
+    {
+        return [
+            max(0, $line['left'] - self::PADDING),
+            max(0, $line['top'] - self::PADDING),
+            $line['width'] + self::PADDING * 2,
+            $line['height'] + self::PADDING * 2,
+        ];
     }
 
     /**
@@ -327,12 +597,17 @@ class DiagramTranslatorService
      * Рисует текст по центру заданного бокса, уменьшая размер шрифта, пока
      * он не поместится по ширине и высоте.
      */
-    private function drawFittedText(\GdImage $image, string $text, int $left, int $top, int $width, int $height, array $textColor): void
+    private function drawFittedText(\GdImage $image, string $text, int $left, int $top, int $width, int $height, array $textColor, ?int $forcedSize = null): void
     {
-        $fontSize = min(28, (int) ($height * 0.6));
-        $fontSize = max($fontSize, 8);
+        // Кегль, подобранный на весь параграф, важнее локального: строки одной
+        // фразы должны быть одного размера, даже если короткая строка могла бы
+        // вместить более крупный текст. Но потолок по высоте бокса действует и
+        // на него — иначе строка без выносных элементов (её бокс ниже) получила
+        // бы текст, налезающий на соседние сверху и снизу.
+        $fontSize = $forcedSize ?? min(28, (int) ($height * 0.6));
+        $fontSize = max($fontSize, self::MIN_FONT_SIZE);
 
-        while ($fontSize > 8) {
+        while ($fontSize > self::MIN_FONT_SIZE) {
             $bbox = imagettfbbox($fontSize, 0, self::FONT, $text);
             $textWidth = abs($bbox[4] - $bbox[0]);
             $textHeight = abs($bbox[5] - $bbox[1]);

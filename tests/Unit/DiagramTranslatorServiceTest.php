@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Service\DiagramTranslatorService;
 use Illuminate\Support\Facades\Log;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 use Tests\TestCase;
 
@@ -143,6 +144,218 @@ class DiagramTranslatorServiceTest extends TestCase
             ->once();
 
         @unlink($path);
+    }
+
+    /**
+     * Фраза, разорванная переносом строки, обязана уходить в переводчик
+     * целиком.
+     *
+     * На обложке dev.to «The Easiest Way to Look Up» / «GeoIP in Laravel»
+     * первая строка заканчивалась висящим фразовым глаголом, переводчик видел
+     * её отдельно и выдавал «Самый простой способ посмотреть вверх» вместо
+     * «найти». Здесь проверяется вход переводчика, а не картинка: разрыв
+     * контекста происходит именно на этой границе.
+     */
+    public function test_wrapped_phrase_is_translated_as_a_whole(): void
+    {
+        if (! $this->tesseractAvailable()) {
+            $this->markTestSkipped('tesseract бинарник недоступен в этом окружении');
+        }
+
+        $path = $this->makeMultilineImage(['The Easiest Way to Look Up', 'GeoIP in Laravel']);
+
+        $translator = new class extends GoogleTranslate
+        {
+            /** @var array<int, string> */
+            public array $seen = [];
+
+            public function __construct()
+            {
+                parent::__construct('ru');
+            }
+
+            public function translate(string $string): ?string
+            {
+                $this->seen[] = $string;
+
+                return 'Самый простой способ найти GeoIP в Laravel';
+            }
+        };
+
+        (new DiagramTranslatorService($translator))->translate($path);
+
+        $this->assertNotEmpty($translator->seen, 'OCR не отдал ни одной строки — проверять нечего');
+
+        $longest = $translator->seen[0];
+        foreach ($translator->seen as $seen) {
+            $longest = mb_strlen($seen) > mb_strlen($longest) ? $seen : $longest;
+        }
+
+        // Обе половины пришли одним куском. Слова взяты те, что OCR читает
+        // уверенно: «Up» он на синтетической картинке видит как «Ur», а
+        // «GeoIP» как «GeolP» — проверять надо факт склейки, а не качество
+        // распознавания.
+        $this->assertStringContainsString('Easiest', $longest, 'первая строка не попала в перевод');
+        $this->assertStringContainsString('Laravel', $longest, 'вторая строка переведена отдельно — контекст фразы потерян');
+
+        @unlink($path);
+    }
+
+    /**
+     * Логотипы и значки Tesseract читает как текст: DEV в чёрном квадрате
+     * приходит строкой «o m &lt;», значок автора — «®». Переводить их значит
+     * замазать чужой логотип и написать поверх «ом&lt;» — что и происходило на
+     * обложке dev.to.
+     */
+    #[DataProvider('glyphNoise')]
+    public function test_glyph_noise_is_not_translated(string $text): void
+    {
+        $this->assertTrue($this->isGlyphNoise($text), "«{$text}» должно отсеиваться как обрывки глифов");
+    }
+
+    #[DataProvider('realText')]
+    public function test_real_text_is_still_translated(string $text): void
+    {
+        $this->assertFalse($this->isGlyphNoise($text), "«{$text}» — осмысленный текст, его надо переводить");
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function glyphNoise(): array
+    {
+        return [
+            'логотип DEV' => ['o m <'],
+            'значок' => ['®'],
+            'одна буква' => ['A'],
+            'номер' => ['3'],
+            'мусор' => ['|| ~ ='],
+        ];
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function realText(): array
+    {
+        return [
+            'подпись' => ['IPRout Team Aug 3'],
+            'заголовок' => ['The Easiest Way to Look Up GeoIP in Laravel'],
+            'короткая метка' => ['WORKING'],
+            'метка с числом' => ['Step 2 done'],
+        ];
+    }
+
+    /**
+     * Раскладка перевода по строкам оригинала — самая рискованная часть
+     * склейки, и от OCR она не зависит: проверяем напрямую, без картинки.
+     */
+    public function test_layout_fills_every_line_of_the_paragraph(): void
+    {
+        $lines = [
+            ['left' => 0, 'top' => 0, 'width' => 300, 'height' => 30],
+            ['left' => 0, 'top' => 40, 'width' => 300, 'height' => 30],
+        ];
+
+        $layout = $this->layout('Самый простой способ найти GeoIP в Laravel', $lines);
+
+        $this->assertNotNull($layout);
+        $this->assertCount(2, $layout['rows'], 'строк в раскладке должно быть ровно столько, сколько в оригинале');
+        // Ни одно слово не потеряно и порядок сохранён.
+        $this->assertSame(
+            'Самый простой способ найти GeoIP в Laravel',
+            trim(implode(' ', array_filter($layout['rows']))),
+        );
+    }
+
+    public function test_layout_leaves_trailing_lines_empty_when_translation_is_shorter(): void
+    {
+        $lines = [
+            ['left' => 0, 'top' => 0, 'width' => 400, 'height' => 30],
+            ['left' => 0, 'top' => 40, 'width' => 400, 'height' => 30],
+        ];
+
+        $layout = $this->layout('Коротко', $lines);
+
+        $this->assertNotNull($layout);
+        // Хвостовая строка пустая: её бокс всё равно закрашивается, поэтому
+        // исходный английский текст со второй строки исчезнет.
+        $this->assertSame('Коротко', $layout['rows'][0]);
+        $this->assertSame('', $layout['rows'][1]);
+    }
+
+    public function test_layout_refuses_when_a_single_word_is_wider_than_its_line(): void
+    {
+        // Узкий бокс и слово, которое не разорвать: раскладка обязана
+        // отказаться, а не обрезать текст молча.
+        $layout = $this->layout(
+            str_repeat('длинноеслово', 5),
+            [['left' => 0, 'top' => 0, 'width' => 20, 'height' => 12]],
+        );
+
+        $this->assertNull($layout);
+    }
+
+    public function test_layout_survives_zero_height_line(): void
+    {
+        // Вырожденный бокс от OCR не должен ронять перерисовку.
+        $layout = $this->layout('Текст', [['left' => 0, 'top' => 0, 'width' => 400, 'height' => 0]]);
+
+        $this->assertNotNull($layout);
+        $this->assertSame('Текст', $layout['rows'][0]);
+    }
+
+    public function test_layout_shrinks_font_to_fit_the_longer_translation(): void
+    {
+        $roomy = $this->layout('Слово', [['left' => 0, 'top' => 0, 'width' => 400, 'height' => 30]]);
+        $tight = $this->layout('Слово', [['left' => 0, 'top' => 0, 'width' => 60, 'height' => 30]]);
+
+        $this->assertNotNull($roomy);
+        $this->assertNotNull($tight);
+        $this->assertLessThan($roomy['font_size'], $tight['font_size'], 'в узком боксе кегль обязан уменьшиться');
+    }
+
+    /**
+     * @param  array<int, array{left: int, top: int, width: int, height: int}>  $lines
+     * @return array{font_size: int, rows: array<int, string>}|null
+     */
+    private function layout(string $text, array $lines): ?array
+    {
+        $method = new \ReflectionMethod(DiagramTranslatorService::class, 'layoutParagraph');
+
+        return $method->invoke(new DiagramTranslatorService, $text, $lines);
+    }
+
+    private function isGlyphNoise(string $text): bool
+    {
+        $method = new \ReflectionMethod(DiagramTranslatorService::class, 'looksLikeGlyphNoise');
+
+        return $method->invoke(new DiagramTranslatorService, $text);
+    }
+
+    private function makeMultilineImage(array $lines): string
+    {
+        $image = imagecreatetruecolor(560, 160);
+        $white = imagecolorallocate($image, 255, 255, 255);
+        $black = imagecolorallocate($image, 0, 0, 0);
+        imagefilledrectangle($image, 0, 0, 560, 160, $white);
+
+        $font = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+        $y = 60;
+
+        foreach ($lines as $line) {
+            // Настоящий TTF, а не imagestring: встроенный растровый шрифт GD
+            // Tesseract распознаёт неуверенно, и строки отсеивались бы по
+            // MIN_CONFIDENCE ещё до группировки.
+            imagettftext($image, 26, 0, 30, $y, $black, $font, $line);
+            $y += 55;
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'diagram_multiline_').'.png';
+        imagepng($image, $path);
+        imagedestroy($image);
+
+        return $path;
     }
 
     private function fakeTranslator(string $result): GoogleTranslate
