@@ -8,7 +8,8 @@ use Illuminate\Console\Command;
 class TranslateImageCommand extends Command
 {
     protected $signature = 'image:translate
-        {path : Путь к картинке (абсолютный, либо относительно storage/app/public)}';
+        {path : Путь к картинке (абсолютный, либо относительно storage/app/public)}
+        {--heading-only : Режим обложки — перевести только самый крупный блок текста, подпись и логотипы не трогать}';
 
     protected $description = 'Распознаёт и переводит текст на картинке (диаграммы, скриншоты) через OCR';
 
@@ -25,9 +26,13 @@ class TranslateImageCommand extends Command
             return self::FAILURE;
         }
 
-        $this->info("Распознаю и перевожу текст: {$path}");
+        $headingOnly = (bool) $this->option('heading-only');
 
-        $translated = $service->translate($path);
+        $this->info($headingOnly
+            ? "Распознаю и перевожу заголовок: {$path}"
+            : "Распознаю и перевожу текст: {$path}");
+
+        $translated = $service->translate($path, $headingOnly);
 
         if ($translated) {
             $this->info('Готово — картинка перезаписана переведённой версией.');

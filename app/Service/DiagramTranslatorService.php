@@ -40,6 +40,15 @@ class DiagramTranslatorService
     private const MIN_FONT_SIZE = 8;
 
     /**
+     * Какую долю от высоты самой крупной строки должен занимать текст, чтобы в
+     * режиме обложки считаться частью заголовка.
+     *
+     * 0.7 разводит заголовок (на обложке dev.to это ~50px) и подпись с автором
+     * и датой (~20px), но прощает разницу между строками одного заголовка.
+     */
+    private const HEADING_HEIGHT_RATIO = 0.7;
+
+    /**
      * Переводчик можно подменить явно (тесты); по умолчанию null — сервис
      * сам создаст правильно настроенный (target=ru + прокси) экземпляр.
      *
@@ -68,9 +77,21 @@ class DiagramTranslatorService
 
     /**
      * Переводит текст на картинке и сохраняет результат по тому же пути.
-     * Возвращает true, если хотя бы одна строка была переведена и перерисована.
+     * Возвращает true, если хотя бы один параграф был переведён и перерисован.
+     *
+     * $headingOnly — режим обложки: переводится только самый крупный блок
+     * текста, всё остальное остаётся как есть. Причина в том, как Tesseract
+     * видит подпись обложки dev.to: значок автора, его имя и логотип DEV,
+     * разнесённые по разным краям картинки, попадают в одну «строку», и её
+     * bounding box тянется через всю ширину. Закрашивая такой бокс, сервис
+     * стирает логотип — не потому, что перевёл его, а потому что тот
+     * геометрически внутри. Плюс имя автора («Software Solutions») переводить
+     * нельзя в принципе, а отличить его от осмысленного текста нечем.
+     *
+     * Для диаграмм и скриншотов внутри статьи режим не годится: там важны все
+     * подписи, а не самая крупная.
      */
-    public function translate(string $imagePath): bool
+    public function translate(string $imagePath, bool $headingOnly = false): bool
     {
         try {
             $lines = $this->detectTextLines($imagePath);
@@ -88,6 +109,12 @@ class DiagramTranslatorService
                 Log::info('DiagramTranslator: no text detected', ['path' => $imagePath]);
 
                 return false;
+            }
+
+            $detected = count($lines);
+
+            if ($headingOnly) {
+                $lines = $this->keepLargestText($lines);
             }
 
             $image = $this->loadImage($imagePath);
@@ -120,7 +147,15 @@ class DiagramTranslatorService
 
             // Считаем параграфы, а не строки: именно по этому логу разбирали
             // прошлый инцидент, и имена полей не должны врать о единице счёта.
-            Log::info('DiagramTranslator: done', ['path' => $imagePath, 'paragraphs_total' => count($lines), 'paragraphs_redrawn' => $redrawn]);
+            // paragraphs_total — сколько нашлось на картинке, а не сколько
+            // осталось после отбора: иначе работа режима обложки (он только и
+            // делает, что выбрасывает) в логе была бы не видна вообще.
+            Log::info('DiagramTranslator: done', [
+                'path' => $imagePath,
+                'paragraphs_total' => $detected,
+                'paragraphs_skipped_as_not_heading' => $detected - count($lines),
+                'paragraphs_redrawn' => $redrawn,
+            ]);
 
             return true;
         } catch (\Throwable $e) {
@@ -146,7 +181,7 @@ class DiagramTranslatorService
      * Возвращает null, если распознавание не выполнялось: это не то же самое,
      * что пустой массив («текста нет»).
      *
-     * @return array<int, array{text: string, lines: array<int, array{left: int, top: int, width: int, height: int}>}>|null
+     * @return array<int, array{text: string, word_heights: array<int, int>, lines: array<int, array{left: int, top: int, width: int, height: int}>}>|null
      */
     private function detectTextLines(string $imagePath): ?array
     {
@@ -179,6 +214,11 @@ class DiagramTranslatorService
 
             $key = "{$block}.{$par}.{$lineNum}";
             $grouped[$key]['words'][] = $text;
+            // Высоты отдельных слов — по ним режим обложки отличает заголовок
+            // от подписи. Габарит строки для этого не годится: одна высокая
+            // картинка-логотип внутри подписи растягивает её бокс до размеров
+            // заголовка, хотя сам текст мелкий.
+            $grouped[$key]['heights'][] = (int) $height;
             $grouped[$key]['left'] = min($grouped[$key]['left'] ?? PHP_INT_MAX, (int) $left);
             $grouped[$key]['top'] = min($grouped[$key]['top'] ?? PHP_INT_MAX, (int) $top);
             $grouped[$key]['right'] = max($grouped[$key]['right'] ?? 0, (int) $left + (int) $width);
@@ -186,6 +226,64 @@ class DiagramTranslatorService
         }
 
         return $this->groupIntoParagraphs($grouped);
+    }
+
+    /**
+     * Оставляет только параграфы, набранные самым крупным кеглем.
+     *
+     * Размер строки — единственный признак заголовка, доступный без разбора
+     * макета: на обложке он вдвое-втрое выше подписи с автором и датой. Порог
+     * не «строго максимум», а доля от него: заголовок из нескольких строк
+     * может разъехаться по высоте на пару пикселей (строка без выносных
+     * элементов ниже соседней), и жёсткое сравнение отрезало бы её половину.
+     *
+     * @param  array<int, array{text: string, word_heights: array<int, int>, lines: array<int, array{left: int, top: int, width: int, height: int}>}>  $paragraphs
+     * @return array<int, array{text: string, word_heights: array<int, int>, lines: array<int, array{left: int, top: int, width: int, height: int}>}>
+     */
+    private function keepLargestText(array $paragraphs): array
+    {
+        if ($paragraphs === []) {
+            return [];
+        }
+
+        // Перенумеровываем: фильтр ниже ходит по индексам, и на ассоциативном
+        // массиве (а именно такой строится внутри groupIntoParagraphs до
+        // array_values) он молча вернул бы пустой результат.
+        $paragraphs = array_values($paragraphs);
+
+        $heights = array_map(
+            fn (array $paragraph): float => $this->medianHeight($paragraph['word_heights']),
+            $paragraphs,
+        );
+
+        $threshold = max($heights) * self::HEADING_HEIGHT_RATIO;
+
+        return array_values(array_filter(
+            $paragraphs,
+            static fn (int $index): bool => $heights[$index] >= $threshold,
+            ARRAY_FILTER_USE_KEY,
+        ));
+    }
+
+    /**
+     * Медиана, а не максимум: в подписи обложки рядом с мелким текстом стоит
+     * логотип, который OCR отдаёт как слово высотой с заголовок. По максимуму
+     * такая подпись притворяется заголовком, по медиане — нет.
+     *
+     * @param  array<int, int>  $heights
+     */
+    private function medianHeight(array $heights): float
+    {
+        if ($heights === []) {
+            return 0.0;
+        }
+
+        sort($heights);
+        $middle = (int) floor(count($heights) / 2);
+
+        return count($heights) % 2 === 1
+            ? (float) $heights[$middle]
+            : ($heights[$middle - 1] + $heights[$middle]) / 2;
     }
 
     /**
@@ -200,8 +298,8 @@ class DiagramTranslatorService
      * один запрос вместо N, что для скрейпера Google Translate без
      * rate-limit'а тоже небезразлично.
      *
-     * @param  array<string, array{words: array<int, string>, left: int, top: int, right: int, bottom: int}>  $lines
-     * @return array<int, array{text: string, lines: array<int, array{left: int, top: int, width: int, height: int}>}>
+     * @param  array<string, array{words: array<int, string>, heights: array<int, int>, left: int, top: int, right: int, bottom: int}>  $lines
+     * @return array<int, array{text: string, word_heights: array<int, int>, lines: array<int, array{left: int, top: int, width: int, height: int}>}>
      */
     private function groupIntoParagraphs(array $lines): array
     {
@@ -228,6 +326,7 @@ class DiagramTranslatorService
                 'top' => $group['top'],
                 'width' => $group['right'] - $group['left'],
                 'height' => $group['bottom'] - $group['top'],
+                'word_heights' => $group['heights'],
             ];
         }
 
@@ -240,6 +339,7 @@ class DiagramTranslatorService
 
             return [
                 'text' => implode(' ', array_column($rows, 'text')),
+                'word_heights' => array_merge(...array_column($rows, 'word_heights')),
                 'lines' => array_map(static fn (array $row): array => [
                     'left' => $row['left'],
                     'top' => $row['top'],
@@ -405,6 +505,17 @@ class DiagramTranslatorService
             $colors[$index] = $this->eraseLine($image, $line);
         }
 
+        // Выравниваем по левому краю только настоящий многострочный текст.
+        // Считать строки ОРИГИНАЛА нельзя: перевод бывает короче и целиком
+        // укладывается в первую строку, а остальные остаются пустыми — тогда
+        // единственная видимая строка прилипала бы к левому краю там, где
+        // оригинал стоял по центру.
+        $visibleRows = count(array_filter($layout['rows'], static fn (string $row): bool => trim($row) !== ''));
+        // Общий левый край параграфа, а не край каждого бокса: у центрированного
+        // оригинала боксы начинаются в разных местах, и построчное выравнивание
+        // унаследовало бы рваный край вместо ровного абзаца.
+        $paragraphLeft = min(array_column($lines, 'left')) - self::PADDING;
+
         foreach ($lines as $index => $line) {
             $row = $layout['rows'][$index] ?? '';
 
@@ -412,7 +523,14 @@ class DiagramTranslatorService
                 continue;
             }
 
-            $this->drawLineText($image, $line, $row, $colors[$index], $layout['font_size']);
+            $this->drawLineText(
+                $image,
+                $line,
+                $row,
+                $colors[$index],
+                $layout['font_size'],
+                alignLeft: $visibleRows > 1 ? max(0, $paragraphLeft) : null,
+            );
         }
 
         return true;
@@ -508,11 +626,6 @@ class DiagramTranslatorService
     }
 
     /**
-     * Закрашивает исходную строку цветом фона (самый частый цвет в узкой полосе
-     * сразу над строкой — там текста нет) и рисует перевод тем же по центру
-     * бокса, автоматически подбирая размер шрифта и контрастный цвет текста.
-     */
-    /**
      * Стирает исходную строку, заливая её боксом цвета фона, и возвращает этот
      * цвет — он же нужен, чтобы подобрать контрастный цвет текста поверх.
      *
@@ -538,11 +651,15 @@ class DiagramTranslatorService
      *
      * @param  array{0: int, 1: int, 2: int}  $bgColor
      */
-    private function drawLineText(\GdImage $image, array $line, string $text, array $bgColor, ?int $fontSize): void
+    /**
+     * $alignLeft — X, от которого начинать текст (левый край параграфа), либо
+     * null, чтобы центрировать по боксу строки.
+     */
+    private function drawLineText(\GdImage $image, array $line, string $text, array $bgColor, ?int $fontSize, ?int $alignLeft = null): void
     {
         [$left, $top, $width, $height] = $this->paddedBox($line);
 
-        $this->drawFittedText($image, $text, $left, $top, $width, $height, $this->contrastingTextColor($bgColor), $fontSize);
+        $this->drawFittedText($image, $text, $left, $top, $width, $height, $this->contrastingTextColor($bgColor), $fontSize, $alignLeft);
     }
 
     /**
@@ -597,7 +714,7 @@ class DiagramTranslatorService
      * Рисует текст по центру заданного бокса, уменьшая размер шрифта, пока
      * он не поместится по ширине и высоте.
      */
-    private function drawFittedText(\GdImage $image, string $text, int $left, int $top, int $width, int $height, array $textColor, ?int $forcedSize = null): void
+    private function drawFittedText(\GdImage $image, string $text, int $left, int $top, int $width, int $height, array $textColor, ?int $forcedSize = null, ?int $alignLeft = null): void
     {
         // Кегль, подобранный на весь параграф, важнее локального: строки одной
         // фразы должны быть одного размера, даже если короткая строка могла бы
@@ -621,7 +738,11 @@ class DiagramTranslatorService
         $bbox = imagettfbbox($fontSize, 0, self::FONT, $text);
         $textWidth = abs($bbox[4] - $bbox[0]);
 
-        $x = $left + max(0, (int) (($width - $textWidth) / 2));
+        // Многострочный текст выравниваем по левому краю, как абзац: строки
+        // перевода короче исходных на разную величину, и центрирование каждой
+        // по своему боксу превращает заголовок в лесенку. Одиночная подпись —
+        // наоборот, обычно стоит по центру своего блока.
+        $x = $alignLeft ?? ($left + max(0, (int) (($width - $textWidth) / 2)));
         $y = $top + (int) ($height / 2) + (int) ($fontSize / 2.8);
 
         [$r, $g, $b] = $textColor;

@@ -941,7 +941,11 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
         try {
             $fullPath = Storage::disk('public')->path($this->data['preview_image']);
-            $this->diagramTranslator->translate($fullPath);
+            // Только заголовок: остальное на обложке — подпись автора, дата и
+            // логотипы площадки. Их перевод портит картинку, а закраска строки,
+            // в которую Tesseract сваливает всю нижнюю плашку, стирает заодно и
+            // логотип (см. докблок DiagramTranslatorService::translate).
+            $this->diagramTranslator->translate($fullPath, headingOnly: true);
         } catch (\Throwable $e) {
             Log::warning('DiagramTranslatorService: cover image translate failed', ['error' => $e->getMessage()]);
         }

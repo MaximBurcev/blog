@@ -316,6 +316,125 @@ class DiagramTranslatorServiceTest extends TestCase
     }
 
     /**
+     * Режим обложки: переводится только самый крупный блок.
+     *
+     * На обложке dev.to Tesseract сваливает значок автора, его имя и логотип
+     * DEV в одну «строку» шириной во всю картинку. Её бокс накрывает логотип,
+     * и закраска стирала его — не потому что перевели, а потому что он внутри.
+     * Плюс имя автора («Software Solutions» → «Разработчики программных
+     * решений») переводить нельзя, а отличить его от текста нечем.
+     */
+    public function test_heading_only_mode_keeps_the_largest_text_block(): void
+    {
+        // Числа — фактический вывод Tesseract на обложке dev.to.
+        $paragraphs = [
+            // Заголовок: три строки крупным кеглем.
+            ['text' => 'File Upload Best Practices', 'word_heights' => [55, 70, 53, 56, 55, 55, 68, 71, 54, 69], 'lines' => [
+                ['left' => 96, 'top' => 146, 'width' => 880, 'height' => 70],
+                ['left' => 96, 'top' => 235, 'width' => 730, 'height' => 68],
+            ]],
+            // Подпись: мелкий текст, но с логотипом высотой 51 — по габариту
+            // строки (51) она почти догоняет заголовок и раньше проходила
+            // фильтр целиком, утаскивая с собой логотип DEV.
+            ['text' => 'Software Solutions DEV Jul 27', 'word_heights' => [19, 2, 51, 30, 30, 23, 23], 'lines' => [
+                ['left' => 96, 'top' => 472, 'width' => 1000, 'height' => 51],
+            ]],
+        ];
+
+        $kept = $this->keepLargest($paragraphs);
+
+        $this->assertCount(1, $kept);
+        $this->assertSame('File Upload Best Practices', $kept[0]['text']);
+        // Обе строки заголовка на месте: разница в высоте между ними не должна
+        // отрезать половину фразы.
+        $this->assertCount(2, $kept[0]['lines']);
+    }
+
+    public function test_heading_only_mode_keeps_everything_when_text_is_uniform(): void
+    {
+        // Диаграмма с подписями одного кегля: отбирать нечего, режим не должен
+        // выкидывать половину.
+        $paragraphs = [
+            ['text' => 'Queue', 'word_heights' => [20], 'lines' => [['left' => 0, 'top' => 0, 'width' => 100, 'height' => 20]]],
+            ['text' => 'Worker', 'word_heights' => [19], 'lines' => [['left' => 0, 'top' => 40, 'width' => 100, 'height' => 19]]],
+        ];
+
+        $this->assertCount(2, $this->keepLargest($paragraphs));
+    }
+
+    /**
+     * Короткий перевод, уложившийся в одну строку из двух, обязан остаться
+     * центрированным.
+     *
+     * Выравнивание по левому краю включается для многострочного текста —
+     * абзац не должен идти лесенкой. Но считать надо строки, которые реально
+     * будут нарисованы: если перевод уложился в первую, а вторая осталась
+     * пустой, видимая строка одна, и прижимать её влево незачем — оригинал
+     * стоял по центру.
+     */
+    public function test_short_translation_keeps_single_line_centered(): void
+    {
+        if (! $this->tesseractAvailable()) {
+            $this->markTestSkipped('tesseract бинарник недоступен в этом окружении');
+        }
+
+        // Две строки по центру, перевод вдвое короче оригинала.
+        $path = $this->makeMultilineImage(['Some Very Long Heading Here', 'That Wraps Around'], centered: true);
+        $service = new DiagramTranslatorService($this->fakeTranslator('Коротко'));
+
+        $this->assertTrue($service->translate($path));
+
+        $ink = $this->inkColumns($path);
+        $this->assertNotSame([], $ink, 'на картинке не осталось текста');
+
+        $canvasCentre = 560 / 2;
+        $textCentre = (min($ink) + max($ink)) / 2;
+
+        // Текст остался около центра, а не уехал к левому краю.
+        $this->assertLessThan(60, abs($textCentre - $canvasCentre), "центр текста {$textCentre} слишком далеко от центра картинки {$canvasCentre}");
+
+        @unlink($path);
+    }
+
+    /**
+     * Колонки, в которых на белом фоне есть тёмные пиксели, — грубый способ
+     * узнать, где на картинке лежит текст.
+     *
+     * @return array<int, int>
+     */
+    private function inkColumns(string $path): array
+    {
+        $image = imagecreatefrompng($path);
+        $columns = [];
+
+        for ($x = 0; $x < imagesx($image); $x++) {
+            for ($y = 0; $y < imagesy($image); $y++) {
+                $rgb = imagecolorat($image, $x, $y);
+
+                if ((($rgb >> 16) & 0xFF) < 128) {
+                    $columns[] = $x;
+                    break;
+                }
+            }
+        }
+
+        imagedestroy($image);
+
+        return $columns;
+    }
+
+    /**
+     * @param  array<int, array{text: string, word_heights: array<int, int>, lines: array<int, array{left: int, top: int, width: int, height: int}>}>  $paragraphs
+     * @return array<int, array{text: string, word_heights: array<int, int>, lines: array<int, array{left: int, top: int, width: int, height: int}>}>
+     */
+    private function keepLargest(array $paragraphs): array
+    {
+        $method = new \ReflectionMethod(DiagramTranslatorService::class, 'keepLargestText');
+
+        return $method->invoke(new DiagramTranslatorService, $paragraphs);
+    }
+
+    /**
      * @param  array<int, array{left: int, top: int, width: int, height: int}>  $lines
      * @return array{font_size: int, rows: array<int, string>}|null
      */
@@ -333,7 +452,7 @@ class DiagramTranslatorServiceTest extends TestCase
         return $method->invoke(new DiagramTranslatorService, $text);
     }
 
-    private function makeMultilineImage(array $lines): string
+    private function makeMultilineImage(array $lines, bool $centered = false): string
     {
         $image = imagecreatetruecolor(560, 160);
         $white = imagecolorallocate($image, 255, 255, 255);
@@ -344,10 +463,14 @@ class DiagramTranslatorServiceTest extends TestCase
         $y = 60;
 
         foreach ($lines as $line) {
+            $size = $centered ? 20 : 26;
+            $bbox = imagettfbbox($size, 0, $font, $line);
+            $x = $centered ? (int) ((560 - abs($bbox[4] - $bbox[0])) / 2) : 30;
+
             // Настоящий TTF, а не imagestring: встроенный растровый шрифт GD
             // Tesseract распознаёт неуверенно, и строки отсеивались бы по
             // MIN_CONFIDENCE ещё до группировки.
-            imagettftext($image, 26, 0, 30, $y, $black, $font, $line);
+            imagettftext($image, $size, 0, $x, $y, $black, $font, $line);
             $y += 55;
         }
 
