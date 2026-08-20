@@ -144,7 +144,10 @@ class PostResource extends Resource
                     ->tooltip(fn (Post $record): ?string => $record->translated_by === 'google'
                         ? 'Запасной движок: LLM была недоступна. Стоит перевести заново'
                         : null)
-                    ->toggleable(isToggledHiddenByDefault: true)
+                    // Видна сразу, а не за переключателем колонок: подмена
+                    // основного движка запасным происходит молча, и заметить её
+                    // можно только здесь.
+                    ->toggleable()
                     ->sortable(),
                 TextColumn::make('parse_status')
                     ->label('Парсинг')
