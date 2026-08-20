@@ -244,7 +244,15 @@ return [
         'notifiable' => Notifiable::class,
 
         'mail' => [
-            'to' => env('BACKUP_NOTIFICATION_EMAIL', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+            /*
+             * ?: вместо второго аргумента env(): пустая строка в .env — это не
+             * «значение не задано», и фолбэк по ней не срабатывает. Пакет
+             * получал '' и падал с «is not a valid email address» прямо в
+             * package:discover — то есть composer install ломался на любом
+             * стенде, где переменную объявили, но не заполнили. Именно так CI
+             * упал на первом же прогоне.
+             */
+            'to' => env('BACKUP_NOTIFICATION_EMAIL') ?: env('MAIL_FROM_ADDRESS', 'hello@example.com'),
 
             'from' => [
                 'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
