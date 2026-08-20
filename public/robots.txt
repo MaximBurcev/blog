@@ -4,5 +4,6 @@ Disallow: /filament
 Disallow: /login
 Disallow: /register
 Disallow: /log-viewer
+Disallow: /up
 
 Sitemap: https://maxburcev.ru/sitemap.xml

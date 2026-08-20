@@ -28,6 +28,7 @@
         "meilisearch/meilisearch-php": "^1.15",
         "opcodesio/log-viewer": "^3.1",
         "predis/predis": "^3.2",
+        "sentry/sentry-laravel": "^4.27",
         "spatie/laravel-backup": "^10.3",
         "spatie/laravel-html": "^3.12",
         "stichoza/google-translate-php": "^5.1",

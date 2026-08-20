@@ -26,5 +26,17 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <!--
+            Тесты не ходят в Meilisearch. Раньше драйвер брался из .env: прогон
+            молча зависел от поднятого рядом контейнера поиска, а в чистом
+            окружении (CI) упал бы на первом же посте, созданном без
+            withoutSyncingToSearch. Содержимое документа проверяется напрямую
+            через toSearchableArray (PostSearchableArrayTest) — живой индекс
+            для этого не нужен.
+        -->
+        <env name="SCOUT_DRIVER" value="null"/>
+        <!-- Кэш конфига в CI не собирается, а вот локальный .env может
+             оказаться каким угодно: фиксируем соединение явно. -->
+        <env name="DB_CONNECTION" value="mysql"/>
     </php>
 </phpunit>

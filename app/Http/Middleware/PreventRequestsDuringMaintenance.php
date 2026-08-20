@@ -12,6 +12,12 @@ class PreventRequestsDuringMaintenance extends Middleware
      * @var array<int, string>
      */
     protected $except = [
-        //
+        /*
+         * Health-check обязан отвечать и во время планового обслуживания.
+         * Иначе `artisan down` на время миграции поднимает тревогу у внешнего
+         * монитора: система оповещения начинает будить по расписанию, а на
+         * такие оповещения быстро перестают смотреть.
+         */
+        'up',
     ];
 }

@@ -88,6 +88,14 @@ class RouteServiceProvider extends ServiceProvider
                 ->prefix('api')
                 ->group(base_path('routes/api.php'));
 
+            // Health-check вне групп web и api: без сессии, cookie и CSRF.
+            // В группе web он получал StartSession, и монитор, ходящий раз в
+            // минуту, плодил бы по файлу сессии на запрос — полтора тысячи в
+            // сутки в shared-каталоге, который переживает релизы. Глобальный
+            // стек (TrustProxies, TrustHosts, SecurityHeaders) применяется и
+            // здесь, он объявлен в Http\Kernel::$middleware.
+            Route::group([], base_path('routes/health.php'));
+
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
         });

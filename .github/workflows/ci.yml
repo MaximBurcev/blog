@@ -1,0 +1,105 @@
+# CI: тесты и стиль на каждый push и pull request.
+#
+# До 18.08.2026 автоматических проверок не было вообще: 444 теста существовали,
+# но запускались только вручную перед коммитом. Цена этого видна на двух случаях
+# того же дня — в индекс чуть не уехал заведомо красный тест (аннотация
+# @dataProvider, удалённая в PHPUnit 12), а падение планировщика прожило неделю
+# незамеченным.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Новый push в ту же ветку отменяет предыдущий прогон: гонять CI на коде,
+# который уже переписан, незачем.
+concurrency:
+  group: ci-${{ github.ref }}
+  # На main прогоны не отменяем: иначе два быстрых пуша подряд оставят первый
+  # коммит вообще без завершённой проверки.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      # Тесты работают с настоящей MySQL, а не sqlite: миграции проекта
+      # используют вещи вроде havingRaw и полнотекстовых индексов, которые в
+      # sqlite ведут себя иначе — прогон «на другой БД» ловил бы не те ошибки.
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+          MYSQL_DATABASE: testing
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Настроить PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          # Версия прода, а не свежая: composer.json пиннит platform на 8.3.6,
+          # и собирать зависимости под 8.4 значит проверять не то, что поедет
+          # на сервер.
+          php-version: '8.3'
+          extensions: dom, gd, zip, pdo_mysql, mbstring, intl, bcmath
+          coverage: none
+
+      - name: Кэш зависимостей composer
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      # Раньше composer install: его post-autoload-dump поднимает Laravel
+      # (package:discover, filament:upgrade), а без .env и APP_KEY это лишняя
+      # хрупкость ровно в том сценарии, ради которого workflow и заведён.
+      - name: Подготовить окружение
+        run: cp .env.example .env
+
+      - name: Установить зависимости
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Сгенерировать ключ
+        run: php artisan key:generate
+
+      - name: Установить Tesseract
+        # Без него тесты OCR молча пропускаются (markTestSkipped), то есть
+        # перевод текста на картинках в CI не проверялся бы вовсе — ровно та
+        # фича, которая на проде полгода не работала и об этом молчала.
+        # Русская модель нужна для проверки, что уже переведённую картинку
+        # сервис узнаёт и не трогает.
+        #
+        # fonts-dejavu-core обязателен: как только tesseract появляется,
+        # markTestSkipped перестаёт срабатывать и тесты реально рисуют текст
+        # через imagettftext, которому нужен DejaVuSans-Bold (путь захардкожен
+        # в DiagramTranslatorService). Без шрифта они упадут.
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-eng tesseract-ocr-rus fonts-dejavu-core
+
+      - name: Тесты
+        # --fail-on-empty-test-suite: PHPUnit выходит с нулём, если не нашёл ни
+        # одного теста, и сломанные пути в phpunit.xml дали бы зелёный CI.
+        # --fail-on-deprecation/warning ловит ровно тот класс ошибок, ради
+        # которого workflow и заведён: аннотация @dataProvider, удалённая в
+        # PHPUnit 12, сначала становится deprecation, а не падением.
+        run: php artisan test --fail-on-empty-test-suite --fail-on-deprecation --fail-on-warning
+
+      - name: Стиль кода
+        # always(): стиль проверяем даже при упавших тестах — иначе за один
+        # прогон получаем только один сигнал из двух.
+        if: always()
+        # --test: только проверяем, не переписываем. Падение здесь означает,
+        # что Pint не прогнали перед коммитом.
+        run: ./vendor/bin/pint --test
