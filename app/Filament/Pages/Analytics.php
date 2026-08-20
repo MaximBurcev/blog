@@ -4,6 +4,8 @@ namespace App\Filament\Pages;
 
 use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
+use App\Filament\Analytics\Widgets\PublishingPace;
+use App\Filament\Analytics\Widgets\ReadingDepth;
 use App\Filament\Analytics\Widgets\TopPostsByViews;
 use App\Filament\Analytics\Widgets\TrafficSources;
 use App\Support\AnalyticsPeriod;
@@ -60,8 +62,10 @@ class Analytics extends Page
     {
         return [
             PostViewsOverview::class,
+            ReadingDepth::class,
             PostViewsChart::class,
             TrafficSources::class,
+            PublishingPace::class,
             TopPostsByViews::class,
         ];
     }

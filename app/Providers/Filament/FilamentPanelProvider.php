@@ -4,6 +4,8 @@ namespace App\Providers\Filament;
 
 use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
+use App\Filament\Analytics\Widgets\PublishingPace;
+use App\Filament\Analytics\Widgets\ReadingDepth;
 use App\Filament\Analytics\Widgets\TopPostsByViews;
 use App\Filament\Analytics\Widgets\TrafficSources;
 use Filament\Http\Middleware\Authenticate;
@@ -66,8 +68,10 @@ class FilamentPanelProvider extends PanelProvider
             // Filament::getWidgets() не пишет — на дашборде они не появятся.
             ->livewireComponents([
                 PostViewsOverview::class,
+                ReadingDepth::class,
                 PostViewsChart::class,
                 TrafficSources::class,
+                PublishingPace::class,
                 TopPostsByViews::class,
             ])
             ->middleware([

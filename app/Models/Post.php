@@ -81,6 +81,7 @@ class Post extends Model
         // Post::search(...)->where('published', true) не находит ничего
         // (сравнение с булевым true не совпадает с числом).
         'published' => 'boolean',
+        'published_at' => 'datetime',
         'parsed_at' => 'datetime',
     ];
 
@@ -91,6 +92,33 @@ class Post extends Model
      */
     protected static function booted(): void
     {
+        /*
+         * Момент первой публикации фиксируется здесь, а не в контроллере или
+         * ресурсе Filament: снять галочку черновика можно из формы поста, из
+         * массового действия и из tinker, и в каждом месте об этом пришлось бы
+         * помнить.
+         *
+         * Дата ставится один раз: снятая и возвращённая публикация не должна
+         * выглядеть новой — иначе темп публикаций накрутится редактированием
+         * старых постов.
+         */
+        static::saving(function (self $post) {
+            if (! $post->published || $post->published_at !== null) {
+                return;
+            }
+
+            /*
+             * У существующей записи дата берётся из updated_at, а не из now().
+             * Миграция проставила published_at по updated_at, но у части старых
+             * постов он сам пуст — и без этой ветки первое же сохранение
+             * (скажем, `post:translate`) выдало бы статью, вышедшую весной, за
+             * опубликованную сегодня, накрутив недельный темп.
+             */
+            $post->published_at = $post->exists
+                ? ($post->updated_at ?? $post->created_at ?? now())
+                : now();
+        });
+
         static::saved(function (self $post) {
             // main_image обычно тот же файл, что и preview_image, но в
             // админке их можно задать разными — тогда обложке статьи нужны
