@@ -102,15 +102,26 @@ class TranslatedHtmlValidator
         // Код обязан доехать байт в байт. Перевод содержимого <pre>/<code> —
         // самая дорогая ошибка: читатель копирует такой фрагмент и получает
         // синтаксическую ошибку, а не работающий пример.
-        $originalCode = $this->codeFragments($original);
+        /*
+         * Каждый исходный фрагмент кода обязан найтись в переводе — но
+         * равенства множеств не требуем. Модель нередко дополнительно
+         * оборачивает термин или имя команды в <code>, и на статье без кода
+         * вовсе («было 0, стало 1») строгое сравнение отправляло перевод на
+         * скрейпер, хотя ни один пример не пострадал.
+         *
+         * Проверяем с учётом кратности: два одинаковых фрагмента в оригинале
+         * должны остаться двумя, иначе потеря одного из них прошла бы мимо.
+         */
         $translatedCode = $this->codeFragments($translated);
 
-        if ($originalCode !== $translatedCode) {
-            return sprintf(
-                'код изменён (было фрагментов: %d, стало: %d)',
-                count($originalCode),
-                count($translatedCode)
-            );
+        foreach ($this->codeFragments($original) as $fragment) {
+            $position = array_search($fragment, $translatedCode, true);
+
+            if ($position === false) {
+                return 'код изменён или потерян: '.mb_substr($fragment, 0, 60);
+            }
+
+            unset($translatedCode[$position]);
         }
 
         return null;

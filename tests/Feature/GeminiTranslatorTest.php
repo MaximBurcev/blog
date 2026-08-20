@@ -68,6 +68,40 @@ class GeminiTranslatorTest extends TestCase
         $this->assertSame($source, $result->text, 'исходник должен остаться нетронутым');
     }
 
+    public function test_extra_code_tag_added_by_model_is_allowed(): void
+    {
+        /*
+         * Модель нередко дополнительно оборачивает термин или имя команды в
+         * <code>. Ни один пример при этом не страдает, но строгое сравнение
+         * множеств отправляло такой перевод на скрейпер — на живой статье без
+         * кода вовсе это дало «было 0 фрагментов, стало 1» и откат на запасной
+         * движок.
+         */
+        $source = '<p>'.str_repeat('Choosing a framework in 2026 is not obvious. ', 6).'</p>';
+
+        $this->fakeAnswer(
+            '<p>'.str_repeat('Выбор фреймворка в 2026 году не очевиден. ', 6)
+            .'Возьмём <code>artisan</code> для примера.</p>'
+        );
+
+        $result = $this->translator()->translateHtml($source);
+
+        $this->assertFalse($result->failed, 'лишний <code> не портит перевод');
+    }
+
+    public function test_lost_code_fragment_is_rejected(): void
+    {
+        // А вот пропажа исходного фрагмента — порча статьи: читатель
+        // недосчитается примера.
+        $source = '<p>Run <code>php artisan queue:work</code> and then <code>php artisan migrate</code>.</p>';
+
+        $this->fakeAnswer('<p>Запустите <code>php artisan queue:work</code>, а затем выполните миграции.</p>');
+
+        $result = $this->translator()->translateHtml($source);
+
+        $this->assertTrue($result->failed);
+    }
+
     public function test_truncated_answer_is_rejected(): void
     {
         // Обрезанный ответ выглядит здоровым: валидный HTML, код цел — просто
