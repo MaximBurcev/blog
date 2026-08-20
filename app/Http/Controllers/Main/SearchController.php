@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Main;
 
 use App\Http\Controllers\Controller;
 use App\Models\Post;
+use App\Models\SearchQuery;
+use App\Support\BotDetector;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -63,6 +65,14 @@ class SearchController extends Controller
 
                 $searchFailed = true;
             }
+
+            // Запрос записываем только если поиск отработал: при упавшем
+            // Meilisearch ноль результатов означает «сервис лежит», а не «на
+            // сайте такого нет», и в отчёте «искали и не нашли» это выглядело
+            // бы как пробел в контенте.
+            if (! $searchFailed) {
+                $this->remember($request, $query, $posts->total());
+            }
         }
 
         $title = 'Поиск';
@@ -72,6 +82,52 @@ class SearchController extends Controller
         $robots = 'noindex, follow';
 
         return view('main.search', compact('posts', 'title', 'robots', 'query', 'searchFailed'));
+    }
+
+    /**
+     * Складывает запрос в отчёт «что искали».
+     *
+     * Пагинация: считаем только первую страницу, иначе один запрос, пролистанный
+     * читателем до конца, попадёт в отчёт столько раз, сколько было страниц.
+     *
+     * Ошибка записи не должна ронять выдачу: страница поиска — публичная, а
+     * сбор статистики здесь дело десятое. Поэтому try/catch, а не надежда на то,
+     * что таблица всегда доступна.
+     */
+    private function remember(Request $request, string $query, int $resultsCount): void
+    {
+        if ($request->integer('page', 1) > 1) {
+            return;
+        }
+
+        // Робот ищет не потому, что ему чего-то не хватает: /search закрыт в
+        // robots.txt, но послушны не все, а краулер, прошедший по ссылкам с
+        // ?q=, наполнил бы отчёт «искали и не нашли» собственными выдумками.
+        // Тот же детектор, что отсеивает роботов в post_views.
+        if (BotDetector::isBot($request->userAgent())) {
+            return;
+        }
+
+        $normalized = SearchQuery::normalize($query);
+
+        if ($normalized === null) {
+            return;
+        }
+
+        try {
+            SearchQuery::create([
+                'query' => $normalized,
+                'results_count' => $resultsCount,
+            ]);
+        } catch (\Throwable $exception) {
+            // Только класс, без getMessage(): у QueryException в сообщении
+            // лежит SQL с подставленными биндингами, то есть сам поисковый
+            // запрос. Он уехал бы в laravel.log, который читается через
+            // /log-viewer, — при том что вся затея строится на обезличенности.
+            Log::warning('Не удалось записать поисковый запрос', [
+                'exception' => $exception::class,
+            ]);
+        }
     }
 
     /**

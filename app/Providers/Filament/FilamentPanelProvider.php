@@ -6,6 +6,7 @@ use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
 use App\Filament\Analytics\Widgets\PublishingPace;
 use App\Filament\Analytics\Widgets\ReadingDepth;
+use App\Filament\Analytics\Widgets\SearchQueries;
 use App\Filament\Analytics\Widgets\TopPostsByViews;
 use App\Filament\Analytics\Widgets\TrafficSources;
 use Filament\Http\Middleware\Authenticate;
@@ -72,6 +73,7 @@ class FilamentPanelProvider extends PanelProvider
                 PostViewsChart::class,
                 TrafficSources::class,
                 PublishingPace::class,
+                SearchQueries::class,
                 TopPostsByViews::class,
             ])
             ->middleware([

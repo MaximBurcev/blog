@@ -6,6 +6,7 @@ use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
 use App\Filament\Analytics\Widgets\PublishingPace;
 use App\Filament\Analytics\Widgets\ReadingDepth;
+use App\Filament\Analytics\Widgets\SearchQueries;
 use App\Filament\Analytics\Widgets\TopPostsByViews;
 use App\Filament\Analytics\Widgets\TrafficSources;
 use App\Support\AnalyticsPeriod;
@@ -66,6 +67,7 @@ class Analytics extends Page
             PostViewsChart::class,
             TrafficSources::class,
             PublishingPace::class,
+            SearchQueries::class,
             TopPostsByViews::class,
         ];
     }
