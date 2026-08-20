@@ -3,6 +3,10 @@
 namespace App\Providers;
 
 use App\Service\HtmlSanitizerService;
+use App\Service\Translation\FallbackTranslator;
+use App\Service\Translation\GeminiTranslator;
+use App\Service\Translation\GoogleScraperTranslator;
+use App\Service\Translation\Translator;
 use Carbon\Carbon;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\View;
@@ -21,6 +25,23 @@ class AppServiceProvider extends ServiceProvider
         // сохранение поста два (content и content_orig) и по сотне подряд
         // в ResanitizePostsCommand.
         $this->app->singleton(HtmlSanitizerService::class);
+
+        // Движок перевода собирается здесь, а не внутри TranslateService: тому
+        // незачем знать, кто и в каком порядке переводит — он получает готовый
+        // Translator и работает с ним одинаково.
+        $this->app->bind(Translator::class, function ($app): Translator {
+            $primary = config('translation.driver') === 'google'
+                ? $app->make(GoogleScraperTranslator::class)
+                : $app->make(GeminiTranslator::class);
+
+            // Скрейпер сам себе запасным не бывает: подставив его под самого
+            // себя, мы бы гоняли заведомо провальный перевод дважды.
+            if (! config('translation.fallback') || $primary instanceof GoogleScraperTranslator) {
+                return $primary;
+            }
+
+            return new FallbackTranslator($primary, $app->make(GoogleScraperTranslator::class));
+        });
     }
 
     /**

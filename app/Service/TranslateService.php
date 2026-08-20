@@ -2,97 +2,116 @@
 
 namespace App\Service;
 
+use App\Service\Translation\Translator;
 use App\Support\SelectorXPathBuilder;
-use App\Traits\TranslatesNodes;
 use DOMDocument;
 use DOMXPath;
 use Illuminate\Support\Facades\Log;
-use Stichoza\GoogleTranslate\GoogleTranslate;
 
+/**
+ * Перевод статьи на русский.
+ *
+ * Извлекает содержимое по селектору, отдаёт его движку перевода и локализует
+ * картинки. Сам движок сервису неизвестен: Translator собирается в
+ * AppServiceProvider и может оказаться как LLM, так и прежним скрейпером —
+ * снаружи разница видна только в поле translated_by у поста.
+ *
+ * До 20.08.2026 сервис обходил DOM поблочно и переводил каждый абзац
+ * отдельным запросом: скрейпер translate.google.com не понимает HTML, и
+ * разметку приходилось прятать за плейсхолдерами. LLM понимает её сама,
+ * поэтому содержимое уходит одним куском — вместе с контекстом, из-за потери
+ * которого термин из первого абзаца в десятом переводился иначе.
+ */
 class TranslateService
 {
-    use TranslatesNodes;
-
-    private mixed $data;
-
-    private ContentImageService $imageService;
-
-    private GoogleTranslate $googleTranslate;
-
-    public function __construct(ContentImageService $imageService)
-    {
-        $this->imageService = $imageService;
-        $this->googleTranslate = $this->makeGoogleTranslate();
-    }
+    public function __construct(
+        private readonly ContentImageService $imageService,
+        private readonly Translator $translator,
+    ) {}
 
     public function translate(mixed $data): mixed
     {
-        $this->data = $data;
-        $this->translationFallbacks = 0;
+        $incomplete = false;
 
         try {
             $dom = new DOMDocument;
+            @$dom->loadHTML('<?xml encoding="utf-8" ?>'.$data['content'], LIBXML_NOERROR | LIBXML_NOWARNING);
 
-            @$dom->loadHTML('<?xml encoding="utf-8" ?>'.$this->data['content']);
-
-            $this->data['title'] = $this->googleTranslate->translate($this->data['title']);
+            $titleResult = $this->translator->translateText((string) ($data['title'] ?? ''));
+            $data['title'] = $titleResult->text;
+            $incomplete = $titleResult->failed;
 
             $finder = new DOMXPath($dom);
 
+            // Панель кнопок «copy/expand» у подсветки кода на dev.to — чистый
+            // интерфейс площадки, в статье ей делать нечего.
             $panels = $finder->query("//div[contains(@class, 'highlight__panel') and contains(@class, 'js-actions-panel')]");
-
             foreach ($panels as $panel) {
                 $panel->parentNode->removeChild($panel);
             }
 
-            if (! empty($this->data['selector'])) {
+            if (! empty($data['selector'])) {
                 // Через SelectorXPathBuilder, а не конкатенацией: selector
                 // приходит из формы админки, и кавычка в нём иначе ломает
                 // структуру XPath-выражения (XPath injection, CWE-91).
-                $nodes = $finder->query(SelectorXPathBuilder::build((string) $this->data['selector']));
+                $nodes = $finder->query(SelectorXPathBuilder::build((string) $data['selector']));
             } else {
-                $nodes = $dom->getRootNode()->childNodes;
+                // Содержимое <body>, а не корень документа: там лежат ещё
+                // processing instruction от loadHTML и обёртка <html>. Раньше
+                // это было безобидно — обход DOM просто спускался глубже, — но
+                // теперь фрагмент уходит в промпт целиком, и разбиение длинных
+                // статей видело бы ровно один верхнеуровневый узел <html>,
+                // то есть не срабатывало бы никогда.
+                $nodes = $finder->query('//body/node()');
             }
 
+            $source = '';
             foreach ($nodes as $node) {
-                $this->processNode($node);
+                $source .= $dom->saveHTML($node);
             }
 
-            $postContent = '';
-            foreach ($nodes as $node) {
-                $postContent .= $dom->saveHTML($node);
-            }
+            $result = $this->translator->translateHtml($source);
+            $incomplete = $incomplete || $result->failed || $result->partial;
 
-            $postContent = $this->modifyContent($postContent);
-
+            $postContent = $this->modifyContent($result->text);
             $postContent = $this->imageService->replacePictureElements($postContent);
             $postContent = $this->imageService->downloadAndReplaceImages($postContent);
 
             if (! empty($postContent)) {
-                $this->data['content'] = $postContent;
+                $data['content'] = $postContent;
             }
 
-            Log::debug('TranslateService::translate: done', ['title' => $this->data['title'] ?? null]);
+            $data['translated_by'] = $result->engine;
 
-        } catch (\Exception $exception) {
-            // Исключение до/во время перевода — контент остался (частично) непереведённым
-            $this->translationFallbacks++;
-            Log::error('TranslateService::translate failed', ['error' => $exception->getMessage()]);
+            Log::debug('TranslateService::translate: done', [
+                'title' => $data['title'] ?? null,
+                'engine' => $result->engine,
+            ]);
+        } catch (\Throwable $exception) {
+            // Исключение до/во время перевода — контент остался (частично)
+            // непереведённым. Пост важнее перевода: пятисотка в очереди стоила
+            // бы статьи целиком.
+            $incomplete = true;
+            Log::error('TranslateService::translate failed', [
+                'exception' => $exception::class,
+                'error' => $exception->getMessage(),
+            ]);
         }
 
-        $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
+        $data['translation_incomplete'] = $incomplete;
 
-        return $this->data;
+        return $data;
     }
 
+    /**
+     * Пробелы вокруг инлайн-тегов: без них соседние слово и код слипаются в
+     * вёрстке статьи.
+     */
     private function modifyContent(string $postContent): string
     {
         return str_replace(
-            // The tags we want to modify
             ['<code>', '</code>', '<strong>'],
-            // The modified versions of the tags
             ['&nbsp;<code>', '</code>&nbsp;', '&nbsp;<strong>'],
-            // The content to modify
             $postContent
         );
     }

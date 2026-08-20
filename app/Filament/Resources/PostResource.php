@@ -123,6 +123,29 @@ class PostResource extends Resource
                         ? 'Часть блоков осталась без перевода — требует ревью'
                         : null)
                     ->sortable(),
+                // Каким движком переведено. Основной может молча уступить
+                // запасному (сеть, квота, регион), и без этой колонки узнать,
+                // какие статьи стоит перевести заново, можно было бы только
+                // запросом в базу.
+                TextColumn::make('translated_by')
+                    ->label('Движок')
+                    ->badge()
+                    ->color(fn (?string $state): string => match ($state) {
+                        'gemini' => 'success',
+                        'google' => 'warning',
+                        default => 'gray',
+                    })
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'gemini' => 'LLM',
+                        'google' => 'скрейпер',
+                        'none' => 'не переведён',
+                        default => '—',
+                    })
+                    ->tooltip(fn (Post $record): ?string => $record->translated_by === 'google'
+                        ? 'Запасной движок: LLM была недоступна. Стоит перевести заново'
+                        : null)
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->sortable(),
                 TextColumn::make('parse_status')
                     ->label('Парсинг')
                     ->badge()

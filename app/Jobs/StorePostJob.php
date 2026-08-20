@@ -9,12 +9,12 @@ use App\Service\ChallengeSolverClient;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
+use App\Service\Translation\Translator;
 use App\Support\ContentSelectorResolver;
 use App\Support\FeedArticleLocator;
 use App\Support\PinnedTarget;
 use App\Support\SelectorXPathBuilder;
 use App\Support\UrlSafetyChecker;
-use App\Traits\TranslatesNodes;
 use Carbon\Carbon;
 use DOMDocument;
 use DOMElement;
@@ -31,7 +31,6 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Stichoza\GoogleTranslate\GoogleTranslate;
 
 /**
  * ShouldBeUnique — PostService::store() делает updateOrCreate() по url, но
@@ -48,7 +47,7 @@ use Stichoza\GoogleTranslate\GoogleTranslate;
  */
 class StorePostJob implements ShouldBeUnique, ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, TranslatesNodes;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     private const MAX_REDIRECTS = 5;
 
@@ -85,13 +84,29 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
     private PostService $service;
 
-    private GoogleTranslate $googleTranslate;
-
     private ContentImageService $imageService;
 
     private UrlSafetyChecker $urlSafetyChecker;
 
     private DiagramTranslatorService $diagramTranslator;
+
+    private Translator $translator;
+
+    /**
+     * Сколько фрагментов осталось без перевода в текущем прогоне.
+     *
+     * Раньше счётчик приезжал из трейта TranslatesNodes вместе со всей
+     * машинерией поблочного перевода. Переводом занимается общий слой, и от
+     * трейта здесь нужен был только этот счётчик — держать ради него весь
+     * трейт значит тащить в джобу мёртвый код: маскировку плейсхолдерами,
+     * разбор инлайн-разметки и клиент скрейпера.
+     */
+    private int $translationFallbacks = 0;
+
+    private function hasTranslationFallbacks(): bool
+    {
+        return $this->translationFallbacks > 0;
+    }
 
     /**
      * Причина, по которой не удалось скачать страницу — заполняется внутри
@@ -117,14 +132,13 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         return md5($this->data['url'] ?: ($this->data['html_file'] ?? serialize($this->data)));
     }
 
-    public function handle(PostService $service, ContentImageService $imageService, UrlSafetyChecker $urlSafetyChecker, DiagramTranslatorService $diagramTranslator): void
+    public function handle(PostService $service, ContentImageService $imageService, UrlSafetyChecker $urlSafetyChecker, DiagramTranslatorService $diagramTranslator, Translator $translator): void
     {
         $this->service = $service;
         $this->imageService = $imageService;
         $this->urlSafetyChecker = $urlSafetyChecker;
         $this->diagramTranslator = $diagramTranslator;
-
-        $titleTranslator = $this->makeGoogleTranslate();
+        $this->translator = $translator;
 
         $failure = null;
 
@@ -155,7 +169,7 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
                 $h1 = $this->resolveH1($dom);
 
                 if ($h1->length > 0) {
-                    $this->extractArticle($dom, $h1, $titleTranslator);
+                    $this->extractArticle($dom, $h1);
                 }
             }
         } catch (TransientFetchException $exception) {
@@ -895,10 +909,16 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
      * заголовок среди кандидатов <h1>, переводит обложку, чистит
      * интерфейсный мусор и переводит содержимое по CSS/ID-селектору.
      */
-    private function extractArticle(DOMDocument $dom, DOMNodeList $h1, GoogleTranslate $titleTranslator): void
+    private function extractArticle(DOMDocument $dom, DOMNodeList $h1): void
     {
         $title = $this->selectArticleTitleNode($h1)->nodeValue;
-        $this->data['title'] = $titleTranslator->translate($title);
+
+        $titleResult = $this->translator->translateText($title);
+        $this->data['title'] = $titleResult->text;
+
+        if ($titleResult->failed) {
+            $this->translationFallbacks++;
+        }
 
         $this->translateCoverImage();
 
@@ -1005,10 +1025,10 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * Сохраняет оригинальный HTML найденных узлов, переводит их
-     * (TranslatesNodes::processNode) и записывает итоговый контент
-     * в $this->data, с фолбэком превью-картинки из первой локальной
-     * картинки контента, если своей ещё нет.
+     * Сохраняет оригинальный HTML найденных узлов, переводит их через общий
+     * слой перевода и записывает итоговый контент в $this->data, с фолбэком
+     * превью-картинки из первой локальной картинки контента, если своей ещё
+     * нет.
      */
     private function translateContentNodes(DOMDocument $dom, DOMNodeList $nodes): void
     {
@@ -1017,18 +1037,19 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             $contentOrig .= $dom->saveHTML($node);
         }
 
-        $this->googleTranslate = $this->makeGoogleTranslate();
+        // Через общий слой перевода, а не поузловым обходом: движок может
+        // оказаться и LLM, и прежним скрейпером, и джобе незачем знать, каким
+        // именно. Раньше здесь жёстко звался processNode(), поэтому весь
+        // парсинг шёл мимо настроек перевода вообще.
+        $result = $this->translator->translateHtml($contentOrig);
 
-        foreach ($nodes as $node) {
-            $this->processNode($node);
+        if ($result->failed || $result->partial) {
+            $this->translationFallbacks++;
         }
 
-        $postContent = '';
-        foreach ($nodes as $node) {
-            $postContent .= $dom->saveHTML($node);
-        }
+        $this->data['translated_by'] = $result->engine;
 
-        $postContent = $this->modifyContent($postContent);
+        $postContent = $this->modifyContent($result->text);
 
         $postContent = $this->imageService->replacePictureElements($postContent);
         $postContent = $this->imageService->downloadAndReplaceImages($postContent);

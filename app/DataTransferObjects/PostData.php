@@ -25,6 +25,9 @@ class PostData
         public readonly ?bool $published = null,
         public readonly ?bool $isNews = null,
         public readonly ?bool $translationIncomplete = null,
+        // Имя движка перевода: основной может молча уступить запасному, и без
+        // этой отметки подмена ничем себя не выдаёт.
+        public readonly ?string $translatedBy = null,
         public readonly ?string $publishedAt = null,
         public readonly ?string $parseStatus = null,
         // Пустая строка — осмысленное значение: «прошлая ошибка снята»
@@ -51,6 +54,7 @@ class PostData
             published: isset($data['published']) ? (bool) $data['published'] : null,
             isNews: isset($data['is_news']) ? (bool) $data['is_news'] : null,
             translationIncomplete: isset($data['translation_incomplete']) ? (bool) $data['translation_incomplete'] : null,
+            translatedBy: $data['translated_by'] ?? null,
             publishedAt: $data['created_at'] ?? null,
             parseStatus: $data['parse_status'] ?? null,
             parseError: $data['parse_error'] ?? null,
@@ -76,6 +80,7 @@ class PostData
             'published' => $this->published,
             'is_news' => $this->isNews,
             'translation_incomplete' => $this->translationIncomplete,
+            'translated_by' => $this->translatedBy,
             'created_at' => $this->publishedAt,
             'parse_status' => $this->parseStatus,
             'parse_error' => $this->parseError,

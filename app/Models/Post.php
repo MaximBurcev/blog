@@ -47,6 +47,9 @@ class Post extends Model
         'selector',
         'translate',
         'translation_incomplete',
+        // Каким движком переведена статья: подмена основного движка запасным
+        // происходит молча, и без этой отметки деградация невидима.
+        'translated_by',
         'parse_status',
         'parse_error',
         'parsed_at',
