@@ -76,6 +76,11 @@ class SecurityHeadersTest extends TestCase
      */
     public function test_csp_allows_vite_dev_server_when_running_hot(): void
     {
+        // Глобальный withoutVite() из TestCase подменяет Vite заглушкой, у
+        // которой isRunningHot() всегда false, — а этот тест как раз про
+        // поведение при живом dev-сервере. Возвращаем настоящий.
+        $this->withVite();
+
         $hotFile = public_path('hot');
         $existed = file_exists($hotFile);
 

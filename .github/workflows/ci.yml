@@ -63,6 +63,13 @@ jobs:
           key: composer-${{ hashFiles('composer.lock') }}
           restore-keys: composer-
 
+      - name: Кэш npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-
+
       # Раньше composer install: его post-autoload-dump поднимает Laravel
       # (package:discover, filament:upgrade), а без .env и APP_KEY это лишняя
       # хрупкость ровно в том сценарии, ради которого workflow и заведён.
@@ -87,6 +94,15 @@ jobs:
         # через imagettftext, которому нужен DejaVuSans-Bold (путь захардкожен
         # в DiagramTranslatorService). Без шрифта они упадут.
         run: sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-eng tesseract-ocr-rus fonts-dejavu-core
+
+      # Отдельным шагом, а не ради тестов: они от собранного фронта не зависят
+      # (TestCase::withoutVite). Здесь проверяется, что сборка вообще проходит —
+      # деплой запускает её на сервере, и до сих пор поломка фронта всплывала
+      # только там. npm ci, а не install: lock должен соблюдаться.
+      - name: Собрать фронтенд
+        run: |
+          npm ci
+          npm run build
 
       - name: Тесты
         # --fail-on-empty-test-suite: PHPUnit выходит с нулём, если не нашёл ни
