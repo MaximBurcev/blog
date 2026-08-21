@@ -3,6 +3,8 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Post;
+use App\Service\Translation\FallbackTranslator;
+use App\Service\Translation\GeminiTranslator;
 use Carbon\Carbon;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
@@ -49,7 +51,65 @@ class ParsingStatusOverview extends BaseWidget
             $this->queueStat($queue['pending_posts'], $queue['pending_releases'], $queue['running'], $queue['oldest_pending_at']),
             $this->lastParsedStat(),
             $this->errorsStat(),
+            $this->translatorStat(),
         ];
+    }
+
+    /**
+     * Жив ли переводчик.
+     *
+     * Отказ LLM — единственная поломка конвейера, которая ничего не ломает
+     * видимо: очередь идёт, статьи выходят, просто переведены они машинным
+     * скрейпером вместо модели. Узнать об этом можно было только из laravel.log
+     * или по колонке «Движок» в списке постов, то есть постфактум и вручную —
+     * ровно тот сценарий, в котором OCR полгода не работал незамеченным.
+     *
+     * Плитка живёт здесь, а не на странице аналитики, по той же логике, по
+     * которой здесь стоит состояние очереди: это вопрос «конвейер жив?», а не
+     * «сколько мы потратили». К тому же виджет опрашивается каждые 10 секунд, а
+     * размыкатель держится 5 минут — авария попадает на глаза, пока она идёт.
+     */
+    private function translatorStat(): Stat
+    {
+        [$value, $description, $color] = $this->translatorState();
+
+        return Stat::make('Переводчик', $value)
+            ->description($description)
+            ->icon('heroicon-m-language')
+            ->color($color);
+    }
+
+    /**
+     * @return array{0: string, 1: string, 2: string}
+     */
+    private function translatorState(): array
+    {
+        if (config('translation.driver') === 'google') {
+            return ['скрейпер', 'Модель отключена настройкой TRANSLATION_DRIVER', 'gray'];
+        }
+
+        // Имя движка спрашиваем у него самого, а не пишем строкой: разъехавшись
+        // с Translator::name(), литерал заставил бы isDown() отвечать «жив»
+        // навсегда — то есть плитка соврала бы ровно в той аварии, ради которой
+        // заведена.
+        $engine = app(GeminiTranslator::class)->name();
+
+        // Запасной движок подставляется только при включённом fallback
+        // (AppServiceProvider). Без него отказ модели означает не «переведёт
+        // скрейпер», а «статья останется непереведённой», и обещать откат
+        // здесь было бы прямым враньём.
+        $fallback = (bool) config('translation.fallback');
+        $consequence = $fallback ? 'статьи переводит скрейпер' : 'статьи остаются без перевода';
+
+        if ((string) config('translation.gemini.key') === '') {
+            return ['не работает', 'Не задан GEMINI_API_KEY — '.$consequence, 'danger'];
+        }
+
+        if (FallbackTranslator::isDown($engine)) {
+            return ['не работает', 'Модель ответила ошибкой и временно отключена — '.$consequence, 'danger'];
+        }
+
+        return ['модель', (string) config('translation.gemini.model'), 'success'];
     }
 
     /**

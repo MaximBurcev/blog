@@ -79,13 +79,26 @@ class FallbackTranslator implements Translator
      */
     private function primaryIsDown(): bool
     {
+        return self::isDown($this->primary->name());
+    }
+
+    /**
+     * Разомкнут ли сейчас движок.
+     *
+     * Публично — ради плитки состояния в админке: до неё узнать, что перевод
+     * молча ушёл на скрейпер, можно было только из laravel.log. Ключ кэша
+     * остаётся приватным намеренно, иначе он немедленно расползётся по
+     * вызывающим и разъедется с markDown().
+     */
+    public static function isDown(string $engine): bool
+    {
         $seconds = (int) config('translation.circuit_breaker_seconds');
 
         if ($seconds <= 0) {
             return false;
         }
 
-        return Cache::has(self::downKey($this->primary->name()));
+        return Cache::has(self::downKey($engine));
     }
 
     /**

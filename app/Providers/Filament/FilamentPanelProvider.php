@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Analytics\Widgets\LlmUsage;
 use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
 use App\Filament\Analytics\Widgets\PublishingPace;
@@ -73,6 +74,7 @@ class FilamentPanelProvider extends PanelProvider
                 PostViewsChart::class,
                 TrafficSources::class,
                 PublishingPace::class,
+                LlmUsage::class,
                 SearchQueries::class,
                 TopPostsByViews::class,
             ])

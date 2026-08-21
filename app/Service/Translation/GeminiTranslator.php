@@ -2,6 +2,7 @@
 
 namespace App\Service\Translation;
 
+use App\Models\LlmCall;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\RequestException;
@@ -69,19 +70,24 @@ class GeminiTranslator implements Translator
      */
     private function translateSingle(string $html): TranslationResult
     {
-        $answer = $this->ask($this->htmlPrompt($html));
+        $answer = $this->ask($this->htmlPrompt($html), LlmCall::KIND_HTML);
 
-        if ($answer === null) {
+        if ($answer->text === null) {
             return TranslationResult::failure($html);
         }
 
-        $translated = $this->validator->unwrap($answer);
+        $translated = $this->validator->unwrap($answer->text);
 
         if ($reason = $this->validator->reasonToReject($html, $translated)) {
             Log::warning('GeminiTranslator: перевод отклонён валидацией', [
                 'reason' => $reason,
                 'excerpt' => mb_substr($html, 0, 200),
             ]);
+
+            // Токены за этот ответ уже списаны, поэтому вызов не исчезает из
+            // журнала, а меняет исход: доля брака — единственный ранний признак
+            // того, что модель после смены версии стала отвечать хуже.
+            $answer->call?->markRejected($reason);
 
             return TranslationResult::failure($html);
         }
@@ -95,13 +101,22 @@ class GeminiTranslator implements Translator
             return TranslationResult::success($text, $this->name());
         }
 
-        $answer = $this->ask($this->textPrompt($text));
+        $answer = $this->ask($this->textPrompt($text), LlmCall::KIND_TEXT);
 
-        if ($answer === null || trim($answer) === '') {
+        // Два разных случая, и перекрашивать можно только второй: при text ===
+        // null ответа не было вовсе и в журнале уже стоит настоящая причина
+        // (ошибка сети, обрыв генерации), затирать её «отклонён» нельзя.
+        if ($answer->text === null) {
             return TranslationResult::failure($text);
         }
 
-        $translated = trim($this->validator->unwrap($answer));
+        if (trim($answer->text) === '') {
+            $answer->call?->markRejected('пустой ответ');
+
+            return TranslationResult::failure($text);
+        }
+
+        $translated = trim($this->validator->unwrap($answer->text));
 
         if ($reason = $this->reasonToRejectTitle($text, $translated)) {
             Log::warning('GeminiTranslator: перевод заголовка отклонён', [
@@ -109,6 +124,8 @@ class GeminiTranslator implements Translator
                 'original' => mb_substr($text, 0, 120),
                 'answer' => mb_substr($translated, 0, 120),
             ]);
+
+            $answer->call?->markRejected($reason);
 
             return TranslationResult::failure($text);
         }
@@ -225,29 +242,35 @@ class GeminiTranslator implements Translator
     /**
      * Один запрос к модели с повторами.
      *
-     * Возвращает null, если ответа добиться не удалось — решение о запасном
-     * движке принимает вызывающий, не этот класс.
+     * Возвращает ответ с пустым text, если добиться его не удалось — решение о
+     * запасном движке принимает вызывающий, не этот класс. Каждый исход,
+     * включая несостоявшиеся вызовы, попадает в журнал llm_calls: расход и
+     * причины отказов иначе видны только в laravel.log, который ротируется.
      */
-    private function ask(string $prompt): ?string
+    private function ask(string $prompt, string $kind): LlmAnswer
     {
+        $model = (string) config('translation.gemini.model');
         $key = (string) config('translation.gemini.key');
 
         if ($key === '') {
             Log::warning('GeminiTranslator: GEMINI_API_KEY не задан');
             FallbackTranslator::markDown($this->name());
 
-            return null;
+            return $this->record($kind, $model, LlmCall::OUTCOME_NO_KEY);
         }
 
         if ($this->deadline !== null && microtime(true) >= $this->deadline) {
             Log::warning('GeminiTranslator: бюджет времени на статью исчерпан');
 
-            return null;
+            return $this->record($kind, $model, LlmCall::OUTCOME_BUDGET);
         }
 
-        $model = config('translation.gemini.model');
         $url = rtrim((string) config('translation.gemini.endpoint'), '/')
             ."/models/{$model}:generateContent";
+
+        $delays = (array) config('translation.gemini.retry_delays_ms');
+        $attempts = 1;
+        $startedAt = microtime(true);
 
         try {
             $request = $this->http
@@ -263,8 +286,20 @@ class GeminiTranslator implements Translator
                 // 5xx — временная беда на стороне Google. На 400 и 403
                 // (невалидный ключ, неподдерживаемый регион) повтор бессмыслен.
                 ->retry(
-                    (array) config('translation.gemini.retry_delays_ms'),
-                    when: fn ($exception) => $this->isRetryable($exception),
+                    $delays,
+                    when: function (\Throwable $exception) use (&$attempts, $delays): bool {
+                        if (! $this->isRetryable($exception)) {
+                            return false;
+                        }
+
+                        // Единственное место, где видна каждая неудачная
+                        // попытка: сам клиент их не считает. Потолок — по числу
+                        // задержек, потому что на последней попытке этот
+                        // колбэк тоже вызывается, а повтора за ним уже нет.
+                        $attempts = min($attempts + 1, count($delays) + 1);
+
+                        return true;
+                    },
                     throw: false
                 )
                 ->withHeaders([
@@ -289,8 +324,18 @@ class GeminiTranslator implements Translator
                 'message' => $exception->getMessage(),
             ]);
 
-            return null;
+            return $this->record($kind, $model, LlmCall::OUTCOME_ERROR,
+                startedAt: $startedAt,
+                attempts: $attempts,
+                error: $exception::class.': '.$exception->getMessage(),
+            );
         }
+
+        // Счётчики Google приходят с каждым ответом, в том числе с обрезанным:
+        // за такой ответ мы платим ровно так же, и не записать его значило бы
+        // занизить расход именно там, где он потрачен впустую.
+        $usage = $response->json('usageMetadata');
+        $usage = is_array($usage) ? $usage : [];
 
         if ($response->failed()) {
             Log::warning('GeminiTranslator: ошибка API', [
@@ -307,10 +352,17 @@ class GeminiTranslator implements Translator
                 FallbackTranslator::markDown($this->name());
             }
 
-            return null;
+            return $this->record($kind, $model, LlmCall::OUTCOME_ERROR,
+                startedAt: $startedAt,
+                attempts: $attempts,
+                usage: $usage,
+                status: $response->status(),
+                error: mb_substr($response->body(), 0, 191),
+            );
         }
 
         $finishReason = $response->json('candidates.0.finishReason');
+        $finishReason = is_string($finishReason) ? $finishReason : null;
 
         // Обрезанный ответ выглядит как обычный: приходит валидный HTML, просто
         // без хвоста статьи. Без этой проверки половина текста молча пропадала
@@ -321,7 +373,13 @@ class GeminiTranslator implements Translator
                 'finish_reason' => $finishReason,
             ]);
 
-            return null;
+            return $this->record($kind, $model, LlmCall::OUTCOME_TRUNCATED,
+                startedAt: $startedAt,
+                attempts: $attempts,
+                usage: $usage,
+                status: $response->status(),
+                finishReason: $finishReason,
+            );
         }
 
         $text = $response->json('candidates.0.content.parts.0.text');
@@ -330,14 +388,74 @@ class GeminiTranslator implements Translator
             Log::warning('GeminiTranslator: неожиданная структура ответа', [
                 // Ответ без текста — это чаще всего блокировка фильтрами
                 // безопасности: finishReason скажет, какими именно.
-                'finish_reason' => $response->json('candidates.0.finishReason'),
+                'finish_reason' => $finishReason,
                 'body' => mb_substr($response->body(), 0, 300),
             ]);
 
-            return null;
+            return $this->record($kind, $model, LlmCall::OUTCOME_MALFORMED,
+                startedAt: $startedAt,
+                attempts: $attempts,
+                usage: $usage,
+                status: $response->status(),
+                finishReason: $finishReason,
+            );
         }
 
-        return $text;
+        return $this->record($kind, $model, LlmCall::OUTCOME_OK,
+            startedAt: $startedAt,
+            attempts: $attempts,
+            usage: $usage,
+            status: $response->status(),
+            finishReason: $finishReason,
+            text: $text,
+        );
+    }
+
+    /**
+     * Кладёт вызов в журнал и отдаёт ответ вызывающему.
+     *
+     * Единственная точка записи: любой выход из ask() проходит через неё,
+     * поэтому «вызовов в журнале меньше, чем было на самом деле» — состояние,
+     * которого по построению не бывает.
+     *
+     * @param  array<string, mixed>  $usage
+     */
+    private function record(
+        string $kind,
+        string $model,
+        string $outcome,
+        ?float $startedAt = null,
+        int $attempts = 0,
+        array $usage = [],
+        ?int $status = null,
+        ?string $finishReason = null,
+        ?string $text = null,
+        ?string $error = null,
+    ): LlmAnswer {
+        $call = LlmCall::recording(fn (): LlmCall => LlmCall::create([
+            'engine' => $this->name(),
+            'model' => $model,
+            'kind' => $kind,
+            'outcome' => $outcome,
+            'prompt_tokens' => (int) ($usage['promptTokenCount'] ?? 0),
+            'output_tokens' => (int) ($usage['candidatesTokenCount'] ?? 0),
+            'thinking_tokens' => (int) ($usage['thoughtsTokenCount'] ?? 0),
+            // NULL, а не ноль: у несостоявшегося вызова длительности не
+            // существует, и ноль портил бы среднюю по всем остальным.
+            'duration_ms' => $startedAt === null ? null : (int) round((microtime(true) - $startedAt) * 1000),
+            'attempts' => $attempts,
+            'http_status' => $status,
+            'finish_reason' => $finishReason,
+            // Тело ответа сюда приходит от чужого сервиса и текстом быть не
+            // обязано: страница ошибки от прокси может оказаться бинарной, а
+            // невалидный UTF-8 роняет INSERT — вызов пропал бы из журнала
+            // целиком, хотя записать его мы как раз и хотели.
+            'error' => $error === null ? null : mb_substr(
+                mb_convert_encoding($error, 'UTF-8', 'UTF-8'), 0, 191
+            ),
+        ]));
+
+        return new LlmAnswer($text, $call);
     }
 
     private function isRetryable(\Throwable $exception): bool

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Analytics\Widgets\LlmUsage;
 use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
 use App\Filament\Analytics\Widgets\PublishingPace;
@@ -67,6 +68,9 @@ class Analytics extends Page
             PostViewsChart::class,
             TrafficSources::class,
             PublishingPace::class,
+            // Сразу за темпом публикаций: тот отвечает, сколько статей мы
+            // выпустили, этот — во что они обошлись.
+            LlmUsage::class,
             SearchQueries::class,
             TopPostsByViews::class,
         ];

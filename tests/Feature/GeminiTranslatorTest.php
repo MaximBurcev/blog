@@ -7,6 +7,7 @@ use App\Service\Translation\GeminiTranslator;
 use App\Service\Translation\TranslatedHtmlValidator;
 use App\Service\Translation\TranslationResult;
 use App\Service\Translation\Translator;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +22,15 @@ use Tests\TestCase;
  */
 class GeminiTranslatorTest extends TestCase
 {
+    /**
+     * БД нужна не самому переводу, а журналу вызовов: каждый заход к модели
+     * пишет строку в llm_calls. Запись намеренно не роняет перевод при отказе
+     * БД, поэтому без миграций тесты остались бы зелёными, а расход не
+     * считался бы вовсе — ровно та тишина, ради ухода от которой журнал и
+     * заводился.
+     */
+    use RefreshDatabase;
+
     protected function setUp(): void
     {
         parent::setUp();
