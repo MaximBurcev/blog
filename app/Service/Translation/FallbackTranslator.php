@@ -2,6 +2,7 @@
 
 namespace App\Service\Translation;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -103,20 +104,39 @@ class FallbackTranslator implements Translator
 
     /**
      * Помечает движок нерабочим на время паузы.
+     *
+     * $seconds задаётся вызывающим там, где он знает про беду больше нас:
+     * исчерпанная суточная квота лечится не пятью минутами, а следующими
+     * сутками. Значение из конфига остаётся значением по умолчанию, а сам
+     * конфиг — главным рубильником: ноль отключает размыкатель целиком, каким
+     * бы ни был аргумент.
      */
-    public static function markDown(string $engine): void
+    public static function markDown(string $engine, ?int $seconds = null): void
     {
-        $seconds = (int) config('translation.circuit_breaker_seconds');
+        $default = (int) config('translation.circuit_breaker_seconds');
 
-        if ($seconds <= 0) {
+        // Конфиг — главный рубильник: ноль отключает размыкатель целиком,
+        // каким бы ни был аргумент.
+        if ($default <= 0) {
             return;
         }
 
-        Cache::put(self::downKey($engine), true, $seconds);
+        $seconds = $seconds !== null && $seconds > 0 ? $seconds : $default;
+        $until = now()->addSeconds($seconds);
+        $key = self::downKey($engine);
+
+        // Уже размокнутый движок не «чинится» более коротким отказом. Иначе
+        // рядовая пятиминутная пауза, легшая поверх часовой квотной, вернула
+        // бы нас к заведомо провальным попыткам через пять минут — и так по
+        // кругу до самого сброса квоты.
+        $until = max($until->timestamp, (int) Cache::get($key, 0));
+
+        Cache::put($key, $until, CarbonImmutable::createFromTimestamp($until));
 
         Log::warning('Перевод: движок помечен нерабочим', [
             'engine' => $engine,
             'seconds' => $seconds,
+            'until' => CarbonImmutable::createFromTimestamp($until)->toDateTimeString(),
         ]);
     }
 

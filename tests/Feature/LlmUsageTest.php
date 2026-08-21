@@ -15,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Sleep;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -201,6 +202,92 @@ class LlmUsageTest extends TestCase
 
         $this->assertSame(LlmCall::OUTCOME_OK, $call->outcome);
         $this->assertSame(2, $call->attempts);
+    }
+
+    public function test_spent_quota_stops_the_engine_instead_of_retrying_every_article(): void
+    {
+        // 429, переживший всю цепочку повторов, ждал дольше минутного окна —
+        // значит поминутный лимит успел смениться и дело не в нём. Суточная
+        // квота не восстановится ни через минуту, ни через пять, и без паузы
+        // каждая следующая статья платит за тот же отказ полной цепочкой
+        // ожиданий: на проде так ушло сорок минут воркера.
+        config([
+            'translation.circuit_breaker_seconds' => 300,
+            'translation.quota_pause_seconds' => 3600,
+            'translation.gemini.retry_delays_ms' => [0, 0, 61_000],
+        ]);
+
+        // Иначе прогон честно спит эту минуту: Http::fake подделывает ответы,
+        // но не паузы между попытками. syncWithCarbon двигает часы на время
+        // подделанного сна — иначе «сколько мы прождали» останется нулём.
+        Sleep::fake(syncWithCarbon: true);
+
+        Http::fake(['*' => Http::response(['error' => ['code' => 429]], 429)]);
+
+        $this->translator()->translateHtml('<p>Text</p>');
+
+        $this->assertTrue(FallbackTranslator::isDown('gemini'));
+
+        // Проверяется именно ЧАСОВАЯ пауза, а не факт размыкания: с обычными
+        // пятью минутами движок ожил бы прямо к следующей статье, и весь смысл
+        // отличать квоту от темпа пропал бы. Булев isDown() этого не ловит.
+        $this->travel(11)->minutes();
+        $this->assertTrue(FallbackTranslator::isDown('gemini'), 'пауза оказалась короче квотной');
+
+        $this->travel(50)->minutes();
+        $this->assertFalse(FallbackTranslator::isDown('gemini'), 'пауза не должна быть вечной');
+    }
+
+    public function test_a_short_burst_does_not_disable_the_engine(): void
+    {
+        // Ждали меньше минуты — ничего не доказано: поминутный лимит мог и не
+        // успеть смениться, и пауза была бы наказанием за всплеск.
+        config([
+            'translation.circuit_breaker_seconds' => 300,
+            'translation.gemini.retry_delays_ms' => [0, 0, 5_000],
+        ]);
+
+        Sleep::fake(syncWithCarbon: true);
+
+        Http::fake(['*' => Http::response(['error' => ['code' => 429]], 429)]);
+
+        $this->translator()->translateHtml('<p>Text</p>');
+
+        $this->assertFalse(FallbackTranslator::isDown('gemini'));
+    }
+
+    public function test_quota_pause_is_not_cut_short_by_an_ordinary_failure(): void
+    {
+        // Рядовая пятиминутная пауза, легшая поверх часовой квотной, вернула
+        // бы нас к заведомо провальным попыткам через пять минут — и так по
+        // кругу до самого сброса квоты.
+        config(['translation.circuit_breaker_seconds' => 300]);
+
+        FallbackTranslator::markDown('gemini', 3600);
+        FallbackTranslator::markDown('gemini');
+
+        $this->travel(11)->minutes();
+
+        $this->assertTrue(FallbackTranslator::isDown('gemini'));
+    }
+
+    public function test_missing_quota_pause_setting_still_disables_the_engine(): void
+    {
+        // Ноль в настройке — это «значения нет», а не «паузы не надо».
+        // Пропустив её, фикс молча не срабатывал бы, а лог обещал паузу.
+        config([
+            'translation.circuit_breaker_seconds' => 300,
+            'translation.quota_pause_seconds' => 0,
+            'translation.gemini.retry_delays_ms' => [0, 0, 61_000],
+        ]);
+
+        Sleep::fake(syncWithCarbon: true);
+
+        Http::fake(['*' => Http::response(['error' => ['code' => 429]], 429)]);
+
+        $this->translator()->translateHtml('<p>Text</p>');
+
+        $this->assertTrue(FallbackTranslator::isDown('gemini'));
     }
 
     public function test_journal_failure_does_not_cost_us_the_translation(): void

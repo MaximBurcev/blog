@@ -3,6 +3,7 @@
 namespace App\Service\Translation;
 
 use App\Models\LlmCall;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\RequestException;
@@ -34,6 +35,15 @@ class GeminiTranslator implements Translator
      * запасному движку, чем потерять её целиком.
      */
     private ?float $deadline = null;
+
+    /**
+     * Ширина окна, в котором Google считает запросы в минуту.
+     *
+     * Нужна, чтобы отличить «слишком часто» от «на сегодня всё»: и то и другое
+     * приходит кодом 429 с одинаковым RESOURCE_EXHAUSTED, а лечится
+     * противоположным — первое ожиданием, второе прекращением попыток.
+     */
+    private const RATE_LIMIT_WINDOW_MS = 60_000;
 
     public function name(): string
     {
@@ -270,7 +280,9 @@ class GeminiTranslator implements Translator
 
         $delays = (array) config('translation.gemini.retry_delays_ms');
         $attempts = 1;
-        $startedAt = microtime(true);
+        // Carbon, а не microtime: тем же часам подчиняется Sleep, поэтому
+        // прождённое время измеримо и в тестах, где сон подделан.
+        $startedAt = CarbonImmutable::now();
 
         try {
             $request = $this->http
@@ -352,6 +364,8 @@ class GeminiTranslator implements Translator
                 FallbackTranslator::markDown($this->name());
             }
 
+            $this->pauseIfQuotaIsSpent($response->status(), $startedAt);
+
             return $this->record($kind, $model, LlmCall::OUTCOME_ERROR,
                 startedAt: $startedAt,
                 attempts: $attempts,
@@ -424,7 +438,7 @@ class GeminiTranslator implements Translator
         string $kind,
         string $model,
         string $outcome,
-        ?float $startedAt = null,
+        ?CarbonImmutable $startedAt = null,
         int $attempts = 0,
         array $usage = [],
         ?int $status = null,
@@ -442,7 +456,7 @@ class GeminiTranslator implements Translator
             'thinking_tokens' => (int) ($usage['thoughtsTokenCount'] ?? 0),
             // NULL, а не ноль: у несостоявшегося вызова длительности не
             // существует, и ноль портил бы среднюю по всем остальным.
-            'duration_ms' => $startedAt === null ? null : (int) round((microtime(true) - $startedAt) * 1000),
+            'duration_ms' => $startedAt === null ? null : $this->elapsedMs($startedAt),
             'attempts' => $attempts,
             'http_status' => $status,
             'finish_reason' => $finishReason,
@@ -456,6 +470,55 @@ class GeminiTranslator implements Translator
         ]));
 
         return new LlmAnswer($text, $call);
+    }
+
+    /**
+     * Отличает исчерпанную квоту от обычного «слишком часто».
+     *
+     * Текст ошибки для этого не годится: у 429 по минуте и 429 по суткам он
+     * различается прозой Google, которую та вправе переписать в любой день.
+     * Надёжнее рассуждение о времени — 429, переживший ВСЮ цепочку повторов,
+     * ждал дольше минутного окна, а значит поминутный лимит за это время успел
+     * смениться и дело не в нём.
+     *
+     * Считаем по фактически прождённому времени, а не по сумме задержек из
+     * конфига: сумма отвечает на вопрос «сколько мы собирались ждать», а нужен
+     * ответ на «сколько прождали». Разойтись они могут запросто — обрыв связи
+     * возвращается мгновенно, и цепочка из трёх обрывов укладывается в
+     * секунды при тех же 62 в конфиге.
+     *
+     * Разница дорогая. Суточная квота не восстановится ни через минуту, ни
+     * через пять, и без паузы каждая следующая статья платит за один и тот же
+     * отказ полной цепочкой ожиданий: на проде 21.08.2026 после исчерпания
+     * бесплатных 20 запросов 18 статей подряд отдали на это около сорока минут
+     * воркера, чтобы в итоге всё равно уйти на скрейпер.
+     */
+    private function pauseIfQuotaIsSpent(int $status, CarbonImmutable $startedAt): void
+    {
+        if ($status !== 429) {
+            return;
+        }
+
+        // Ждали меньше минуты — ничего не доказано: поминутный лимит мог и не
+        // успеть смениться, и пауза была бы наказанием за всплеск.
+        if ($this->elapsedMs($startedAt) < self::RATE_LIMIT_WINDOW_MS) {
+            return;
+        }
+
+        $pause = (int) config('translation.quota_pause_seconds');
+
+        Log::warning('GeminiTranslator: похоже, исчерпана квота, а не превышен темп');
+
+        // Ноль или отсутствие настройки — это «значения нет», а не «паузы не
+        // надо»: подставляем обычную. Своего Log::warning про длительность
+        // здесь нет намеренно — его пишет markDown, и только когда пауза
+        // действительно поставлена, иначе лог обещал бы несделанное.
+        FallbackTranslator::markDown($this->name(), $pause > 0 ? $pause : null);
+    }
+
+    private function elapsedMs(CarbonImmutable $startedAt): int
+    {
+        return (int) round(abs($startedAt->diffInMilliseconds(CarbonImmutable::now())));
     }
 
     private function isRetryable(\Throwable $exception): bool
