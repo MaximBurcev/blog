@@ -7,6 +7,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -52,15 +53,6 @@ class GeminiTranslator implements Translator
     {
         return $this->deadlineHolder ?? app(TranslationDeadline::class);
     }
-
-    /**
-     * Ширина окна, в котором Google считает запросы в минуту.
-     *
-     * Нужна, чтобы отличить «слишком часто» от «на сегодня всё»: и то и другое
-     * приходит кодом 429 с одинаковым RESOURCE_EXHAUSTED, а лечится
-     * противоположным — первое ожиданием, второе прекращением попыток.
-     */
-    private const RATE_LIMIT_WINDOW_MS = 60_000;
 
     /**
      * Имя движка включает модель, и это не косметика.
@@ -450,7 +442,7 @@ class GeminiTranslator implements Translator
                 FallbackTranslator::markDown($this->name());
             }
 
-            $this->pauseIfQuotaIsSpent($response->status(), $startedAt);
+            $this->pauseIfQuotaIsSpent($response);
 
             return $this->record($kind, $model, LlmCall::OUTCOME_ERROR,
                 startedAt: $startedAt,
@@ -561,45 +553,57 @@ class GeminiTranslator implements Translator
     /**
      * Отличает исчерпанную квоту от обычного «слишком часто».
      *
-     * Текст ошибки для этого не годится: у 429 по минуте и 429 по суткам он
-     * различается прозой Google, которую та вправе переписать в любой день.
-     * Надёжнее рассуждение о времени — 429, переживший ВСЮ цепочку повторов,
-     * ждал дольше минутного окна, а значит поминутный лимит за это время успел
-     * смениться и дело не в нём.
+     * Google сообщает это сам, машиночитаемо: в error.details лежит
+     * QuotaFailure с полем quotaId вида
+     * «GenerateRequestsPerDayPerProjectPerModel-FreeTier». Признак суточного
+     * лимита — PerDay в идентификаторе.
      *
-     * Считаем по фактически прождённому времени, а не по сумме задержек из
-     * конфига: сумма отвечает на вопрос «сколько мы собирались ждать», а нужен
-     * ответ на «сколько прождали». Разойтись они могут запросто — обрыв связи
-     * возвращается мгновенно, и цепочка из трёх обрывов укладывается в
-     * секунды при тех же 62 в конфиге.
+     * Раньше здесь стояла эвристика по времени: 429, переживший цепочку
+     * повторов длиннее минутного окна, считался исчерпанной квотой. Она
+     * оказалась слишком жадной. 24.08.2026 gemini-3.5-flash получила 429,
+     * потратив за сутки всего пять HTTP-запросов из двадцати, — то есть это
+     * был всплеск темпа, а не квота, — но четыре медленные попытки заняли 332
+     * секунды, и здоровая модель была отключена на час. Цена ошибки
+     * несимметрична: лишняя пауза выключает работающую модель, а её
+     * отсутствие стоит одной цепочки повторов.
      *
-     * Разница дорогая. Суточная квота не восстановится ни через минуту, ни
-     * через пять, и без паузы каждая следующая статья платит за один и тот же
-     * отказ полной цепочкой ожиданий: на проде 21.08.2026 после исчерпания
-     * бесплатных 20 запросов 18 статей подряд отдали на это около сорока минут
-     * воркера, чтобы в итоге всё равно уйти на скрейпер.
+     * Поэтому при отсутствии quotaId паузу НЕ ставим: молчание Google — не
+     * доказательство исчерпания.
      */
-    private function pauseIfQuotaIsSpent(int $status, CarbonImmutable $startedAt): void
+    private function pauseIfQuotaIsSpent(Response $response): void
     {
-        if ($status !== 429) {
+        if ($response->status() !== 429) {
             return;
         }
 
-        // Ждали меньше минуты — ничего не доказано: поминутный лимит мог и не
-        // успеть смениться, и пауза была бы наказанием за всплеск.
-        if ($this->elapsedMs($startedAt) < self::RATE_LIMIT_WINDOW_MS) {
+        if (! $this->isDailyQuotaFailure($response)) {
             return;
         }
 
         $pause = (int) config('translation.quota_pause_seconds');
 
-        Log::warning('GeminiTranslator: похоже, исчерпана квота, а не превышен темп');
+        Log::warning('GeminiTranslator: исчерпана суточная квота модели', [
+            'model' => $this->model(),
+        ]);
 
         // Ноль или отсутствие настройки — это «значения нет», а не «паузы не
-        // надо»: подставляем обычную. Своего Log::warning про длительность
-        // здесь нет намеренно — его пишет markDown, и только когда пауза
-        // действительно поставлена, иначе лог обещал бы несделанное.
+        // надо»: подставляем обычную. Своего лога про длительность здесь нет
+        // намеренно — его пишет markDown, и только когда пауза действительно
+        // поставлена, иначе лог обещал бы несделанное.
         FallbackTranslator::markDown($this->name(), $pause > 0 ? $pause : null);
+    }
+
+    private function isDailyQuotaFailure(Response $response): bool
+    {
+        foreach ((array) $response->json('error.details', []) as $detail) {
+            foreach ((array) ($detail['violations'] ?? []) as $violation) {
+                if (str_contains((string) ($violation['quotaId'] ?? ''), 'PerDay')) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function elapsedMs(CarbonImmutable $startedAt): int

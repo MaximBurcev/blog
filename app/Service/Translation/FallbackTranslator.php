@@ -25,14 +25,46 @@ class FallbackTranslator implements Translator
     public function __construct(
         private readonly Translator $primary,
         private readonly Translator $fallback,
+        private readonly ?TranslationDeadline $deadlineHolder = null,
     ) {}
+
+    private function deadline(): TranslationDeadline
+    {
+        return $this->deadlineHolder ?? app(TranslationDeadline::class);
+    }
 
     public function name(): string
     {
         return $this->primary->name();
     }
 
+    /**
+     * Срок на статью ставится ЗДЕСЬ, а не в движке, и держится до конца всей
+     * цепочки.
+     *
+     * Движок его тоже умеет ставить — на случай, когда обёртки нет вовсе
+     * (одна модель, откат выключен), — но владеть им в цепочке он не может:
+     * звенья работают последовательно, и `translateHtml` основного успевает
+     * вернуться и снять срок ДО того, как позовут запасного. Тот ставил бы
+     * его заново, и бюджет снова умножался бы на длину цепочки. Ровно это и
+     * случилось с постом 236: 152 секунды на первой модели, 332 на второй,
+     * третья перевела статью за 52 — но джобу к тому моменту уже убил таймаут,
+     * и перевод не успел сохраниться.
+     */
     public function translateHtml(string $html): TranslationResult
+    {
+        $owns = $this->deadline()->start((int) config('translation.gemini.budget_seconds'));
+
+        try {
+            return $this->translateHtmlWithinDeadline($html);
+        } finally {
+            if ($owns) {
+                $this->deadline()->stop();
+            }
+        }
+    }
+
+    private function translateHtmlWithinDeadline(string $html): TranslationResult
     {
         if ($this->primaryIsDown()) {
             return $this->fallback->translateHtml($html);

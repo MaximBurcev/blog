@@ -62,7 +62,9 @@ class AppServiceProvider extends ServiceProvider
                     $app->make(TranslationDeadline::class),
                 );
 
-                $chain = $chain === null ? $engine : new FallbackTranslator($engine, $chain);
+                $chain = $chain === null
+                    ? $engine
+                    : new FallbackTranslator($engine, $chain, $app->make(TranslationDeadline::class));
             }
 
             return $chain ?? $app->make(GoogleScraperTranslator::class);

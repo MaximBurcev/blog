@@ -224,7 +224,7 @@ class LlmUsageTest extends TestCase
         // подделанного сна — иначе «сколько мы прождали» останется нулём.
         Sleep::fake(syncWithCarbon: true);
 
-        Http::fake(['*' => Http::response(['error' => ['code' => 429]], 429)]);
+        Http::fake(['*' => Http::response($this->dailyQuotaError(), 429)]);
 
         $this->translator()->translateHtml('<p>Text</p>');
 
@@ -240,22 +240,56 @@ class LlmUsageTest extends TestCase
         $this->assertFalse(FallbackTranslator::isDown('gemini-3.6-flash'), 'пауза не должна быть вечной');
     }
 
-    public function test_a_short_burst_does_not_disable_the_engine(): void
+    public function test_rate_limit_burst_does_not_disable_the_engine(): void
     {
-        // Ждали меньше минуты — ничего не доказано: поминутный лимит мог и не
-        // успеть смениться, и пауза была бы наказанием за всплеск.
+        // 429 по темпу, а не по квоте: QuotaFailure с PerDay Google не
+        // присылает. Прежняя эвристика мерила длительность цепочки повторов и
+        // на этих же данных отключила бы модель на час — так 24.08.2026 и
+        // выключили здоровую gemini-3.5-flash, потратившую за сутки пять
+        // HTTP-запросов из двадцати. Цена ошибки несимметрична: лишняя пауза
+        // выключает рабочую модель, а её отсутствие стоит одной цепочки.
         config([
             'translation.circuit_breaker_seconds' => 300,
-            'translation.gemini.retry_delays_ms' => [0, 0, 5_000],
+            'translation.gemini.retry_delays_ms' => [0, 0, 61_000],
         ]);
 
         Sleep::fake(syncWithCarbon: true);
 
-        Http::fake(['*' => Http::response(['error' => ['code' => 429]], 429)]);
+        Http::fake(['*' => Http::response([
+            'error' => ['code' => 429, 'message' => 'Resource has been exhausted'],
+        ], 429)]);
 
         $this->translator()->translateHtml('<p>Text</p>');
 
-        $this->assertFalse(FallbackTranslator::isDown('gemini-3.6-flash'));
+        $this->assertFalse(
+            FallbackTranslator::isDown('gemini-3.6-flash'),
+            'без явного PerDay от Google модель отключать нельзя',
+        );
+    }
+
+    /**
+     * Ответ Google при исчерпании СУТОЧНОЙ квоты — с машиночитаемым quotaId,
+     * по которому только и можно отличить его от всплеска темпа.
+     *
+     * @return array<string, mixed>
+     */
+    private function dailyQuotaError(): array
+    {
+        return [
+            'error' => [
+                'code' => 429,
+                'message' => 'You exceeded your current quota',
+                'status' => 'RESOURCE_EXHAUSTED',
+                'details' => [[
+                    '@type' => 'type.googleapis.com/google.rpc.QuotaFailure',
+                    'violations' => [[
+                        'quotaMetric' => 'generativelanguage.googleapis.com/generate_content_free_tier_requests',
+                        'quotaId' => 'GenerateRequestsPerDayPerProjectPerModel-FreeTier',
+                        'quotaValue' => '20',
+                    ]],
+                ]],
+            ],
+        ];
     }
 
     public function test_quota_pause_is_not_cut_short_by_an_ordinary_failure(): void
@@ -285,7 +319,7 @@ class LlmUsageTest extends TestCase
 
         Sleep::fake(syncWithCarbon: true);
 
-        Http::fake(['*' => Http::response(['error' => ['code' => 429]], 429)]);
+        Http::fake(['*' => Http::response($this->dailyQuotaError(), 429)]);
 
         $this->translator()->translateHtml('<p>Text</p>');
 
@@ -313,7 +347,7 @@ class LlmUsageTest extends TestCase
 
         Http::fake([
             // Порядок фейков важен: более специфичный адрес первым.
-            '*gemini-3.6-flash*' => Http::response(['error' => ['code' => 429]], 429),
+            '*gemini-3.6-flash*' => Http::response($this->dailyQuotaError(), 429),
             '*gemini-3.5-flash*' => Http::response([
                 'candidates' => [[
                     'content' => ['parts' => [['text' => '<p>Перевод запасной моделью.</p>']]],
@@ -332,6 +366,56 @@ class LlmUsageTest extends TestCase
         $this->assertSame('gemini-3.5-flash', $result->engine);
         $this->assertTrue(FallbackTranslator::isDown('gemini-3.6-flash'), 'исчерпанная модель должна быть разомкнута');
         $this->assertFalse(FallbackTranslator::isDown('gemini-3.5-flash'), 'рабочая модель размыкаться не должна');
+    }
+
+    public function test_failing_model_does_not_hand_a_fresh_budget_to_the_next_one(): void
+    {
+        // Пост 236: 152 секунды на первой модели, 332 на второй, третья
+        // перевела статью за 52 — но джобу к тому моменту убил таймаут, и
+        // перевод не сохранился. Причина: срок снимал сам движок, возвращаясь
+        // ДО вызова запасного, и тот начинал отсчёт заново. Владеть сроком
+        // обязана цепочка.
+        config([
+            'translation.gemini.budget_seconds' => 240,
+            'translation.gemini.retry_delays_ms' => [0, 0, 61_000],
+            'translation.circuit_breaker_seconds' => 0,
+        ]);
+
+        Sleep::fake(syncWithCarbon: true);
+
+        $deadline = app(TranslationDeadline::class);
+        $remainingOnFallback = null;
+
+        Http::fake([
+            // Первая модель отвечает 429 и сжигает минуту на повторах.
+            '*gemini-3.6-flash*' => Http::response($this->dailyQuotaError(), 429),
+            // Вторая должна увидеть ОСТАТОК, а не свежие 240 секунд.
+            '*gemini-3.5-flash*' => function () use ($deadline, &$remainingOnFallback) {
+                $remainingOnFallback = $deadline->remaining();
+
+                return Http::response([
+                    'candidates' => [[
+                        'content' => ['parts' => [['text' => '<p>Перевод.</p>']]],
+                        'finishReason' => 'STOP',
+                    ]],
+                ]);
+            },
+        ]);
+
+        $chain = new FallbackTranslator(
+            new GeminiTranslator(app(HttpFactory::class), new TranslatedHtmlValidator, 'gemini-3.6-flash', $deadline),
+            new GeminiTranslator(app(HttpFactory::class), new TranslatedHtmlValidator, 'gemini-3.5-flash', $deadline),
+            $deadline,
+        );
+
+        $chain->translateHtml('<p>Source text.</p>');
+
+        $this->assertNotNull($remainingOnFallback, 'запасная модель должна была получить управление');
+        $this->assertLessThan(
+            200,
+            $remainingOnFallback,
+            'запасной достался свежий бюджет вместо остатка — цепочка снова длиннее таймаута джобы',
+        );
     }
 
     public function test_article_budget_is_shared_by_the_whole_chain(): void
