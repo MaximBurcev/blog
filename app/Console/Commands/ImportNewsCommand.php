@@ -25,7 +25,7 @@ class ImportNewsCommand extends Command
             return self::FAILURE;
         }
 
-        $total = ['dispatched' => 0, 'skipped' => 0];
+        $total = ['dispatched' => 0, 'skipped' => 0, 'exhausted' => 0];
 
         foreach ($urls as $url) {
             $this->line("Дайджест: {$url}");
@@ -47,6 +47,18 @@ class ImportNewsCommand extends Command
 
         $this->newLine();
         $this->info("Итого: поставлено задач {$total['dispatched']}, пропущено {$total['skipped']}");
+
+        // Отброшенные по исчерпанным попыткам показываем отдельной строкой, а
+        // не молча в «пропущено»: это не «уже разобрано», а «сдались». Тихо
+        // растущее число здесь означает, что дайджест носит ссылки, которые
+        // мы разобрать не умеем, — повод посмотреть на них, а не привыкнуть.
+        if ($total['exhausted'] > 0) {
+            $this->warn(
+                "Не будем больше пробовать: {$total['exhausted']} — попытки исчерпаны ".
+                '(лимит releases.news_retry_limit). Они видны в админке как посты с ошибкой разбора.'
+            );
+        }
+
         $this->line('Разбор идёт в очереди — следите за разделом «Посты» в админке.');
 
         return self::SUCCESS;

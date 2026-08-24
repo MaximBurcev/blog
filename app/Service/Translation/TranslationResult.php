@@ -14,6 +14,15 @@ namespace App\Service\Translation;
  */
 final readonly class TranslationResult
 {
+    /**
+     * Имя «движка», которым текст не переведён.
+     *
+     * Отдельная константа, потому что значение уезжает в posts.translated_by и
+     * читается отчётами: строковый литерал в двух местах разъехался бы, и часть
+     * непереведённых статей молча перестала бы попадать в выборку.
+     */
+    public const NO_ENGINE = 'none';
+
     public function __construct(
         public string $text,
         public string $engine,
@@ -41,6 +50,6 @@ final readonly class TranslationResult
      */
     public static function failure(string $original): self
     {
-        return new self($original, 'none', failed: true);
+        return new self($original, self::NO_ENGINE, failed: true);
     }
 }

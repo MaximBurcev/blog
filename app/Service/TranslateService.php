@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Service\Translation\TranslationResult;
 use App\Service\Translation\Translator;
 use App\Support\SelectorXPathBuilder;
 use DOMDocument;
@@ -81,11 +82,20 @@ class TranslateService
                 $data['content'] = $postContent;
             }
 
-            $data['translated_by'] = $result->engine;
+            // По результату, а не по тому, кто взялся за работу — см. тот же
+            // разбор в StorePostJob::translateContentNodes. Этот путь ведёт из
+            // админки и post:translate, и врать он должен не меньше того.
+            $translated = $result->text !== $source;
+
+            if (! $translated) {
+                $incomplete = true;
+            }
+
+            $data['translated_by'] = $translated ? $result->engine : TranslationResult::NO_ENGINE;
 
             Log::debug('TranslateService::translate: done', [
                 'title' => $data['title'] ?? null,
-                'engine' => $result->engine,
+                'engine' => $data['translated_by'],
             ]);
         } catch (\Throwable $exception) {
             // Исключение до/во время перевода — контент остался (частично)

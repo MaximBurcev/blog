@@ -142,7 +142,7 @@ class PostService
      */
     private function keepExistingContent(array $data, ?Post $existing): array
     {
-        if ($existing === null || filled($data['content'] ?? null) || blank($existing->content)) {
+        if ($existing === null || ! $this->newVersionIsWorse($data, $existing)) {
             return $data;
         }
 
@@ -151,8 +151,66 @@ class PostService
         $data['title'] = $existing->title;
         $data['code'] = $existing->code;
         $data['category_id'] = $existing->category_id ?: ($data['category_id'] ?? null);
+        // Признак движка едет вместе с текстом: оставив его от провалившейся
+        // попытки, мы бы подписали сохранённый перевод чужим именем.
+        $data['translated_by'] = $existing->translated_by;
+        $data['translation_incomplete'] = (bool) $existing->translation_incomplete;
 
         return $data;
+    }
+
+    /**
+     * Новая версия статьи хуже сохранённой, и записывать её нельзя.
+     *
+     * Два случая. Первый — разбор не дал контента вовсе (сбой скачивания,
+     * съехавший селектор): исходное назначение этого метода.
+     *
+     * Второй появился 24.08.2026 и стоил живого перевода. Контент разбор дал,
+     * но непереведённый: у модели кончилась суточная квота, скрейпер получил
+     * 429 на каждом блоке 44-килобайтной статьи — и поверх полного русского
+     * текста поста 236 лёг английский оригинал. Единственным следом осталась
+     * галочка «перевод неполный»; восстанавливали из ночного бэкапа.
+     *
+     * Меряем кириллицей, а не флагом translation_incomplete: флаг сообщает,
+     * что о себе думает переводчик, а вопрос стоит о тексте — скрейпер в том
+     * инциденте отчитался частичным успехом, то есть по флагу катастрофа не
+     * отличалась от лёгкой недоработки.
+     *
+     * Асимметрия намеренная. Отказ перезаписать в худшем случае лишает нас
+     * обновления статьи — оно повторится следующим разбором или правится
+     * руками. Перезапись уничтожает работу безвозвратно.
+     */
+    private function newVersionIsWorse(array $data, Post $existing): bool
+    {
+        if (blank($existing->content)) {
+            return false;
+        }
+
+        if (blank($data['content'] ?? null)) {
+            return true;
+        }
+
+        $before = $this->cyrillicCount((string) $existing->content);
+
+        // Сохранённая статья и так не переведена — терять нечего.
+        if ($before === 0) {
+            return false;
+        }
+
+        // Половина — запас на честную переработку статьи у источника:
+        // сокращения и правки бывают, а падение перевода вдвое при живом
+        // тексте — почти всегда сломанный переводчик.
+        return $this->cyrillicCount((string) $data['content']) < $before * 0.5;
+    }
+
+    private function cyrillicCount(string $html): int
+    {
+        // На невалидном UTF-8 preg_match_all возвращает false, а не 0 — и
+        // защита молча выключилась бы ровно на записях с сырым HTML источника
+        // (посты до 27.07.2026). Приводим кодировку, как в GeminiTranslator.
+        $html = mb_convert_encoding($html, 'UTF-8', 'UTF-8');
+
+        return (int) preg_match_all('/\p{Cyrillic}/u', $html);
     }
 
     public function update(PostData $postData, $post): Post

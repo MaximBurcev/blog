@@ -9,6 +9,7 @@ use App\Service\ChallengeSolverClient;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
+use App\Service\Translation\TranslationResult;
 use App\Service\Translation\Translator;
 use App\Support\ContentSelectorResolver;
 use App\Support\FeedArticleLocator;
@@ -906,21 +907,34 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
 
     /**
      * Заполняет заголовок и контент поста из DOM статьи: выбирает
-     * заголовок среди кандидатов <h1>, переводит обложку, чистит
-     * интерфейсный мусор и переводит содержимое по CSS/ID-селектору.
+     * заголовок среди кандидатов <h1>, чистит интерфейсный мусор, переводит
+     * содержимое по CSS/ID-селектору и только потом — заголовок и обложку.
+     *
+     * Порядок именно такой, а не обратный, и это не косметика. Заголовок
+     * переводится ПОСЛЕ того, как контент извлёкся: страница, которая не
+     * отдала тела статьи, всё равно станет заглушкой, а перевод её заголовка
+     * — это оплаченный запрос к модели за результат, который никто не увидит.
+     * Пока новостной импорт ходил по расписанию, он каждое утро перезапускал
+     * десяток таких заглушек (ролики YouTube, главная php.net), и 24.08.2026
+     * ВСЕ 11 вызовов модели за сутки пришлись на них — 55% бесплатной квоты.
+     *
+     * Заглушка при этом не остаётся безымянной: сырой заголовок кладётся в
+     * data['title'] сразу, просто по-английски. Для непереведённой ссылки в
+     * админке этого достаточно, а проверка «на странице не найден заголовок»
+     * (см. handle) продолжает работать как раньше.
      */
     private function extractArticle(DOMDocument $dom, DOMNodeList $h1): void
     {
-        $title = $this->selectArticleTitleNode($h1)->nodeValue;
+        $this->data['title'] = $this->selectArticleTitleNode($h1)->nodeValue;
 
-        $titleResult = $this->translator->translateText($title);
-        $this->data['title'] = $titleResult->text;
-
-        if ($titleResult->failed) {
-            $this->translationFallbacks++;
-        }
-
-        $this->translateCoverImage();
+        // Запоминаем ДО извлечения контента, была ли у статьи своя обложка.
+        // Ниже translateContentNodes() при отсутствии preview_image берёт
+        // первую картинку из тела статьи — и если спросить об обложке после
+        // него, под OCR попадёт внутренняя иллюстрация. Режим headingOnly
+        // рассчитан на обложку площадки, а на диаграмме или скриншоте он
+        // закрашивает самый крупный текстовый блок и рисует поверх перевод.
+        // Файл переписывается на месте, бэкапа нет — потеря безвозвратна.
+        $hasOwnCover = filled($this->data['preview_image'] ?? null);
 
         // Категория определяется позже, в PostService::store()/update() —
         // там уже доступен полный текст статьи (см. CategoryDetectorService),
@@ -943,9 +957,32 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         $xpathQuery = SelectorXPathBuilder::build($selector);
         $nodes = $finder->query($xpathQuery);
 
-        Log::debug('selector nodes found', ['selector' => $selector, 'xpath' => $xpathQuery, 'count' => $nodes->count()]);
+        Log::debug('selector nodes found', ['selector' => $selector, 'xpath' => $xpathQuery, 'count' => $nodes === false ? 0 : $nodes->count()]);
+
+        // Селектор ничего не нашёл — тела статьи на странице нет. Выходим до
+        // обращения к модели и до OCR: заглушке ни то ни другое не нужно, а
+        // стоят они запроса к внешнему API и секунд процессорного времени.
+        if ($nodes === false || $nodes->count() === 0) {
+            return;
+        }
 
         $this->translateContentNodes($dom, $nodes);
+
+        // Узлы нашлись, но текста в них не оказалось — тот же случай.
+        if (empty($this->data['content'])) {
+            return;
+        }
+
+        $titleResult = $this->translator->translateText($this->data['title']);
+        $this->data['title'] = $titleResult->text;
+
+        if ($titleResult->failed) {
+            $this->translationFallbacks++;
+        }
+
+        if ($hasOwnCover) {
+            $this->translateCoverImage();
+        }
     }
 
     /**
@@ -1047,12 +1084,28 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
             $this->translationFallbacks++;
         }
 
-        $this->data['translated_by'] = $result->engine;
-
         $postContent = $this->modifyContent($result->text);
 
         $postContent = $this->imageService->replacePictureElements($postContent);
         $postContent = $this->imageService->downloadAndReplaceImages($postContent);
+
+        // Движок записываем по РЕЗУЛЬТАТУ, а не по тому, кто взялся за работу.
+        // 24.08.2026 у поста 236 стояло translated_by = 'google' при нулевом
+        // числе кириллических символов: скрейпер получил 429 на каждом блоке,
+        // вернул все блоки как есть и отчитался частичным успехом. Признак
+        // «переведено гуглом» на непереведённой статье — не мелкая неточность
+        // отчёта, по нему выбирают, что переводить заново.
+        //
+        // Сравниваем с исходным текстом, а не ищем кириллицу: статья, у
+        // которой вся проза в заголовке, а тело — сплошной <pre>, переводится
+        // корректно и кириллицы в теле не получает. Совпадение с оригиналом
+        // же означает буквально «ничего не изменилось».
+        if ($result->text !== $contentOrig) {
+            $this->data['translated_by'] = $result->engine;
+        } else {
+            $this->data['translated_by'] = TranslationResult::NO_ENGINE;
+            $this->translationFallbacks++;
+        }
 
         if (empty($postContent)) {
             return;

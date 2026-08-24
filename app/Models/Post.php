@@ -86,6 +86,11 @@ class Post extends Model
         'published' => 'boolean',
         'published_at' => 'datetime',
         'parsed_at' => 'datetime',
+        // В $fillable намеренно не входит, как и published_at: счётчик ведёт
+        // NewsImportService через increment(), и попасть сюда из массива
+        // данных разбора он не должен — иначе очередной StorePostJob молча
+        // обнулял бы историю попыток вместе с сохранением заглушки.
+        'parse_attempts' => 'integer',
     ];
 
     /**
