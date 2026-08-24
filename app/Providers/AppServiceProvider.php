@@ -7,6 +7,7 @@ use App\Service\Translation\FallbackTranslator;
 use App\Service\Translation\GeminiTranslator;
 use App\Service\Translation\GoogleScraperTranslator;
 use App\Service\Translation\TranslatedHtmlValidator;
+use App\Service\Translation\TranslationDeadline;
 use App\Service\Translation\Translator;
 use Carbon\Carbon;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -27,6 +28,11 @@ class AppServiceProvider extends ServiceProvider
         // сохранение поста два (content и content_orig) и по сотне подряд
         // в ResanitizePostsCommand.
         $this->app->singleton(HtmlSanitizerService::class);
+
+        // Срок перевода статьи общий на всю цепочку движков, поэтому синглтон:
+        // каждый экземпляр со своим сроком снова умножал бы бюджет на длину
+        // цепочки (см. TranslationDeadline).
+        $this->app->singleton(TranslationDeadline::class);
 
         // Движок перевода собирается здесь, а не внутри TranslateService: тому
         // незачем знать, кто и в каком порядке переводит — он получает готовый
@@ -53,6 +59,7 @@ class AppServiceProvider extends ServiceProvider
                     $app->make(HttpFactory::class),
                     $app->make(TranslatedHtmlValidator::class),
                     $model,
+                    $app->make(TranslationDeadline::class),
                 );
 
                 $chain = $chain === null ? $engine : new FallbackTranslator($engine, $chain);

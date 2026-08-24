@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Service\Translation\FallbackTranslator;
 use App\Service\Translation\GeminiTranslator;
 use App\Service\Translation\TranslatedHtmlValidator;
+use App\Service\Translation\TranslationDeadline;
 use App\Service\Translation\Translator;
 use App\Support\LlmPricing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -331,6 +332,67 @@ class LlmUsageTest extends TestCase
         $this->assertSame('gemini-3.5-flash', $result->engine);
         $this->assertTrue(FallbackTranslator::isDown('gemini-3.6-flash'), 'исчерпанная модель должна быть разомкнута');
         $this->assertFalse(FallbackTranslator::isDown('gemini-3.5-flash'), 'рабочая модель размыкаться не должна');
+    }
+
+    public function test_article_budget_is_shared_by_the_whole_chain(): void
+    {
+        // Бюджет принадлежит СТАТЬЕ, а не движку. Поэкземплярный умножался на
+        // длину цепочки (три модели — потолок 720 с против таймаута джобы 420),
+        // а попытка поделить 240 на три дала 80 секунд на модель — не хватило
+        // статье из трёх кусков по полминуты, и пост 236 трижды ушёл в таймаут.
+        $deadline = app(TranslationDeadline::class);
+
+        $this->assertTrue($deadline->start(240), 'первый ставит срок и владеет им');
+        $this->assertFalse($deadline->start(240), 'второй движок цепочки чужой срок не обнуляет');
+
+        $remaining = $deadline->remaining();
+        $this->assertGreaterThan(230, $remaining);
+        $this->assertLessThanOrEqual(240, $remaining);
+    }
+
+    public function test_one_request_cannot_outlive_the_article_budget(): void
+    {
+        // Проверка срока стоит ПЕРЕД вызовом, а переполняется вызов внутри:
+        // цепочка повторов живёт до 4 × 90 с ожидания плюс 62 с пауз — 422
+        // секунды, больше таймаута StorePostJob (420). Поэтому таймаут запроса
+        // обязан ужиматься до остатка бюджета.
+        config(['translation.gemini.timeout' => 90]);
+
+        $deadline = app(TranslationDeadline::class);
+        $deadline->start(10);
+
+        $translator = new GeminiTranslator(
+            app(HttpFactory::class),
+            new TranslatedHtmlValidator,
+            'gemini-3.6-flash',
+            $deadline,
+        );
+
+        $captured = null;
+        Http::fake(function ($request) use (&$captured) {
+            $captured = $request;
+
+            return Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [['text' => '<p>Перевод.</p>']]],
+                    'finishReason' => 'STOP',
+                ]],
+            ]);
+        });
+
+        $translator->translateText('hello');
+
+        $this->assertNotNull($captured, 'запрос должен был уйти');
+        // 90 из конфига ужалось до остатка в 10 секунд.
+        $this->assertLessThanOrEqual(10, $this->requestTimeoutOf($translator));
+    }
+
+    private function requestTimeoutOf(GeminiTranslator $translator): int
+    {
+        $method = new \ReflectionMethod($translator, 'requestTimeout');
+        $method->setAccessible(true);
+
+        return (int) $method->invoke($translator);
     }
 
     public function test_journal_failure_does_not_cost_us_the_translation(): void

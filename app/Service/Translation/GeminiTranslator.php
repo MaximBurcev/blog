@@ -45,17 +45,13 @@ class GeminiTranslator implements Translator
         private readonly HttpFactory $http,
         private readonly TranslatedHtmlValidator $validator,
         private readonly ?string $model = null,
+        private readonly ?TranslationDeadline $deadlineHolder = null,
     ) {}
 
-    /**
-     * Момент, после которого перевод текущей статьи прекращается.
-     *
-     * Бюджет общий на все куски и повторы: без него статья из нескольких
-     * кусков выбирала бы весь таймаут StorePostJob (420 с), джоба уходила бы
-     * в failed(), и вместо статьи сохранялась заглушка. Лучше отдать статью
-     * запасному движку, чем потерять её целиком.
-     */
-    private ?float $deadline = null;
+    private function deadline(): TranslationDeadline
+    {
+        return $this->deadlineHolder ?? app(TranslationDeadline::class);
+    }
 
     /**
      * Ширина окна, в котором Google считает запросы в минуту.
@@ -113,19 +109,20 @@ class GeminiTranslator implements Translator
     }
 
     /**
-     * Бюджет времени на статью делится между моделями цепочки.
-     *
-     * budget_seconds выведен из StorePostJob::$timeout = 420 и означает «весь
-     * перевод одной статьи». Оставь мы его поэкземплярным — три модели дали бы
-     * потолок 720 секунд, джоба убивалась бы по таймауту, и вместо статьи
-     * сохранялась заглушка. Ровно та беда, ради предотвращения которой бюджет
-     * и заводился, только теперь умноженная на длину цепочки.
+     * Сколько ждать один запрос: своя настройка, но не дольше остатка бюджета
+     * статьи и не меньше пяти секунд — на совсем исходе смысла ждать уже нет,
+     * но и рвать соединение мгновенно незачем.
      */
-    private function budgetSeconds(): float
+    private function requestTimeout(): int
     {
-        $total = (int) config('translation.gemini.budget_seconds');
+        $configured = (int) config('translation.gemini.timeout');
+        $remaining = $this->deadline()->remaining();
 
-        return $total / max(1, count(self::chainModels()));
+        if (is_infinite($remaining)) {
+            return $configured;
+        }
+
+        return max(5, min($configured, (int) floor($remaining)));
     }
 
     public function translateHtml(string $html): TranslationResult
@@ -134,7 +131,9 @@ class GeminiTranslator implements Translator
             return TranslationResult::success($html, $this->name());
         }
 
-        $this->deadline = microtime(true) + $this->budgetSeconds();
+        // Срок общий на всю цепочку и принадлежит статье, а не движку: снимает
+        // его только тот, кто поставил. См. TranslationDeadline.
+        $owns = $this->deadline()->start((int) config('translation.gemini.budget_seconds'));
 
         try {
             $limit = (int) config('translation.gemini.max_chunk_chars');
@@ -143,7 +142,9 @@ class GeminiTranslator implements Translator
                 ? $this->translateInChunks($html, $limit)
                 : $this->translateSingle($html);
         } finally {
-            $this->deadline = null;
+            if ($owns) {
+                $this->deadline()->stop();
+            }
         }
     }
 
@@ -347,7 +348,7 @@ class GeminiTranslator implements Translator
             return $this->record($kind, $model, LlmCall::OUTCOME_NO_KEY);
         }
 
-        if ($this->deadline !== null && microtime(true) >= $this->deadline) {
+        if ($this->deadline()->expired()) {
             Log::warning('GeminiTranslator: бюджет времени на статью исчерпан');
 
             return $this->record($kind, $model, LlmCall::OUTCOME_BUDGET);
@@ -363,8 +364,15 @@ class GeminiTranslator implements Translator
         $startedAt = CarbonImmutable::now();
 
         try {
+            // Таймаут запроса ограничен ОСТАТКОМ бюджета статьи, а не только
+            // своей настройкой. Без этого одна цепочка повторов живёт до
+            // 4 × 90 с ожидания плюс 62 с пауз — 422 секунды, больше всего
+            // таймаута StorePostJob (420). Проверка срока между кусками этого
+            // не ловит: она стоит ПЕРЕД вызовом, а переполняется вызов внутри.
+            // Так статья 236 и уходила в таймаут трижды подряд, не оставив в
+            // журнале ни одной записи — ask() просто не успевал вернуться.
             $request = $this->http
-                ->timeout((int) config('translation.gemini.timeout'));
+                ->timeout($this->requestTimeout());
 
             if ($proxy = config('translation.gemini.proxy')) {
                 $request = $request->withOptions(['proxy' => 'socks5h://'.$proxy]);
