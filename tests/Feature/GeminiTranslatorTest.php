@@ -59,7 +59,7 @@ class GeminiTranslatorTest extends TestCase
         $result = $this->translator()->translateHtml($source);
 
         $this->assertFalse($result->failed);
-        $this->assertSame('gemini', $result->engine);
+        $this->assertSame('gemini-3.6-flash', $result->engine);
         $this->assertStringContainsString('Bus::batch([])->dispatch();', $result->text);
         $this->assertStringContainsString('class="language-php"', $result->text);
     }

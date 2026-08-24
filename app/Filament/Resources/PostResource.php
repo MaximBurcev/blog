@@ -7,6 +7,7 @@ use App\Filament\Resources\PostResource\RelationManagers;
 use App\Jobs\StorePostJob;
 use App\Models\Category;
 use App\Models\Post;
+use App\Service\Translation\GeminiTranslator;
 use App\Support\ContentSelectorResolver;
 use App\Support\PostCode;
 use Filament\Forms;
@@ -130,20 +131,27 @@ class PostResource extends Resource
                 TextColumn::make('translated_by')
                     ->label('Движок')
                     ->badge()
-                    ->color(fn (?string $state): string => match ($state) {
-                        'gemini' => 'success',
-                        'google' => 'warning',
+                    // Значение — это имя модели («gemini-3.5-flash»), а у
+                    // исторических записей просто «gemini»: с 24.08.2026 движки
+                    // различаются по модели, потому что квота у Google своя на
+                    // каждую. В бейдже показываем «LLM», модель — в подсказке,
+                    // иначе колонка превращается в столбик версий.
+                    ->color(fn (?string $state): string => match (true) {
+                        $state !== null && str_starts_with($state, GeminiTranslator::PROVIDER) => 'success',
+                        $state === 'google' => 'warning',
                         default => 'gray',
                     })
-                    ->formatStateUsing(fn (?string $state): string => match ($state) {
-                        'gemini' => 'LLM',
-                        'google' => 'скрейпер',
-                        'none' => 'не переведён',
+                    ->formatStateUsing(fn (?string $state): string => match (true) {
+                        $state !== null && str_starts_with($state, GeminiTranslator::PROVIDER) => 'LLM',
+                        $state === 'google' => 'скрейпер',
+                        $state === 'none' => 'не переведён',
                         default => '—',
                     })
-                    ->tooltip(fn (Post $record): ?string => $record->translated_by === 'google'
-                        ? 'Запасной движок: LLM была недоступна. Стоит перевести заново'
-                        : null)
+                    ->tooltip(fn (Post $record): ?string => match (true) {
+                        $record->translated_by === 'google' => 'Запасной движок: LLM была недоступна. Стоит перевести заново',
+                        $record->translated_by !== null && str_starts_with($record->translated_by, GeminiTranslator::PROVIDER) => $record->translated_by,
+                        default => null,
+                    })
                     // Видна сразу, а не за переключателем колонок: подмена
                     // основного движка запасным происходит молча, и заметить её
                     // можно только здесь.

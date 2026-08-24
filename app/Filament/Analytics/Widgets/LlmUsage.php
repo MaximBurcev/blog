@@ -4,6 +4,7 @@ namespace App\Filament\Analytics\Widgets;
 
 use App\Models\LlmCall;
 use App\Models\Post;
+use App\Service\Translation\GeminiTranslator;
 use App\Support\AnalyticsPeriod;
 use App\Support\LlmPricing;
 use Carbon\CarbonImmutable;
@@ -325,8 +326,12 @@ class LlmUsage extends BaseWidget
      */
     private function postsTranslatedByModel(): int
     {
+        // LIKE, а не равенство: с 24.08.2026 движок различается по модели
+        // («gemini-3.5-flash»), потому что квота у Google своя на каждую, а у
+        // записей до этой даты стоит просто «gemini». Точное сравнение молча
+        // выкинуло бы из знаменателя либо новые посты, либо весь архив.
         return Post::query()
-            ->where('translated_by', 'gemini')
+            ->where('translated_by', 'like', GeminiTranslator::PROVIDER.'%')
             ->where('parsed_at', '>=', AnalyticsPeriod::startsAt($this->filters))
             ->count();
     }

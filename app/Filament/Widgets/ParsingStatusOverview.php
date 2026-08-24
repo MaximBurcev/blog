@@ -88,12 +88,6 @@ class ParsingStatusOverview extends BaseWidget
             return ['скрейпер', 'Модель отключена настройкой TRANSLATION_DRIVER', 'gray'];
         }
 
-        // Имя движка спрашиваем у него самого, а не пишем строкой: разъехавшись
-        // с Translator::name(), литерал заставил бы isDown() отвечать «жив»
-        // навсегда — то есть плитка соврала бы ровно в той аварии, ради которой
-        // заведена.
-        $engine = app(GeminiTranslator::class)->name();
-
         // Запасной движок подставляется только при включённом fallback
         // (AppServiceProvider). Без него отказ модели означает не «переведёт
         // скрейпер», а «статья останется непереведённой», и обещать откат
@@ -105,11 +99,26 @@ class ParsingStatusOverview extends BaseWidget
             return ['не работает', 'Не задан GEMINI_API_KEY — '.$consequence, 'danger'];
         }
 
-        if (FallbackTranslator::isDown($engine)) {
-            return ['не работает', 'Модель ответила ошибкой и временно отключена — '.$consequence, 'danger'];
+        // Квота у Google своя на каждую модель, поэтому и предохранитель свой:
+        // спрашивать надо про всю цепочку, иначе исчерпанная первая модель
+        // выглядела бы полной аварией, хотя перевод спокойно идёт следующей.
+        // Список берём у самого движка, а не собираем из конфига здесь: имя,
+        // под которым размыкается предохранитель, знает только он, и вторая
+        // копия сборки уже расходилась с первой.
+        $models = GeminiTranslator::chainModels();
+        $alive = array_values(array_filter($models, fn (string $m): bool => ! FallbackTranslator::isDown($m)));
+
+        if ($alive === []) {
+            return ['не работает', 'Квота исчерпана у всех моделей — '.$consequence, 'danger'];
         }
 
-        return ['модель', (string) config('translation.gemini.model'), 'success'];
+        $current = $alive[0];
+
+        if ($current !== ($models[0] ?? $current)) {
+            return ['запасная модель', $current.' — у основной кончилась квота', 'warning'];
+        }
+
+        return ['модель', $current, 'success'];
     }
 
     /**

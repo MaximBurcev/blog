@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Service\Translation\FallbackTranslator;
 use App\Service\Translation\GeminiTranslator;
 use App\Service\Translation\TranslatedHtmlValidator;
+use App\Service\Translation\Translator;
 use App\Support\LlmPricing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
@@ -226,16 +227,16 @@ class LlmUsageTest extends TestCase
 
         $this->translator()->translateHtml('<p>Text</p>');
 
-        $this->assertTrue(FallbackTranslator::isDown('gemini'));
+        $this->assertTrue(FallbackTranslator::isDown('gemini-3.6-flash'));
 
         // Проверяется именно ЧАСОВАЯ пауза, а не факт размыкания: с обычными
         // пятью минутами движок ожил бы прямо к следующей статье, и весь смысл
         // отличать квоту от темпа пропал бы. Булев isDown() этого не ловит.
         $this->travel(11)->minutes();
-        $this->assertTrue(FallbackTranslator::isDown('gemini'), 'пауза оказалась короче квотной');
+        $this->assertTrue(FallbackTranslator::isDown('gemini-3.6-flash'), 'пауза оказалась короче квотной');
 
         $this->travel(50)->minutes();
-        $this->assertFalse(FallbackTranslator::isDown('gemini'), 'пауза не должна быть вечной');
+        $this->assertFalse(FallbackTranslator::isDown('gemini-3.6-flash'), 'пауза не должна быть вечной');
     }
 
     public function test_a_short_burst_does_not_disable_the_engine(): void
@@ -253,7 +254,7 @@ class LlmUsageTest extends TestCase
 
         $this->translator()->translateHtml('<p>Text</p>');
 
-        $this->assertFalse(FallbackTranslator::isDown('gemini'));
+        $this->assertFalse(FallbackTranslator::isDown('gemini-3.6-flash'));
     }
 
     public function test_quota_pause_is_not_cut_short_by_an_ordinary_failure(): void
@@ -263,12 +264,12 @@ class LlmUsageTest extends TestCase
         // кругу до самого сброса квоты.
         config(['translation.circuit_breaker_seconds' => 300]);
 
-        FallbackTranslator::markDown('gemini', 3600);
-        FallbackTranslator::markDown('gemini');
+        FallbackTranslator::markDown('gemini-3.6-flash', 3600);
+        FallbackTranslator::markDown('gemini-3.6-flash');
 
         $this->travel(11)->minutes();
 
-        $this->assertTrue(FallbackTranslator::isDown('gemini'));
+        $this->assertTrue(FallbackTranslator::isDown('gemini-3.6-flash'));
     }
 
     public function test_missing_quota_pause_setting_still_disables_the_engine(): void
@@ -287,7 +288,49 @@ class LlmUsageTest extends TestCase
 
         $this->translator()->translateHtml('<p>Text</p>');
 
-        $this->assertTrue(FallbackTranslator::isDown('gemini'));
+        $this->assertTrue(FallbackTranslator::isDown('gemini-3.6-flash'));
+    }
+
+    public function test_exhausted_model_hands_over_to_the_next_one(): void
+    {
+        // Ради этого всё и затевалось. Квота у Google своя на каждую модель
+        // (GenerateRequestsPerDayPerProjectPerModel-FreeTier, замерено
+        // 24.08.2026), поэтому исчерпание основной — повод сменить модель, а
+        // не звать скрейпер: ходя всегда в одну, мы использовали треть
+        // доступного.
+        config([
+            'translation.circuit_breaker_seconds' => 300,
+            'translation.quota_pause_seconds' => 3600,
+            'translation.gemini.model' => 'gemini-3.6-flash',
+            'translation.gemini.fallback_models' => ['gemini-3.5-flash'],
+            // 429, переживший цепочку длиннее минутного окна, — это именно
+            // исчерпанная суточная квота, а не всплеск темпа.
+            'translation.gemini.retry_delays_ms' => [0, 0, 61_000],
+        ]);
+
+        Sleep::fake(syncWithCarbon: true);
+
+        Http::fake([
+            // Порядок фейков важен: более специфичный адрес первым.
+            '*gemini-3.6-flash*' => Http::response(['error' => ['code' => 429]], 429),
+            '*gemini-3.5-flash*' => Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [['text' => '<p>Перевод запасной моделью.</p>']]],
+                    'finishReason' => 'STOP',
+                ]],
+            ]),
+        ]);
+
+        $result = app(Translator::class)->translateHtml('<p>Source text.</p>');
+
+        $this->assertFalse($result->failed, 'перевод должен состояться на запасной модели');
+        // Имя движка = модель: оно уедет в posts.translated_by, и по нему видно,
+        // что статья переведена запасной. Верни name() общее «gemini» —
+        // исчерпание одной модели размыкало бы предохранитель сразу всем и
+        // переключаться было бы некуда.
+        $this->assertSame('gemini-3.5-flash', $result->engine);
+        $this->assertTrue(FallbackTranslator::isDown('gemini-3.6-flash'), 'исчерпанная модель должна быть разомкнута');
+        $this->assertFalse(FallbackTranslator::isDown('gemini-3.5-flash'), 'рабочая модель размыкаться не должна');
     }
 
     public function test_journal_failure_does_not_cost_us_the_translation(): void
@@ -473,13 +516,44 @@ class LlmUsageTest extends TestCase
 
     public function test_dashboard_tile_reports_a_disabled_engine(): void
     {
-        config(['translation.circuit_breaker_seconds' => 300]);
-        FallbackTranslator::markDown('gemini');
+        config([
+            'translation.circuit_breaker_seconds' => 300,
+            'translation.gemini.fallback_models' => [],
+        ]);
+        FallbackTranslator::markDown('gemini-3.6-flash');
 
         $stats = $this->parsingStats();
 
         $this->assertSame('не работает', $stats['Переводчик']);
         $this->assertStringContainsString('скрейпер', $this->parsingStatDescriptions()['Переводчик']);
+    }
+
+    public function test_dashboard_tile_shows_which_model_took_over(): void
+    {
+        // Исчерпанная квота основной модели — не авария: у Google счётчик свой
+        // на каждую модель, и перевод спокойно идёт следующей. Красный кружок
+        // здесь означал бы ложную тревогу и обесценивал настоящие.
+        config([
+            'translation.circuit_breaker_seconds' => 300,
+            'translation.gemini.fallback_models' => ['gemini-3.5-flash', 'gemini-3.5-flash-lite'],
+        ]);
+        FallbackTranslator::markDown('gemini-3.6-flash', 3600);
+
+        $this->assertSame('запасная модель', $this->parsingStats()['Переводчик']);
+        $this->assertStringContainsString('gemini-3.5-flash', $this->parsingStatDescriptions()['Переводчик']);
+    }
+
+    public function test_dashboard_tile_reports_a_full_outage_only_when_every_model_is_spent(): void
+    {
+        config([
+            'translation.circuit_breaker_seconds' => 300,
+            'translation.gemini.fallback_models' => ['gemini-3.5-flash'],
+        ]);
+        FallbackTranslator::markDown('gemini-3.6-flash', 3600);
+        FallbackTranslator::markDown('gemini-3.5-flash', 3600);
+
+        $this->assertSame('не работает', $this->parsingStats()['Переводчик']);
+        $this->assertStringContainsString('всех моделей', $this->parsingStatDescriptions()['Переводчик']);
     }
 
     public function test_dashboard_tile_is_green_while_the_model_answers(): void

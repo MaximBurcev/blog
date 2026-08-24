@@ -21,9 +21,30 @@ use Illuminate\Support\Facades\Log;
  */
 class GeminiTranslator implements Translator
 {
+    /**
+     * Провайдер. В llm_calls.engine едет именно он, а не имя модели: рядом
+     * есть колонка model, и дублировать её значением engine значит потерять
+     * возможность сложить расход по провайдеру.
+     */
+    public const PROVIDER = 'gemini';
+
+    /**
+     * Модель приходит аргументом, а не читается из конфига внутри.
+     *
+     * Иначе всех экземпляров этого класса в приложении может быть только один
+     * — с одной моделью, — а квота у Google считается ПО МОДЕЛИ
+     * (GenerateRequestsPerDayPerProjectPerModel-FreeTier, замерено 24.08.2026:
+     * gemini-3.6-flash отдавал 429, а gemini-3.5-flash тем же ключом в ту же
+     * секунду отвечал 200). Ходя всегда в одну модель, мы упирались в треть
+     * доступного: 20 запросов в сутки вместо 60 на трёх моделях.
+     *
+     * null — взять основную из конфига, чтобы контейнер мог собрать движок без
+     * аргументов.
+     */
     public function __construct(
         private readonly HttpFactory $http,
         private readonly TranslatedHtmlValidator $validator,
+        private readonly ?string $model = null,
     ) {}
 
     /**
@@ -45,9 +66,66 @@ class GeminiTranslator implements Translator
      */
     private const RATE_LIMIT_WINDOW_MS = 60_000;
 
+    /**
+     * Имя движка включает модель, и это не косметика.
+     *
+     * По нему размыкается предохранитель (FallbackTranslator::markDown) и
+     * заполняется posts.translated_by. Верни он общее «gemini» — исчерпание
+     * квоты у одной модели гасило бы разом все, то есть автопереключение,
+     * ради которого модель и стала параметром, не работало бы вовсе.
+     */
     public function name(): string
     {
-        return 'gemini';
+        return $this->model();
+    }
+
+    public function model(): string
+    {
+        return $this->model ?? (string) config('translation.gemini.model');
+    }
+
+    /**
+     * Модели по порядку предпочтения: основная, затем запасные.
+     *
+     * Единственное место, где этот список собирается. Раньше его строили и
+     * сборщик цепочки, и плитка состояния — две копии разъезжались уже на
+     * значении '0', а разъехавшись сильнее, плитка спрашивала бы предохранитель
+     * не тем именем и вечно показывала «модель работает», пока перевод идёт
+     * скрейпером.
+     *
+     * @return list<string>
+     */
+    public static function chainModels(): array
+    {
+        $models = array_merge(
+            [(string) config('translation.gemini.model')],
+            (array) config('translation.gemini.fallback_models', []),
+        );
+
+        $models = array_filter(
+            array_map(fn ($m): string => trim((string) $m), $models),
+            fn (string $m): bool => $m !== '',
+        );
+
+        // Дубликаты убираем: одна и та же модель пробовалась бы дважды подряд,
+        // второй раз заведомо впустую — её предохранитель уже разомкнут.
+        return array_values(array_unique($models));
+    }
+
+    /**
+     * Бюджет времени на статью делится между моделями цепочки.
+     *
+     * budget_seconds выведен из StorePostJob::$timeout = 420 и означает «весь
+     * перевод одной статьи». Оставь мы его поэкземплярным — три модели дали бы
+     * потолок 720 секунд, джоба убивалась бы по таймауту, и вместо статьи
+     * сохранялась заглушка. Ровно та беда, ради предотвращения которой бюджет
+     * и заводился, только теперь умноженная на длину цепочки.
+     */
+    private function budgetSeconds(): float
+    {
+        $total = (int) config('translation.gemini.budget_seconds');
+
+        return $total / max(1, count(self::chainModels()));
     }
 
     public function translateHtml(string $html): TranslationResult
@@ -56,7 +134,7 @@ class GeminiTranslator implements Translator
             return TranslationResult::success($html, $this->name());
         }
 
-        $this->deadline = microtime(true) + (int) config('translation.gemini.budget_seconds');
+        $this->deadline = microtime(true) + $this->budgetSeconds();
 
         try {
             $limit = (int) config('translation.gemini.max_chunk_chars');
@@ -259,7 +337,7 @@ class GeminiTranslator implements Translator
      */
     private function ask(string $prompt, string $kind): LlmAnswer
     {
-        $model = (string) config('translation.gemini.model');
+        $model = $this->model();
         $key = (string) config('translation.gemini.key');
 
         if ($key === '') {
@@ -447,7 +525,7 @@ class GeminiTranslator implements Translator
         ?string $error = null,
     ): LlmAnswer {
         $call = LlmCall::recording(fn (): LlmCall => LlmCall::create([
-            'engine' => $this->name(),
+            'engine' => self::PROVIDER,
             'model' => $model,
             'kind' => $kind,
             'outcome' => $outcome,

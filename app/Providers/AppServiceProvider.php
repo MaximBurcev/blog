@@ -6,8 +6,10 @@ use App\Service\HtmlSanitizerService;
 use App\Service\Translation\FallbackTranslator;
 use App\Service\Translation\GeminiTranslator;
 use App\Service\Translation\GoogleScraperTranslator;
+use App\Service\Translation\TranslatedHtmlValidator;
 use App\Service\Translation\Translator;
 use Carbon\Carbon;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -30,17 +32,33 @@ class AppServiceProvider extends ServiceProvider
         // незачем знать, кто и в каком порядке переводит — он получает готовый
         // Translator и работает с ним одинаково.
         $this->app->bind(Translator::class, function ($app): Translator {
-            $primary = config('translation.driver') === 'google'
-                ? $app->make(GoogleScraperTranslator::class)
-                : $app->make(GeminiTranslator::class);
-
             // Скрейпер сам себе запасным не бывает: подставив его под самого
             // себя, мы бы гоняли заведомо провальный перевод дважды.
-            if (! config('translation.fallback') || $primary instanceof GoogleScraperTranslator) {
-                return $primary;
+            if (config('translation.driver') === 'google') {
+                return $app->make(GoogleScraperTranslator::class);
             }
 
-            return new FallbackTranslator($primary, $app->make(GoogleScraperTranslator::class));
+            // Хвост цепочки. translation.fallback управляет ИМЕННО им, а не
+            // перебором моделей: это два независимых решения — «уходить ли на
+            // скрейпер, когда LLM недоступна» и «пробовать ли другие модели
+            // того же провайдера».
+            $chain = config('translation.fallback')
+                ? $app->make(GoogleScraperTranslator::class)
+                : null;
+
+            // Собираем справа налево: последняя модель списка оказывается
+            // ближе всего к скрейперу, основная — снаружи всех.
+            foreach (array_reverse(GeminiTranslator::chainModels()) as $model) {
+                $engine = new GeminiTranslator(
+                    $app->make(HttpFactory::class),
+                    $app->make(TranslatedHtmlValidator::class),
+                    $model,
+                );
+
+                $chain = $chain === null ? $engine : new FallbackTranslator($engine, $chain);
+            }
+
+            return $chain ?? $app->make(GoogleScraperTranslator::class);
         });
     }
 
