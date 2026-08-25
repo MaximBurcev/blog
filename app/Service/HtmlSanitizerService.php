@@ -70,6 +70,7 @@ class HtmlSanitizerService
      */
     public function sanitize(string $html, bool $stripRemoteImages = false): string
     {
+        $html = $this->flattenCodeBlocks($html);
         $html = $this->stripTrackingPixels($this->demoteTopHeadings($html));
 
         if ($stripRemoteImages) {
@@ -173,6 +174,145 @@ class HtmlSanitizerService
         }
 
         return $path;
+    }
+
+    /**
+     * Блочные теги, которые подсветчики кладут внутрь <pre><code>.
+     *
+     * torchlight рендерит каждую строку кода отдельным <div class="line">. По
+     * модели контента HTML это недопустимо: <code> строчный, <div> блочный.
+     * Shiki и Prism здесь ни при чём — они используют <span class="line">,
+     * который модель не нарушает.
+     *
+     * Таблиц в списке нет намеренно. Табличная вёрстка с номерами строк живёт
+     * снаружи (<table>…<td><pre>), а <table> ВНУТРИ <pre> до нас не доезжает:
+     * libxml растаскивает её ещё при разборе, ровно как это сделал бы браузер,
+     * и к моменту обхода <pre> уже пуст. Постов с такой разметкой мы не
+     * встречали ни одного; появятся — чинить придётся до парсера.
+     */
+    private const BLOCKS_INSIDE_PRE = ['div', 'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'section', 'article'];
+
+    /**
+     * Схлопывает разметку внутри <pre> в текст со строками.
+     *
+     * Без этого HTMLPurifier честно приводит документ к модели контента:
+     * выносит <div> НАРУЖУ из <code>, оставляя пустой <pre><code></code></pre>,
+     * а сам код — россыпью соседних <div><code>…</code></div> после него. На
+     * странице это выглядит как «код вне блока подсветки»: тёмная полоса
+     * пустого <pre>, а под ней строки кода обычным текстом через интервал.
+     * На 25.08.2026 так побились 15 постов из 211.
+     *
+     * Схлопываем в текст, а не пытаемся сохранить разметку строк: подсветку на
+     * странице делает наш фронтенд, а <div class="line"> — презентация чужого
+     * подсветчика. Класс языка не переносим: атрибуты у pre и code не
+     * разрешены (ALLOWED_HTML), и HTMLPurifier срезал бы его следующим шагом.
+     *
+     * Разбираем DOM, а не режем регуляркой, и это не вкусовщина. Первая версия
+     * искала блоки паттерном `<pre\b[^>]*>(.*?)</pre>` и вынимала текст через
+     * strip_tags — ревью показало две потери данных: `<pre` внутри атрибута
+     * (`alt="<pre>"`) открывал ложный блок и съедал всё до следующего
+     * настоящего `</pre>`, а strip_tags на строке `if (a <b) return;` молча
+     * отрезает остаток листинга, приняв `<b) return;` за тег.
+     */
+    private function flattenCodeBlocks(string $html): string
+    {
+        if (stripos($html, '<pre') === false) {
+            return $html;
+        }
+
+        $dom = new \DOMDocument;
+
+        if (! @$dom->loadHTML(
+            '<?xml encoding="utf-8" ?><body>'.$html.'</body>',
+            LIBXML_NOERROR | LIBXML_NOWARNING
+        )) {
+            return $html;
+        }
+
+        $body = $dom->getElementsByTagName('body')->item(0);
+
+        if (! $body instanceof \DOMElement) {
+            return $html;
+        }
+
+        $finder = new \DOMXPath($dom);
+        $blocks = './/'.implode('|.//', self::BLOCKS_INSIDE_PRE);
+        $changed = false;
+
+        foreach (iterator_to_array($finder->query('//pre')) as $pre) {
+            if (! $pre instanceof \DOMElement || $finder->query($blocks, $pre)->length === 0) {
+                continue;
+            }
+
+            $text = trim($this->codeText($pre), "\n");
+
+            while ($pre->firstChild) {
+                $pre->removeChild($pre->firstChild);
+            }
+
+            $code = $dom->createElement('code');
+            // Текстовым узлом: DOM сам экранирует < и & при сериализации, и
+            // никакая строка кода не может превратиться в разметку.
+            $code->appendChild($dom->createTextNode($text));
+            $pre->appendChild($code);
+
+            $changed = true;
+        }
+
+        if (! $changed) {
+            return $html;
+        }
+
+        $out = '';
+        foreach ($body->childNodes as $child) {
+            $out .= (string) $dom->saveHTML($child);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Текст блока кода: блочные узлы дают перенос строки.
+     *
+     * script и style пропускаем целиком: до этой правки их содержимое удалял
+     * HTMLPurifier вместе с тегом, а вынь мы его в текст — чужой скрипт стал
+     * бы виден читателю как часть листинга.
+     */
+    private function codeText(\DOMNode $node): string
+    {
+        $text = '';
+
+        foreach ($node->childNodes as $child) {
+            if ($child instanceof \DOMText) {
+                $text .= $child->nodeValue;
+
+                continue;
+            }
+
+            if (! $child instanceof \DOMElement) {
+                continue;
+            }
+
+            $tag = strtolower($child->nodeName);
+
+            if (in_array($tag, ['script', 'style'], true)) {
+                continue;
+            }
+
+            if ($tag === 'br') {
+                $text .= "\n";
+
+                continue;
+            }
+
+            $inner = $this->codeText($child);
+
+            $text .= in_array($tag, self::BLOCKS_INSIDE_PRE, true)
+                ? rtrim($inner)."\n"
+                : $inner;
+        }
+
+        return $text;
     }
 
     /**
