@@ -21,6 +21,11 @@
         <env name="APP_ENV" value="testing"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_DRIVER" value="array"/>
+        <!-- Отдельное хранилище предохранителя переводчика: в бою файловое,
+             чтобы пережить cache:clear в деплое, в тестах — array, иначе
+             состояние протекает между тестами. Имя store остаётся тем же,
+             поэтому cache:clear его по-прежнему не трогает. -->
+        <env name="TRANSLATION_CACHE_DRIVER" value="array"/>
         <env name="DB_DATABASE" value="testing"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

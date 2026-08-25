@@ -70,7 +70,11 @@ return [
          | поэтому состояние переживает и смену релиза.
          */
         'translation' => [
-            'driver' => 'file',
+            // Драйвер настраиваемый ради тестов: файловое хранилище пережило бы
+            // не только деплой (ради чего оно и заведено), но и сам прогон —
+            // состояние предохранителя протекало бы между тестами и между
+            // запусками. В phpunit.xml подставляется array.
+            'driver' => env('TRANSLATION_CACHE_DRIVER', 'file'),
             'path' => storage_path('framework/cache/translation'),
             'lock_path' => storage_path('framework/cache/translation'),
         ],
