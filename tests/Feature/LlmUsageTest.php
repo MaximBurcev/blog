@@ -15,6 +15,7 @@ use App\Service\Translation\Translator;
 use App\Support\LlmPricing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Sleep;
@@ -290,6 +291,37 @@ class LlmUsageTest extends TestCase
                 ]],
             ],
         ];
+    }
+
+    public function test_quota_pause_survives_a_deploy(): void
+    {
+        // Деплой выполняет `php artisan cache:clear` (Envoy.blade.php), и пока
+        // состояние предохранителя лежало в хранилище по умолчанию, каждый
+        // выкат «чинил» модели с исчерпанной суточной квотой. Первая же статья
+        // после выката снова платила полной цепочкой повторов на каждой:
+        // 24.08.2026 это 62 секунды gemini-3.6-flash и 152 — gemini-3.5-flash,
+        // обе с 429.
+        config([
+            'translation.circuit_breaker_seconds' => 300,
+            'translation.circuit_breaker_store' => 'translation',
+        ]);
+
+        Cache::store('translation')->clear();
+
+        try {
+            FallbackTranslator::markDown('gemini-3.6-flash', 3600);
+            $this->assertTrue(FallbackTranslator::isDown('gemini-3.6-flash'));
+
+            $this->artisan('cache:clear')->assertSuccessful();
+
+            $this->assertTrue(
+                FallbackTranslator::isDown('gemini-3.6-flash'),
+                'cache:clear сбросил паузу — деплой снова будет будить исчерпанные модели',
+            );
+        } finally {
+            // Хранилище файловое и переживает тест — за собой убираем сами.
+            Cache::store('translation')->clear();
+        }
     }
 
     public function test_quota_pause_is_not_cut_short_by_an_ordinary_failure(): void

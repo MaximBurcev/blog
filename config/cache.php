@@ -55,6 +55,26 @@ return [
             'lock_path' => storage_path('framework/cache/data'),
         ],
 
+        /*
+         | Состояние предохранителя переводчика: какая модель сейчас разомкнута
+         | и до какого момента.
+         |
+         | Отдельным хранилищем, потому что это рабочее состояние, а не кэш
+         | вычислений. `php artisan cache:clear` без --store чистит только
+         | хранилище по умолчанию, а деплой его выполняет (Envoy.blade.php) — и
+         | каждый выкат «чинил» модели, у которых кончилась суточная квота.
+         | Цена видна в журнале: после выката 24.08.2026 первая же статья снова
+         | отдала 62 секунды gemini-3.6-flash и 152 — gemini-3.5-flash, обе с 429.
+         |
+         | Путь внутри framework/cache, который на проде симлинкован в shared,
+         | поэтому состояние переживает и смену релиза.
+         */
+        'translation' => [
+            'driver' => 'file',
+            'path' => storage_path('framework/cache/translation'),
+            'lock_path' => storage_path('framework/cache/translation'),
+        ],
+
         'memcached' => [
             'driver' => 'memcached',
             'persistent_id' => env('MEMCACHED_PERSISTENT_ID'),

@@ -3,6 +3,7 @@
 namespace App\Service\Translation;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -131,7 +132,7 @@ class FallbackTranslator implements Translator
             return false;
         }
 
-        return Cache::has(self::downKey($engine));
+        return self::store()->has(self::downKey($engine));
     }
 
     /**
@@ -161,15 +162,27 @@ class FallbackTranslator implements Translator
         // рядовая пятиминутная пауза, легшая поверх часовой квотной, вернула
         // бы нас к заведомо провальным попыткам через пять минут — и так по
         // кругу до самого сброса квоты.
-        $until = max($until->timestamp, (int) Cache::get($key, 0));
+        $until = max($until->timestamp, (int) self::store()->get($key, 0));
 
-        Cache::put($key, $until, CarbonImmutable::createFromTimestamp($until));
+        self::store()->put($key, $until, CarbonImmutable::createFromTimestamp($until));
 
         Log::warning('Перевод: движок помечен нерабочим', [
             'engine' => $engine,
             'seconds' => $seconds,
             'until' => CarbonImmutable::createFromTimestamp($until)->toDateTimeString(),
         ]);
+    }
+
+    /**
+     * Состояние предохранителя живёт отдельно от общего кэша: `cache:clear` в
+     * деплое чистит только хранилище по умолчанию, и каждый выкат сбрасывал
+     * паузы у моделей с исчерпанной квотой (см. config/translation.php).
+     */
+    private static function store(): Repository
+    {
+        $store = (string) config('translation.circuit_breaker_store');
+
+        return Cache::store($store !== '' ? $store : null);
     }
 
     private static function downKey(string $engine): string
