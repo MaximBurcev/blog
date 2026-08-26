@@ -48,14 +48,15 @@ class ContentSelectorResolver
         ];
     }
 
+    /**
+     * Самое специфичное правило, а не первое подходящее — тем же порядком
+     * идёт SiteSelector::selectorForHost(). Разница видна с ростом карты:
+     * рядом с 'hacks.mozilla.org' достаточно однажды завести 'mozilla.org',
+     * чтобы статьи поддомена начали разбираться чужим селектором и молча
+     * превращаться в заглушки.
+     */
     private function fromConfig(string $host): ?string
     {
-        foreach (config('releases.domain_selectors', []) as $domain => $selector) {
-            if (HostMatcher::matches($host, $domain)) {
-                return $selector;
-            }
-        }
-
-        return null;
+        return HostMatcher::lookup($host, config('releases.domain_selectors', []));
     }
 }

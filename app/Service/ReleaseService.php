@@ -195,7 +195,11 @@ class ReleaseService
 
         try {
             $html = $this->fetchHtmlContent($url);
-            $links = $this->extractLinksWithCrawler($html, $this->getLinkSelectorForUrl($url));
+            $links = $this->extractLinksWithCrawler(
+                $html,
+                $this->getLinkSelectorForUrl($url),
+                $this->getSponsorRuleForUrl($url)
+            );
 
             if (empty($links)) {
                 Log::debug('No links found on the page', ['url' => $url]);
@@ -228,11 +232,20 @@ class ReleaseService
         }
     }
 
-    private function extractLinksWithCrawler(string $html, ?string $domainSelector = null): array
+    private function extractLinksWithCrawler(string $html, ?string $domainSelector = null, ?array $sponsorRule = null): array
     {
         $crawler = new Crawler($html);
+        $selector = $domainSelector ?? $this->config['selector'];
 
         try {
+            // Адреса рекламных ссылок собираются ОДИН раз на весь документ, а
+            // не проверяются у каждой найденной ссылки: подъём к предку
+            // (Crawler::closest) заново компилирует CSS-селектор на каждом
+            // уровне вёрстки, а вёрстка дайджеста табличная — на выпуск это
+            // выходило под три сотни разборов селектора ради двух-трёх меток
+            // во всём документе.
+            $sponsoredHrefs = $this->sponsoredHrefs($crawler, $sponsorRule);
+
             // Секционная фильтрация по h2-заголовкам (Articles/Tutorials и
             // т.п.) заточена под td.bodyContent-вёрстку mailer.inovica.com.
             // Для доменов с явно настроенным своим селектором ссылок эта
@@ -240,21 +253,21 @@ class ReleaseService
             $sectionHeadings = $this->config['section_headings'];
 
             if ($domainSelector === null && ! empty($sectionHeadings)) {
-                return $this->extractLinksFromSections($crawler, $sectionHeadings);
+                return $this->extractLinksFromSections($crawler, $sectionHeadings, $sponsoredHrefs);
             }
 
-            $selector = $domainSelector ?? $this->config['selector'];
-
-            $links = $crawler->filter($selector)->each(function (Crawler $node) {
+            $links = $crawler->filter($selector)->each(function (Crawler $node) use ($sponsoredHrefs) {
                 $text = trim($node->text());
                 $url = $this->sanitizeHref($node->attr('href'));
 
-                if (empty($url) || empty($text)) {
+                if (empty($url) || empty($text) || isset($sponsoredHrefs[$url])) {
                     return null;
                 }
 
                 return ['text' => $text, 'url' => $url];
             });
+
+            $this->logSponsored($sponsoredHrefs);
 
             return array_filter($links);
 
@@ -289,11 +302,14 @@ class ReleaseService
         return $safe;
     }
 
-    private function extractLinksFromSections(Crawler $crawler, array $headings): array
+    /**
+     * @param  array<string, true>  $sponsoredHrefs
+     */
+    private function extractLinksFromSections(Crawler $crawler, array $headings, array $sponsoredHrefs = []): array
     {
         $links = [];
 
-        $crawler->filter('td.bodyContent')->each(function (Crawler $td) use (&$links, $headings) {
+        $crawler->filter('td.bodyContent')->each(function (Crawler $td) use (&$links, $headings, $sponsoredHrefs) {
             $h2 = $td->filter('h2');
             if ($h2->count() === 0) {
                 return;
@@ -304,11 +320,15 @@ class ReleaseService
                 return;
             }
 
-            $td->filter('a[href]')->each(function (Crawler $node) use (&$links) {
+            $td->filter('a[href]')->each(function (Crawler $node) use (&$links, $sponsoredHrefs) {
                 $text = trim($node->text());
                 $url = $this->sanitizeHref($node->attr('href'));
 
-                if (! empty($url) && ! empty($text)) {
+                // Отсев рекламы применяется в ОБЕИХ ветках извлечения. Иначе
+                // правило, заведённое для дайджеста без своего селектора
+                // ссылок (PHP Weekly и есть такой — он разбирается этой
+                // веткой), выглядело бы настроенным и молча не работало.
+                if (! empty($url) && ! empty($text) && ! isset($sponsoredHrefs[$url])) {
                     $links[] = ['text' => $text, 'url' => $url];
                 }
             });
@@ -356,7 +376,27 @@ class ReleaseService
         }
 
         // Применяем смещение и ограничение
-        return array_slice($uniqueLinks, $offset, $maxLinks);
+        $selected = array_slice($uniqueLinks, $offset, $maxLinks);
+
+        // Срез идёт ПОСЛЕ отсева не-статей, то есть режет уже только годные
+        // ссылки. Пока выпуск давал 18 ссылок при потолке 20, срез не
+        // срабатывал вовсе; с разбором заголовочных материалов JS Weekly
+        // выпуск даёт 24, и четыре статьи молча исчезали бы из очереди.
+        if (count($selected) < count($uniqueLinks)) {
+            $dropped = array_merge(
+                array_slice($uniqueLinks, 0, $offset),
+                array_slice($uniqueLinks, $offset + $maxLinks)
+            );
+
+            Log::warning('ReleaseService: часть ссылок отброшена потолком max_links', [
+                'max_links' => $maxLinks,
+                'offset' => $offset,
+                'suitable' => count($uniqueLinks),
+                'dropped' => array_column($dropped, 'url'),
+            ]);
+        }
+
+        return $selected;
     }
 
     /**
@@ -393,15 +433,116 @@ class ReleaseService
      */
     private function getLinkSelectorForUrl(string $url): ?string
     {
-        $host = parse_url($url, PHP_URL_HOST) ?? '';
+        return HostMatcher::lookup(
+            (string) parse_url($url, PHP_URL_HOST),
+            config('releases.parser_selectors_by_domain', [])
+        );
+    }
 
-        foreach (config('releases.parser_selectors_by_domain', []) as $domain => $selector) {
-            if (HostMatcher::matches($host, $domain)) {
-                return $selector;
-            }
+    /**
+     * Правило «как отличить рекламный пункт выпуска от обычного» для домена
+     * дайджеста: пара «контейнер пункта + метка внутри него».
+     *
+     * Возвращает null и для незнакомого домена, и для неполного правила: с
+     * одним ключом из пары проверять нечего. Требуется именно строка —
+     * `filled()` пропустил бы массив (частая опечатка при копипасте), а
+     * DomCrawler на нём падает TypeError'ом, который не ловит ни один catch
+     * по пути наверх.
+     */
+    private function getSponsorRuleForUrl(string $url): ?array
+    {
+        $rule = HostMatcher::lookup(
+            (string) parse_url($url, PHP_URL_HOST),
+            config('releases.parser_sponsor_markers_by_domain', [])
+        );
+
+        if ($rule === null) {
+            return null;
         }
 
+        if (! is_array($rule)) {
+            Log::warning('ReleaseService: правило рекламных блоков не пара «контейнер + метка»');
+
+            return null;
+        }
+
+        $item = $rule['item'] ?? null;
+        $marker = $rule['marker'] ?? null;
+
+        if (is_string($item) && $item !== '' && is_string($marker) && $marker !== '') {
+            return ['item' => $item, 'marker' => $marker];
+        }
+
+        Log::warning('ReleaseService: правило рекламных блоков неполное, отсев выключен', [
+            'rule' => $rule,
+        ]);
+
         return null;
+    }
+
+    /**
+     * Адреса всех ссылок, лежащих в рекламных пунктах выпуска.
+     *
+     * Спонсорский пункт свёрстан ровно как обычный материал: тот же
+     * контейнер с тем же классом, та же ссылка-заголовок. Отличает его
+     * только метка («sponsor») внутри пункта, поэтому идём от метки вверх к
+     * пункту и забираем оттуда все ссылки — так весь подъём по вёрстке
+     * делается по разу на метку, а не на каждую ссылку выпуска.
+     *
+     * Сравнение потом идёт по адресу: рекламный лендинг и материал выпуска
+     * с одним и тем же href — это одна и та же ссылка, различить их нечем
+     * (да и processLinks() всё равно схлопнул бы её в одну запись).
+     *
+     * @return array<string, true>
+     */
+    private function sponsoredHrefs(Crawler $crawler, ?array $sponsorRule): array
+    {
+        if ($sponsorRule === null) {
+            return [];
+        }
+
+        $hrefs = [];
+
+        try {
+            $crawler->filter($sponsorRule['marker'])->each(function (Crawler $marker) use ($sponsorRule, &$hrefs) {
+                $marker->closest($sponsorRule['item'])?->filter('a[href]')->each(function (Crawler $link) use (&$hrefs) {
+                    $href = SanitizedHref::fromString($link->attr('href'));
+
+                    if ($href !== null) {
+                        $hrefs[$href] = true;
+                    }
+                });
+            });
+        } catch (\Throwable $e) {
+            // Опечатка в селекторе правила приезжает сюда SyntaxErrorException
+            // (а нестроковое значение — TypeError), и оба вылетали наружу,
+            // обрывая разбор выпуска целиком. Цена ошибки несимметрична:
+            // без правила в очередь попадёт реклама (её видно и можно
+            // удалить), с исключением не разберётся ни одна статья.
+            Log::warning('ReleaseService: правило рекламных блоков не применилось', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        return $hrefs;
+    }
+
+    private function logSponsored(array $sponsoredHrefs): void
+    {
+        if ($sponsoredHrefs === []) {
+            return;
+        }
+
+        // С адресами, а не счётчиком: когда отсев однажды съест нормальную
+        // статью (метка переехала в вёрстке), по числу «пропущено 4»
+        // проверить это будет нечем. Формат тот же, что у пропущенных
+        // не-статей в processLinks().
+        Log::info('ReleaseService: рекламные ссылки выпуска исключены из разбора', [
+            'count' => count($sponsoredHrefs),
+            'urls' => array_keys($sponsoredHrefs),
+        ]);
     }
 
     private function dispatchJobs(array $links): void
