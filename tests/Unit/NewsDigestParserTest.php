@@ -120,6 +120,16 @@ class NewsDigestParserTest extends TestCase
         $this->assertSame('С описанием', $items[0]['title']);
     }
 
+    public function test_summary_threshold_is_adjustable(): void
+    {
+        $html = $this->digest(
+            $this->item('https://a.test/1', 'yajra/laravel-datatables-html', 'Laravel DataTables HTML builder plugin.')
+        );
+
+        $this->assertCount(0, NewsDigestParser::parse($html, 'News and Announcements'));
+        $this->assertCount(1, NewsDigestParser::parse($html, 'News and Announcements', 20));
+    }
+
     public function test_collapses_whitespace_and_nbsp(): void
     {
         $html = $this->digest(

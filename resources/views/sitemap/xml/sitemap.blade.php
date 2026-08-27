@@ -15,6 +15,13 @@
             <priority>0.7</priority>
         </url>
     @endif
+    @if($hasTools)
+        <url>
+            <loc>{{ route('tools.index') }}</loc>
+            <changefreq>weekly</changefreq>
+            <priority>0.7</priority>
+        </url>
+    @endif
     @foreach ($categories as $category)
         <url>
             <loc>{{ route('category.show', $category->code) }}</loc>

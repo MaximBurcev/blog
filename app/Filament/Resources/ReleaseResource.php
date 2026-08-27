@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\ReleaseResource\Pages;
+use App\Jobs\ImportToolsJob;
 use App\Jobs\ParseReleaseJob;
 use App\Models\Release;
 use Filament\Forms\Components\TextInput;
@@ -71,6 +72,7 @@ class ReleaseResource extends Resource
             ->defaultSort('id', 'desc')
             ->actions([
                 self::parseAction(),
+                self::importToolsAction(),
                 Tables\Actions\EditAction::make(),
             ])
             ->bulkActions([
@@ -101,6 +103,33 @@ class ReleaseResource extends Resource
             ))
             ->modalSubmitActionLabel('Отправить в очередь')
             ->action(fn (Release $record) => self::dispatchParse($record));
+    }
+
+    public static function importToolsAction(): Tables\Actions\Action
+    {
+        return Tables\Actions\Action::make('importTools')
+            ->label('Импортировать инструменты')
+            ->icon('heroicon-o-cube')
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading('Импортировать инструменты из дайджеста')
+            ->modalDescription(fn (): string => sprintf(
+                'Из секции «%s» будут добавлены утилиты и библиотеки — только имя, ссылка и описание, без разбора страниц. Уже добавленные пропускаются. Описания переводятся одним запросом к модели на весь выпуск; если квота исчерпана, они останутся английскими.',
+                (string) config('releases.tools_section_heading'),
+            ))
+            ->modalSubmitActionLabel('Отправить в очередь')
+            ->action(fn (Release $record) => self::dispatchToolsImport($record));
+    }
+
+    public static function dispatchToolsImport(Release $release): void
+    {
+        ImportToolsJob::dispatch($release->url);
+
+        Notification::make()
+            ->title('Импорт инструментов отправлен в очередь')
+            ->body('Инструменты появятся в разделе «Инструменты» по мере обработки очереди.')
+            ->success()
+            ->send();
     }
 
     public static function dispatchParse(Release $release): void

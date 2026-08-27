@@ -61,6 +61,8 @@ Route::get('/news', App\Http\Controllers\News\IndexController::class)->name('new
 // различается только раздел и адрес (см. редирект внутри ShowController).
 Route::get('/news/{code}', ShowController::class)->name('news.show');
 
+Route::get('/tools', App\Http\Controllers\Tool\IndexController::class)->name('tools.index');
+
 Route::get('/sitemap.xml', XmlController::class)->name('sitemap.xml');
 
 Route::get('/feed.xml', App\Http\Controllers\Feed\IndexController::class)->name('feed.index');

@@ -345,6 +345,19 @@ return [
 
     'news_retry_limit' => (int) env('RELEASE_NEWS_RETRY_LIMIT', 3),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Tools Section
+    |--------------------------------------------------------------------------
+    |
+    | Секция дайджеста с утилитами и библиотеками — источник раздела /tools.
+    | Порог длины описания ниже новостного: у пакета описание в одну строку.
+    |
+    */
+    'tools_section_heading' => env('RELEASE_TOOLS_SECTION', 'Interesting Projects, Tools and Libraries'),
+
+    'tools_min_summary_length' => (int) env('RELEASE_TOOLS_MIN_SUMMARY', 20),
+
     'challenge_solver_url' => env('FLARESOLVERR_URL'),
 
     'challenge_solver_timeout' => (int) env('FLARESOLVERR_TIMEOUT', 60),

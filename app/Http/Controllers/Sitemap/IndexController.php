@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Post;
 use App\Models\Tag;
+use App\Models\Tool;
 
 class IndexController extends Controller
 {
@@ -30,9 +31,11 @@ class IndexController extends Controller
         $categories = Category::hasPublishedPosts()->select(['id', 'title', 'code'])->get();
         $tags = Tag::hasPublishedPosts()->select(['id', 'title', 'code'])->get();
 
+        $hasTools = Tool::published()->exists();
+
         $title = 'Карта сайта';
         $description = 'Все разделы, категории, теги и статьи блога на одной странице';
 
-        return view('sitemap.index', compact('posts', 'categories', 'tags', 'title', 'description'));
+        return view('sitemap.index', compact('posts', 'categories', 'tags', 'hasTools', 'title', 'description'));
     }
 }

@@ -25,6 +25,12 @@
                     @endforeach
                 </ul>
             @endif
+            @if($hasTools)
+                <h2>Инструменты</h2>
+                <ul>
+                    <li><a href="{{ route('tools.index') }}">Утилиты и библиотеки</a></li>
+                </ul>
+            @endif
             @if($tags->isNotEmpty())
                 <h2>Теги</h2>
                 <ul>

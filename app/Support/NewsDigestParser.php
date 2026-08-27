@@ -5,7 +5,8 @@ namespace App\Support;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
- * Достаёт новости из секции дайджеста PHP Weekly.
+ * Достаёт элементы секции дайджеста PHP Weekly — новости, пакеты и всё
+ * прочее, что свёрстано так же и различается только заголовком секции.
  *
  * Вёрстка секции — плоская, без обёрток на элемент:
  *
@@ -28,14 +29,20 @@ final class NewsDigestParser
 {
     /**
      * Описания короче этого считаем мусором (обрывки разметки, «read more»).
+     *
+     * Значение по умолчанию: у секции пакетов описания в строку короче, и она
+     * передаёт свой порог аргументом.
      */
     private const MIN_SUMMARY_LENGTH = 40;
 
     /**
      * @return array<int, array{title: string, url: string, summary: string}>
      */
-    public static function parse(string $html, string $sectionHeading): array
-    {
+    public static function parse(
+        string $html,
+        string $sectionHeading,
+        int $minSummaryLength = self::MIN_SUMMARY_LENGTH
+    ): array {
         if (trim($html) === '') {
             return [];
         }
@@ -46,7 +53,7 @@ final class NewsDigestParser
             return [];
         }
 
-        return self::extractItems($section);
+        return self::extractItems($section, $minSummaryLength);
     }
 
     private static function findSection(string $html, string $heading): ?\DOMNode
@@ -76,7 +83,7 @@ final class NewsDigestParser
     /**
      * @return array<int, array{title: string, url: string, summary: string}>
      */
-    private static function extractItems(\DOMNode $section): array
+    private static function extractItems(\DOMNode $section, int $minSummaryLength): array
     {
         $items = [];
         $current = null;
@@ -124,7 +131,7 @@ final class NewsDigestParser
                 return $item;
             },
             $items
-        ), static fn (array $item): bool => mb_strlen($item['summary']) >= self::MIN_SUMMARY_LENGTH));
+        ), static fn (array $item): bool => mb_strlen($item['summary']) >= $minSummaryLength));
     }
 
     private static function normalize(string $text): string
