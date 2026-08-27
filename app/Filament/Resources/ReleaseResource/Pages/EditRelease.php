@@ -19,7 +19,7 @@ class EditRelease extends EditRecord
                 ->color('gray')
                 ->requiresConfirmation()
                 ->modalHeading('Спарсить релиз')
-                ->modalDescription('Со страницы будут заново собраны ссылки на статьи, и для каждой в фоне запустится парсинг поста. Уже существующие посты обновятся, дублей не будет.')
+                ->modalDescription('Со страницы будут заново собраны ссылки на статьи, и для каждой в фоне запустится парсинг поста. Уже существующие посты обновятся, дублей не будет. Заодно импортируются инструменты из секции с утилитами и библиотеками — отдельно нажимать не нужно.')
                 ->modalSubmitActionLabel('Отправить в очередь')
                 ->action(fn () => ReleaseResource::dispatchParse($this->record)),
             Actions\Action::make('importTools')

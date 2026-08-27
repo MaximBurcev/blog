@@ -97,9 +97,10 @@ class ReleaseResource extends Resource
             ->requiresConfirmation()
             ->modalHeading('Спарсить релиз')
             ->modalDescription(fn (): string => sprintf(
-                'Со страницы будут собраны ссылки на статьи (не более %d, пропуская первые %d — см. настройки releases.max_links/offset), и для каждой в фоне запустится парсинг поста. Уже существующие посты обновятся, дублей не будет.',
+                'Со страницы будут собраны ссылки на статьи (не более %d, пропуская первые %d — см. настройки releases.max_links/offset), и для каждой в фоне запустится парсинг поста. Уже существующие посты обновятся, дублей не будет. Заодно из секции «%s» импортируются инструменты — отдельно нажимать не нужно.',
                 (int) config('releases.max_links'),
                 (int) config('releases.offset'),
+                (string) config('releases.tools_section_heading'),
             ))
             ->modalSubmitActionLabel('Отправить в очередь')
             ->action(fn (Release $record) => self::dispatchParse($record));

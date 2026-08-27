@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Jobs\ImportToolsJob;
 use App\Jobs\StorePostJob;
 use App\Models\Release;
 use App\Support\ContentSelectorResolver;
@@ -195,6 +196,9 @@ class ReleaseService
 
         try {
             $html = $this->fetchHtmlContent($url);
+
+            $this->dispatchToolsImport($url);
+
             $links = $this->extractLinksWithCrawler(
                 $html,
                 $this->getLinkSelectorForUrl($url),
@@ -543,6 +547,24 @@ class ReleaseService
             'count' => count($sponsoredHrefs),
             'urls' => array_keys($sponsoredHrefs),
         ]);
+    }
+
+    private function dispatchToolsImport(string $url): void
+    {
+        if (! $this->config['enable_job_dispatch']) {
+            Log::debug('Job dispatch is disabled, skipping tools import', ['url' => $url]);
+
+            return;
+        }
+
+        try {
+            ImportToolsJob::dispatch($url);
+        } catch (\Exception $e) {
+            Log::error('Failed to dispatch tools import', [
+                'url' => $url,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function dispatchJobs(array $links): void
