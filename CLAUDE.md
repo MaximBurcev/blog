@@ -54,8 +54,9 @@ The former custom AdminLTE admin at `/admin` was disabled on 2026-07-27 and remo
 Single MySQL database, default `mysql` connection (`config/database.php`), configured via `DB_*` env vars. The former `secondary` connection (remote posts DB) was decommissioned in July 2026 — all models, including `Post`, use the default connection.
 
 **Разрушающие команды запрещены везде, кроме тестов.** `AppServiceProvider::boot()`
-зовёт `DB::prohibitDestructiveCommands()`, и это гасит `migrate:fresh`,
-`migrate:refresh`, `migrate:reset` и `db:wipe` — в том числе локально. Повод
+зовёт `DB::prohibitDestructiveCommands()`, и это гасит **пять** команд:
+`migrate:fresh`, `migrate:refresh`, `migrate:reset`, `migrate:rollback` и
+`db:wipe` — в том числе локально и на проде. Повод
 конкретный: 26.08.2026 `migrate:fresh` снёс базу разработки (все 58 миграций
 легли одним батчем, файлы таблиц пересозданы одной минутой), и восстанавливать
 пришлось дампом с прода. Локальных бэкапов нет по устройству — `backup:run`
@@ -72,6 +73,14 @@ Single MySQL database, default `mysql` connection (`config/database.php`), confi
 
 Обхода через `--force` у запрета не предусмотрено: если сброс действительно
 нужен, строка снимается руками на время операции.
+
+**`migrate:rollback` в этом списке — не опечатка Laravel, а то, о чём стоит
+помнить при неудачном деплое.** В `Envoy.blade.php` `migrate` идёт до
+`set_current`, поэтому упавший деплой оставляет прод на старом коде с частью
+накатанных миграций, и первым побуждением будет откатить. Теперь так нельзя:
+чинить нужно вперёд — доводить цикл до `set_current` из уже склонированного
+релиза, как описано в разделе про деплой. Если откат всё же неизбежен, строка
+запрета снимается на время операции.
 
 ### Controller Pattern
 
