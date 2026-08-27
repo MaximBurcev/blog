@@ -12,6 +12,7 @@ use App\Service\Translation\Translator;
 use Carbon\Carbon;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -78,6 +79,10 @@ class AppServiceProvider extends ServiceProvider
     {
         Carbon::setLocale('ru_RU');
         Paginator::useBootstrapFive();
+
+        DB::prohibitDestructiveCommands(
+            ! $this->app->runningUnitTests() || ! defined('PHPUNIT_COMPOSER_INSTALL')
+        );
 
         // Гейт viewLogViewer объявлен один раз — в AuthServiceProvider.
         // Здесь была вторая копия с не-nullable $user: провайдеры грузятся по

@@ -53,6 +53,26 @@ The former custom AdminLTE admin at `/admin` was disabled on 2026-07-27 and remo
 
 Single MySQL database, default `mysql` connection (`config/database.php`), configured via `DB_*` env vars. The former `secondary` connection (remote posts DB) was decommissioned in July 2026 — all models, including `Post`, use the default connection.
 
+**Разрушающие команды запрещены везде, кроме тестов.** `AppServiceProvider::boot()`
+зовёт `DB::prohibitDestructiveCommands()`, и это гасит `migrate:fresh`,
+`migrate:refresh`, `migrate:reset` и `db:wipe` — в том числе локально. Повод
+конкретный: 26.08.2026 `migrate:fresh` снёс базу разработки (все 58 миграций
+легли одним батчем, файлы таблиц пересозданы одной минутой), и восстанавливать
+пришлось дампом с прода. Локальных бэкапов нет по устройству — `backup:run`
+обёрнут в `environments(['production'])`.
+
+Условие намеренно двойное: `! runningUnitTests() || ! defined('PHPUNIT_COMPOSER_INSTALL')`.
+`runningUnitTests()` — это всего лишь проверка `APP_ENV === 'testing'`, а env
+задаётся флагом командной строки: с одним первым условием
+`migrate:fresh --env=testing` проходил насквозь и сносил базу разработки
+(`DB_DATABASE` при этом берётся из `.env`, то есть боевую локальную, а не
+`testing`). Константу `PHPUNIT_COMPOSER_INSTALL` ставит бутстрап PHPUnit, и
+флагом её не подделать, поэтому `RefreshDatabase` работает, а ручной вызов —
+нет. Упрощать условие до одного `runningUnitTests()` нельзя, это возвращает дыру.
+
+Обхода через `--force` у запрета не предусмотрено: если сброс действительно
+нужен, строка снимается руками на время операции.
+
 ### Controller Pattern
 
 All controllers are single-action classes — each HTTP action (index, show, store, etc.) has its own dedicated controller class. Example: `Post/ShowController.php`, `Category/IndexController.php`.
