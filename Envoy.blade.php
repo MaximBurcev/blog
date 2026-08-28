@@ -242,6 +242,14 @@
     run_post_parse
 @endstory
 
+@task('posts-stats', ['on' => 'production'])
+    # Срез контента прода: сколько всего, сколько опубликовано, сколько
+    # черновиков ждут вычитки. Нужен, чтобы решения про публикацию
+    # принимались по цифрам, а не по ощущению от админки.
+    cd {{$dirCurrent}};
+    php artisan tinker --execute="printf('всего=%d опубликовано=%d черновиков_ok=%d failed=%d ревью_перевода=%d'.PHP_EOL, \App\Models\Post::count(), \App\Models\Post::where('published', true)->count(), \App\Models\Post::where('published', false)->where('parse_status', 'ok')->count(), \App\Models\Post::where('parse_status', 'failed')->count(), \App\Models\Post::where('translation_incomplete', true)->count());"
+@endtask
+
 @task('run_post_parse', ['on' => 'production'])
     cd {{$dirCurrent}}
     php artisan post:parse "{{$url}}" {{ isset($selector) ? '--selector=' . $selector : '' }} {{ isset($sync) ? '--sync' : '' }}

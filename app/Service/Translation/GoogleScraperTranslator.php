@@ -20,6 +20,12 @@ class GoogleScraperTranslator implements Translator
     use TranslatesNodes;
 
     /**
+     * Имя движка — константой: по нему извне узнают откат на запасной
+     * (posts.translated_by, TranslateDraftsCommand), не создавая экземпляр.
+     */
+    public const NAME = 'google';
+
+    /**
      * Объявлено явно: трейт свойство только использует, а динамическое
      * создание полей в PHP 8.2+ помечено deprecated.
      */
@@ -32,7 +38,7 @@ class GoogleScraperTranslator implements Translator
 
     public function name(): string
     {
-        return 'google';
+        return self::NAME;
     }
 
     public function translateHtml(string $html): TranslationResult
