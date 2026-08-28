@@ -226,6 +226,18 @@
     sudo supervisorctl restart blog-reverb || true;
 @endtask
 
+@task('cache-clear', ['on' => 'production'])
+    # Прикладной кэш лежит в shared/ и переживает деплой. В окне между
+    # cache:clear сборки и переключением Apache на новый релиз старый код
+    # может успеть положить в кэш устаревший ответ (поймано на feed.xml
+    # 28.08.2026: бот закэшировал RSS без новых элементов на час TTL).
+    echo '# Clearing application cache';
+    cd {{$dirCurrent}};
+    # sudo обязателен: файлы кэша в shared/ созданы Apache (www-data),
+    # у deployer нет прав их удалить — как и в releases_clean.
+    sudo php artisan cache:clear;
+@endtask
+
 @story('post-parse', ['on' => 'production'])
     run_post_parse
 @endstory
