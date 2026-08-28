@@ -2,10 +2,13 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Analytics\Widgets\CommentsAndLikes;
 use App\Filament\Analytics\Widgets\LlmUsage;
+use App\Filament\Analytics\Widgets\NewsArticlesSplit;
 use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
 use App\Filament\Analytics\Widgets\PublishingPace;
+use App\Filament\Analytics\Widgets\ReaderRetention;
 use App\Filament\Analytics\Widgets\ReadingDepth;
 use App\Filament\Analytics\Widgets\SearchQueries;
 use App\Filament\Analytics\Widgets\TopPostsByViews;
@@ -71,10 +74,13 @@ class FilamentPanelProvider extends PanelProvider
             ->livewireComponents([
                 PostViewsOverview::class,
                 ReadingDepth::class,
+                ReaderRetention::class,
                 PostViewsChart::class,
                 TrafficSources::class,
                 PublishingPace::class,
+                NewsArticlesSplit::class,
                 LlmUsage::class,
+                CommentsAndLikes::class,
                 SearchQueries::class,
                 TopPostsByViews::class,
             ])

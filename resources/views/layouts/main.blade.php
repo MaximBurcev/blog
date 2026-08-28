@@ -25,6 +25,15 @@
     @endif
     <link rel="alternate" type="application/rss+xml" title="{{ config('app.name', 'Laravel') }}" href="{{ route('feed.index') }}">
 
+    {{-- Подтверждение прав на сайт для поисковиков — только когда код задан
+         в конфиге, пустой тег поисковик не примет. --}}
+    @if(config('seo.yandex_verification'))
+        <meta name="yandex-verification" content="{{ config('seo.yandex_verification') }}">
+    @endif
+    @if(config('seo.google_site_verification'))
+        <meta name="google-site-verification" content="{{ config('seo.google_site_verification') }}">
+    @endif
+
     <meta property="og:site_name" content="{{ config('app.name', 'Laravel') }}">
     <meta property="og:locale" content="{{ config('seo.og_locale') }}">
     <meta property="og:type" content="{{ $ogType }}">
@@ -209,6 +218,10 @@
 </script>
 
 @stack('scripts')
+
+@if(config('seo.yandex_metrika_id'))
+    @include('partials.metrika')
+@endif
 
 {{-- Echo/Pusher подписывается на приватный канал пользователя — гостю этот
      бандл не нужен вовсе. --}}

@@ -2,10 +2,13 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Analytics\Widgets\CommentsAndLikes;
 use App\Filament\Analytics\Widgets\LlmUsage;
+use App\Filament\Analytics\Widgets\NewsArticlesSplit;
 use App\Filament\Analytics\Widgets\PostViewsChart;
 use App\Filament\Analytics\Widgets\PostViewsOverview;
 use App\Filament\Analytics\Widgets\PublishingPace;
+use App\Filament\Analytics\Widgets\ReaderRetention;
 use App\Filament\Analytics\Widgets\ReadingDepth;
 use App\Filament\Analytics\Widgets\SearchQueries;
 use App\Filament\Analytics\Widgets\TopPostsByViews;
@@ -65,12 +68,22 @@ class Analytics extends Page
         return [
             PostViewsOverview::class,
             ReadingDepth::class,
+            // Сразу за глубиной чтения: та отвечает, сколько читают за один
+            // визит, эта — приходят ли вообще второй раз.
+            ReaderRetention::class,
             PostViewsChart::class,
             TrafficSources::class,
             PublishingPace::class,
+            // К темпу публикаций: он считает посты суммарно, этот — в разрезе
+            // двух лент, новости и статьи.
+            NewsArticlesSplit::class,
             // Сразу за темпом публикаций: тот отвечает, сколько статей мы
             // выпустили, этот — во что они обошлись.
             LlmUsage::class,
+            // Вовлечённость читателей рядом с их возвратами по смыслу, но
+            // очередь модерации не должна зависеть от фильтра периода —
+            // поэтому после всех периодических виджетов.
+            CommentsAndLikes::class,
             SearchQueries::class,
             TopPostsByViews::class,
         ];
