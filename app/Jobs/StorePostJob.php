@@ -9,6 +9,7 @@ use App\Service\ChallengeSolverClient;
 use App\Service\ContentImageService;
 use App\Service\DiagramTranslatorService;
 use App\Service\PostService;
+use App\Service\Translation\TranslationQualityChecker;
 use App\Service\Translation\TranslationResult;
 use App\Service\Translation\Translator;
 use App\Support\ContentSelectorResolver;
@@ -110,6 +111,23 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
+     * Эвристики качества перевода поверх счётчика фолбэков: движок мог
+     * отчитаться об успехе и всё же оборвать текст или оставить часть блоков
+     * в оригинале. Сравнивается то, что реально уйдёт в пост — content_orig и
+     * content; без оригинала (ручной пост, неудачный разбор) мерить нечего.
+     */
+    private function translationNeedsReview(): bool
+    {
+        $orig = (string) ($this->data['content_orig'] ?? '');
+
+        return $orig !== ''
+            && TranslationQualityChecker::fromConfig()->reviewReason(
+                $orig,
+                (string) ($this->data['content'] ?? '')
+            ) !== null;
+    }
+
+    /**
      * Причина, по которой не удалось скачать страницу — заполняется внутри
      * fetchHtml(), чтобы handle() мог записать её в parse_error поста, а не
      * только в лог.
@@ -208,7 +226,8 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         // Публикации это не мешает — published по умолчанию false.
         $this->applyParseResult($failure);
 
-        $this->data['translation_incomplete'] = $this->hasTranslationFallbacks();
+        $this->data['translation_incomplete'] = $this->hasTranslationFallbacks()
+            || $this->translationNeedsReview();
 
         $this->service->store(PostData::fromArray($this->data));
     }

@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Service\Translation\TranslationQualityChecker;
 use App\Service\Translation\TranslationResult;
 use App\Service\Translation\Translator;
 use App\Support\SelectorXPathBuilder;
@@ -73,6 +74,12 @@ class TranslateService
 
             $result = $this->translator->translateHtml($source);
             $incomplete = $incomplete || $result->failed || $result->partial;
+
+            // Эвристики качества дополняют (OR), а не заменяют сигналы
+            // движка: ответ мог пройти валидацию и всё же оборваться или
+            // оставить часть блоков в оригинале.
+            $incomplete = $incomplete
+                || TranslationQualityChecker::fromConfig()->reviewReason($source, $result->text) !== null;
 
             $postContent = $this->modifyContent($result->text);
             $postContent = $this->imageService->replacePictureElements($postContent);

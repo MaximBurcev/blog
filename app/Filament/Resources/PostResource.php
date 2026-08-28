@@ -8,6 +8,7 @@ use App\Jobs\StorePostJob;
 use App\Models\Category;
 use App\Models\Post;
 use App\Service\Translation\GeminiTranslator;
+use App\Service\Translation\TranslationQualityChecker;
 use App\Support\ContentSelectorResolver;
 use App\Support\PostCode;
 use Filament\Forms;
@@ -19,6 +20,7 @@ use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\HtmlString;
 
 class PostResource extends Resource
@@ -102,7 +104,7 @@ class PostResource extends Resource
             ->columns([
                 TextColumn::make('id')->label('ID')->sortable(),
                 Tables\Columns\ImageColumn::make('preview_image')->label('Превью'),
-                TextColumn::make('title')->label('Заголовок')->sortable()->wrap()
+                TextColumn::make('title')->label('Заголовок')->sortable()->searchable()->wrap()
                     // Домен источника прямо под заголовком: в списке важно
                     // отличить спарсенные посты от заведённых вручную.
                     ->description(fn (Post $record): ?string => $record->sourceHost()),
@@ -120,8 +122,16 @@ class PostResource extends Resource
                     ->falseIcon('heroicon-o-check-circle')
                     ->falseColor('success')
                     ->label('Перевод')
+                    // Причину ревью не храним, а вычисляем из пары
+                    // content_orig/content: оба текста уже лежат в базе, и
+                    // эвристики воспроизводят её детерминированно. Флаг же мог
+                    // стоять и по другой причине (сбой движка) — тогда общая
+                    // формулировка.
                     ->tooltip(fn (Post $record): ?string => $record->translation_incomplete
-                        ? 'Часть блоков осталась без перевода — требует ревью'
+                        ? (TranslationQualityChecker::fromConfig()->reviewReason(
+                            (string) $record->content_orig,
+                            (string) $record->content
+                        ) ?? 'Перевод отмечен как неполный — требует ревью')
                         : null)
                     ->sortable(),
                 // Каким движком переведено. Основной может молча уступить
@@ -175,9 +185,12 @@ class PostResource extends Resource
                     ->description(fn (Post $record): ?string => $record->parse_error ?: null)
                     ->wrap()
                     ->sortable(),
-                Tables\Columns\IconColumn::make('published')
+                // Тоггл вместо иконки: очередь ревью живёт в этом списке, и
+                // публикация не должна требовать открытия формы. Дату первой
+                // публикации проставляет saving-хук модели, здесь думать не о
+                // чем.
+                Tables\Columns\ToggleColumn::make('published')
                     ->label('Опубликовано')
-                    ->boolean()
                     ->sortable(),
                 TextColumn::make('created_at')->label('Дата создания')->dateTime('d.m.Y H:i')->sortable(),
                 // Когда пост последний раз прогоняли через парсер — в отличие
@@ -204,6 +217,11 @@ class PostResource extends Resource
                     ->placeholder('Все')
                     ->trueLabel('Опубликован')
                     ->falseLabel('Не опубликован'),
+                Tables\Filters\TernaryFilter::make('translation_incomplete')
+                    ->label('Ревью перевода')
+                    ->placeholder('Все')
+                    ->trueLabel('Требует ревью')
+                    ->falseLabel('Переведён полностью'),
                 Tables\Filters\Filter::make('parse_failed')
                     ->label('С ошибкой парсинга')
                     ->query(fn (Builder $query): Builder => $query->parseFailed())
@@ -218,11 +236,35 @@ class PostResource extends Resource
                     }),
             ])
             ->actions([
+                // Прямая ссылка на публичную страницу — последний шаг ревью.
+                // Только для опубликованных: черновик отдаёт 404. permalink()
+                // сам различает статью и новость (/news/{code}).
+                Tables\Actions\Action::make('viewOnSite')
+                    ->label('Посмотреть на сайте')
+                    ->icon('heroicon-o-arrow-top-right-on-square')
+                    ->color('gray')
+                    ->url(fn (Post $record): string => $record->permalink())
+                    ->openUrlInNewTab()
+                    ->visible(fn (Post $record): bool => (bool) $record->published),
                 Tables\Actions\EditAction::make(),
                 self::reparseAction(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    // Перебор моделей, а не массовый update() запросом: дату
+                    // первой публикации проставляет saving-хук Post, и прямой
+                    // запрос в базу обошёл бы его молча.
+                    Tables\Actions\BulkAction::make('publish')
+                        ->label('Опубликовать')
+                        ->icon('heroicon-o-check-circle')
+                        ->requiresConfirmation()
+                        ->action(fn (Collection $records) => $records->each->update(['published' => true])),
+                    Tables\Actions\BulkAction::make('unpublish')
+                        ->label('Снять с публикации')
+                        ->icon('heroicon-o-x-circle')
+                        ->color('gray')
+                        ->requiresConfirmation()
+                        ->action(fn (Collection $records) => $records->each->update(['published' => false])),
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
