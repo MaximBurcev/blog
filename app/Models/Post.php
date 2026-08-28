@@ -333,11 +333,23 @@ class Post extends Model
         return rtrim($lastSpace ? mb_substr($cut, 0, $lastSpace) : $cut, " \t\n\r\0\x0B,.;:—–-").'…';
     }
 
+    /**
+     * Число слов в тексте статьи.
+     *
+     * Считается юникодным паттерном по буквам и цифрам, а не
+     * str_word_count(): тот по умолчанию считает буквами только ASCII, и на
+     * русском тексте возвращал единицы — именно этот мусор уезжал в wordCount
+     * JSON-LD на странице поста. Общий метод, а не копия паттерна в шаблоне:
+     * подсчёт нужен и времени чтения, и разметке, и расходиться они не должны.
+     */
+    public function wordCount(): int
+    {
+        return preg_match_all('/[\p{L}\p{N}]+/u', strip_tags((string) $this->content));
+    }
+
     public function readingTimeMinutes(): int
     {
-        $wordCount = preg_match_all('/[\p{L}\p{N}]+/u', strip_tags((string) $this->content));
-
-        return max(1, (int) ceil($wordCount / self::WORDS_PER_MINUTE));
+        return max(1, (int) ceil($this->wordCount() / self::WORDS_PER_MINUTE));
     }
 
     public function readingTimeLabel(): string

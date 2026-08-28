@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Models\Post;
 use App\Models\Tag;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -357,6 +358,282 @@ class SeoFeedSitemapTest extends TestCase
     public function test_account_pages_are_noindex(): void
     {
         $this->get(route('login'))->assertSee('name="robots" content="noindex, follow"', false);
+    }
+
+    /**
+     * RSS отдаёт метаданные канала (свой адрес, дата сборки, логотип) и
+     * полный текст записи в content:encoded — в description остаётся анонс.
+     */
+    public function test_feed_exposes_channel_metadata_and_full_content(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+
+            Post::create([
+                'title' => 'Published post',
+                'code' => 'published-post',
+                'content' => '<p>Полный текст записи.</p>',
+                'published' => 1,
+                'category_id' => $category->id,
+            ]);
+        });
+
+        $response = $this->get(route('feed.index'));
+
+        $response->assertOk();
+        $response->assertSee('<atom:link href="'.route('feed.index').'" rel="self" type="application/rss+xml" />', false);
+        $response->assertSee('<lastBuildDate>', false);
+        $response->assertSee('<url>'.asset(config('seo.default_image')).'</url>', false);
+        $response->assertSee('<content:encoded><![CDATA[<p>Полный текст записи.</p>]]></content:encoded>', false);
+    }
+
+    /**
+     * sitemap.xml и feed.xml раньше рендерились на каждый запрос — при том
+     * что перечитывают их в основном краулеры и читалки. Теперь выдача
+     * кэшируется на час (инвалидация по TTL, см. Sitemap\XmlController) и
+     * отдаёт Cache-Control с тем же часом.
+     */
+    public function test_sitemap_and_feed_are_cached_and_send_cache_headers(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            Post::create([
+                'title' => 'Первый пост',
+                'code' => 'pervyj-post',
+                'content' => 'content',
+                'published' => 1,
+            ]);
+        });
+
+        $response = $this->get(route('sitemap.xml'));
+
+        $response->assertOk();
+        $response->assertSee(route('post.show', 'pervyj-post'), false);
+
+        $cacheControl = (string) $response->headers->get('Cache-Control');
+        $this->assertStringContainsString('max-age=3600', $cacheControl);
+        $this->assertStringContainsString('public', $cacheControl);
+
+        // Пост, созданный после первого запроса, в кэшированную выдачу не
+        // попадает — свежестью жертвуем осознанно, ради неё и TTL.
+        Post::withoutSyncingToSearch(function () {
+            Post::create([
+                'title' => 'Второй пост',
+                'code' => 'vtoroj-post',
+                'content' => 'content',
+                'published' => 1,
+            ]);
+        });
+
+        $this->get(route('sitemap.xml'))
+            ->assertOk()
+            ->assertDontSee(route('post.show', 'vtoroj-post'), false);
+
+        // После сброса кэша (это то, что сделает TTL) — появляется.
+        Cache::flush();
+
+        $this->get(route('sitemap.xml'))
+            ->assertOk()
+            ->assertSee(route('post.show', 'vtoroj-post'), false);
+
+        $feed = $this->get(route('feed.index'));
+
+        $feed->assertOk();
+        $feed->assertSee('Второй пост');
+        $this->assertStringContainsString('max-age=3600', (string) $feed->headers->get('Cache-Control'));
+    }
+
+    /**
+     * Каноническая ссылка ленты новостей — текущая страница пагинации, как
+     * на главной и в разделах: иначе все ?page=N схлопывались бы в первую.
+     * Пустая страница закрывается noindex, а не 404 (см. News\IndexController).
+     */
+    public function test_news_listing_has_canonical_and_closes_empty_pages(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            // 16 новостей, чтобы была вторая страница (PER_PAGE = 15).
+            foreach (range(1, 16) as $i) {
+                Post::create([
+                    'title' => "Новость {$i}",
+                    'code' => "novost-{$i}",
+                    'content' => 'content',
+                    'published' => 1,
+                    'is_news' => 1,
+                ]);
+            }
+        });
+
+        $this->get(route('news.index'))
+            ->assertOk()
+            ->assertSee('<link rel="canonical" href="'.route('news.index').'">', false)
+            ->assertDontSee('name="robots" content="noindex, follow"', false);
+
+        $this->get(route('news.index').'?page=2')
+            ->assertOk()
+            ->assertSee('<link rel="canonical" href="'.route('news.index').'?page=2">', false)
+            ->assertDontSee('name="robots" content="noindex, follow"', false);
+
+        $this->get(route('news.index').'?page=99')
+            ->assertOk()
+            ->assertSee('name="robots" content="noindex, follow"', false);
+    }
+
+    /**
+     * Пагинация категории и тега раньше была без orderBy — порядок страниц
+     * не гарантирован, и ?page=2 могла повторить посты с первой. Сортировка —
+     * свежие первыми, как на главной и в /news.
+     */
+    public function test_category_and_tag_list_posts_newest_first(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+            $tag = Tag::create(['title' => 'Redis', 'code' => 'redis']);
+
+            $old = Post::create([
+                'title' => 'Старый пост',
+                'code' => 'staryj-post',
+                'content' => 'content',
+                'published' => 1,
+                'category_id' => $category->id,
+                'created_at' => '2026-08-01 10:00:00',
+            ]);
+            $old->tags()->attach($tag);
+
+            $new = Post::create([
+                'title' => 'Новый пост',
+                'code' => 'novyj-post',
+                'content' => 'content',
+                'published' => 1,
+                'category_id' => $category->id,
+                'created_at' => '2026-08-20 10:00:00',
+            ]);
+            $new->tags()->attach($tag);
+        });
+
+        foreach ([route('category.show', 'laravel'), route('tag.show', 'redis')] as $url) {
+            $content = $this->get($url)->assertOk()->getContent();
+
+            $this->assertLessThan(
+                mb_strpos($content, 'Старый пост'),
+                mb_strpos($content, 'Новый пост'),
+                "Листинг обязан отдавать свежие посты первыми: {$url}"
+            );
+        }
+    }
+
+    /**
+     * Листинги размечаются CollectionPage с ItemList ссылок на посты — до
+     * этого структурированных данных у лент не было вовсе. ItemList обязан
+     * вести на посты их каноническими адресами: у новости это /news/{code}.
+     */
+    public function test_listings_expose_collection_page_schema(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+            $tag = Tag::create(['title' => 'Redis', 'code' => 'redis']);
+
+            $post = Post::create([
+                'title' => 'Published post',
+                'code' => 'published-post',
+                'content' => 'content',
+                'published' => 1,
+                'category_id' => $category->id,
+            ]);
+            $post->tags()->attach($tag);
+
+            Post::create([
+                'title' => 'Published news',
+                'code' => 'published-news',
+                'content' => 'content',
+                'published' => 1,
+                'is_news' => 1,
+                'category_id' => $category->id,
+            ]);
+        });
+
+        foreach ([
+            route('main.index'),
+            route('category.show', 'laravel'),
+            route('tag.show', 'redis'),
+            route('news.index'),
+        ] as $url) {
+            $this->get($url)
+                ->assertOk()
+                ->assertSee('"@type":"CollectionPage"', false)
+                ->assertSee('"@type":"ItemList"', false);
+        }
+
+        $this->get(route('main.index'))
+            ->assertSee('"url":"'.route('post.show', 'published-post').'"', false);
+
+        $this->get(route('news.index'))
+            ->assertSee('"url":"'.route('news.show', 'published-news').'"', false);
+    }
+
+    /**
+     * Новость размечается NewsArticle, а не общим BlogPosting: у новостного
+     * типа свои требования к сниппету, а материал новостной по построению.
+     */
+    public function test_news_page_is_marked_up_as_news_article(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            Post::create([
+                'title' => 'Published post',
+                'code' => 'published-post',
+                'content' => 'content',
+                'published' => 1,
+            ]);
+            Post::create([
+                'title' => 'Published news',
+                'code' => 'published-news',
+                'content' => 'content',
+                'published' => 1,
+                'is_news' => 1,
+            ]);
+        });
+
+        $this->get(route('news.show', 'published-news'))
+            ->assertOk()
+            ->assertSee('"@type":"NewsArticle"', false)
+            ->assertDontSee('"@type":"BlogPosting"', false);
+
+        $this->get(route('post.show', 'published-post'))
+            ->assertOk()
+            ->assertSee('"@type":"BlogPosting"', false)
+            ->assertDontSee('"@type":"NewsArticle"', false);
+    }
+
+    /**
+     * SearchAction указывал на /search?q=…, который Disallow в robots.txt, —
+     * противоречивые сигналы поисковику (плюс Google отключил sitelinks
+     * searchbox). Сама WebSite-схема остаётся.
+     */
+    public function test_website_schema_has_no_search_action(): void
+    {
+        $this->get(route('main.index'))
+            ->assertOk()
+            ->assertSee('"@type":"WebSite"', false)
+            ->assertDontSee('SearchAction', false);
+    }
+
+    /**
+     * wordCount в JSON-LD раньше считался str_word_count(), который не знает
+     * кириллицу и на русском тексте отдавал единицы. Теперь это
+     * Post::wordCount() — тот же подсчёт, что у времени чтения.
+     */
+    public function test_post_schema_word_count_counts_cyrillic(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            Post::create([
+                'title' => 'Published post',
+                'code' => 'published-post',
+                'content' => '<p>раз два три</p>',
+                'published' => 1,
+            ]);
+        });
+
+        $this->get(route('post.show', 'published-post'))
+            ->assertOk()
+            ->assertSee('"wordCount":3', false);
     }
 
     private function metaDescription(string $html): string

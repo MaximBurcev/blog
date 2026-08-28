@@ -3,11 +3,32 @@
 @push('schema')
     @include('partials.json-ld', ['data' => [
         '@context' => 'https://schema.org',
-        '@type' => 'BreadcrumbList',
-        'itemListElement' => [
-            ['@type' => 'ListItem', 'position' => 1, 'name' => 'Главная', 'item' => url('/')],
-            ['@type' => 'ListItem', 'position' => 2, 'name' => 'Теги', 'item' => route('tag.index')],
-            ['@type' => 'ListItem', 'position' => 3, 'name' => $tag->title],
+        '@graph' => [
+            [
+                // См. categories/show: листинг-CollectionPage с позициями
+                // сквозь пагинацию.
+                '@type' => 'CollectionPage',
+                '@id' => $canonical.'#collection',
+                'url' => $canonical,
+                'name' => $title,
+                'isPartOf' => ['@id' => url('/').'#website'],
+                'mainEntity' => [
+                    '@type' => 'ItemList',
+                    'itemListElement' => $posts->map(fn ($post, $i) => [
+                        '@type' => 'ListItem',
+                        'position' => ($posts->firstItem() ?? 1) + $i,
+                        'url' => $post->permalink(),
+                    ])->all(),
+                ],
+            ],
+            [
+                '@type' => 'BreadcrumbList',
+                'itemListElement' => [
+                    ['@type' => 'ListItem', 'position' => 1, 'name' => 'Главная', 'item' => url('/')],
+                    ['@type' => 'ListItem', 'position' => 2, 'name' => 'Теги', 'item' => route('tag.index')],
+                    ['@type' => 'ListItem', 'position' => 3, 'name' => $tag->title],
+                ],
+            ],
         ],
     ]])
 @endpush

@@ -1,5 +1,27 @@
 @extends('layouts.main')
 
+@push('schema')
+    @include('partials.json-ld', ['data' => [
+        '@context' => 'https://schema.org',
+        // Лента статей как CollectionPage: поисковик видит, что страница —
+        // подборка материалов, а не статья. Позиции сквозные через страницы
+        // пагинации, как в разделах (см. categories/show).
+        '@type' => 'CollectionPage',
+        '@id' => $canonical.'#collection',
+        'url' => $canonical,
+        'name' => $title,
+        'isPartOf' => ['@id' => url('/').'#website'],
+        'mainEntity' => [
+            '@type' => 'ItemList',
+            'itemListElement' => $posts->map(fn ($post, $i) => [
+                '@type' => 'ListItem',
+                'position' => ($posts->firstItem() ?? 1) + $i,
+                'url' => $post->permalink(),
+            ])->all(),
+        ],
+    ]])
+@endpush
+
 @section('content')
     <style>
         .widget-post-list .post-views-meta {

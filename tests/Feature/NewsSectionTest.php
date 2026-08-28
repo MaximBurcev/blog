@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Post;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 /**
@@ -138,6 +139,10 @@ class NewsSectionTest extends TestCase
         $this->makePost(['title' => 'Только статья']);
 
         $this->get('/sitemap.xml')->assertOk()->assertDontSee(route('news.index'), escape: false);
+
+        // Карта кэшируется на час (см. Sitemap\XmlController) — в бою свежесть
+        // даст TTL, а тут сбрасываем кэш руками, как и положено тесту.
+        Cache::flush();
 
         $this->makePost(['is_news' => true]);
 

@@ -1,5 +1,26 @@
 @extends('layouts.main')
 
+@push('schema')
+    @include('partials.json-ld', ['data' => [
+        '@context' => 'https://schema.org',
+        // См. categories/show: листинг-CollectionPage, позиции сквозь
+        // пагинацию. permalink() отдаёт новостям их адрес /news/{code}.
+        '@type' => 'CollectionPage',
+        '@id' => $canonical.'#collection',
+        'url' => $canonical,
+        'name' => $title,
+        'isPartOf' => ['@id' => url('/').'#website'],
+        'mainEntity' => [
+            '@type' => 'ItemList',
+            'itemListElement' => $posts->map(fn ($post, $i) => [
+                '@type' => 'ListItem',
+                'position' => ($posts->firstItem() ?? 1) + $i,
+                'url' => $post->permalink(),
+            ])->all(),
+        ],
+    ]])
+@endpush
+
 @section('content')
     <main class="blog">
         <div class="container">

@@ -63,6 +63,11 @@ Route::get('/news/{code}', ShowController::class)->name('news.show');
 
 Route::get('/tools', App\Http\Controllers\Tool\IndexController::class)->name('tools.index');
 
-Route::get('/sitemap.xml', XmlController::class)->name('sitemap.xml');
+// cache.headers выставляет Cache-Control: sitemap.xml и feed.xml —
+// единственные адреса, которые поисковики и читалки перечитывают регулярно;
+// час совпадает с TTL кэша контроллеров (см. Sitemap\XmlController).
+Route::get('/sitemap.xml', XmlController::class)->name('sitemap.xml')
+    ->middleware('cache.headers:public;max_age=3600');
 
-Route::get('/feed.xml', App\Http\Controllers\Feed\IndexController::class)->name('feed.index');
+Route::get('/feed.xml', App\Http\Controllers\Feed\IndexController::class)->name('feed.index')
+    ->middleware('cache.headers:public;max_age=3600');

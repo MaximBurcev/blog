@@ -81,7 +81,10 @@
         '@context' => 'https://schema.org',
         '@graph' => [
             [
-                '@type' => 'BlogPosting',
+                // Новость размечается NewsArticle, а не BlogPosting: у неё
+                // свои требования к сниппету (например, она может попасть в
+                // блок «Главные новости»), а материал-то новостной.
+                '@type' => $post->is_news ? 'NewsArticle' : 'BlogPosting',
                 '@id' => $post->permalink().'#article',
                 'mainEntityOfPage' => ['@type' => 'WebPage', '@id' => $post->permalink()],
                 'headline' => Str::limit($post->title, 110, ''),
@@ -90,7 +93,9 @@
                 'datePublished' => $post->created_at?->toIso8601String(),
                 'dateModified' => $post->updated_at?->toIso8601String(),
                 'inLanguage' => 'ru-RU',
-                'wordCount' => str_word_count(strip_tags($post->content)),
+                // wordCount() модели, а не str_word_count(): тот кириллицу
+                // не считает (см. Post::wordCount()).
+                'wordCount' => $post->wordCount(),
                 'author' => ['@id' => url('/').'#organization'],
                 'publisher' => ['@id' => url('/').'#organization'],
                 'articleSection' => $post->category?->title,

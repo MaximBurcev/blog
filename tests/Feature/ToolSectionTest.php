@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Tool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class ToolSectionTest extends TestCase
@@ -93,6 +94,10 @@ class ToolSectionTest extends TestCase
     {
         $this->get('/sitemap.xml')->assertOk()->assertDontSee(route('tools.index'), escape: false);
         $this->get(route('sitemap.index'))->assertOk()->assertDontSee('Утилиты и библиотеки');
+
+        // Карта кэшируется на час (см. Sitemap\XmlController) — в бою свежесть
+        // даст TTL, а тут сбрасываем кэш руками, как и положено тесту.
+        Cache::flush();
 
         $this->makeTool();
 

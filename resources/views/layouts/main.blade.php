@@ -114,14 +114,10 @@
                 'description' => config('seo.default_description'),
                 'inLanguage' => 'ru-RU',
                 'publisher' => ['@id' => url('/').'#organization'],
-                'potentialAction' => [
-                    '@type' => 'SearchAction',
-                    'target' => [
-                        '@type' => 'EntryPoint',
-                        'urlTemplate' => route('main.search').'?q={search_term_string}',
-                    ],
-                    'query-input' => 'required name=search_term_string',
-                ],
+                // SearchAction здесь был и удалён: он вёл на /search?q=…,
+                // который Disallow в robots.txt, — противоречивые сигналы
+                // поисковику. Тем более Google отключил sitelinks searchbox,
+                // единственное, что эта разметка давала.
             ],
             [
                 '@type' => 'Organization',

@@ -52,6 +52,19 @@ class PostReadingTimeTest extends TestCase
         $this->assertSame(1, $post->readingTimeMinutes());
     }
 
+    /**
+     * Подсчёт слов общий с JSON-LD (Post::wordCount). Юникодный паттерн, а
+     * не str_word_count(): тот по умолчанию считает буквами только ASCII и
+     * на русском тексте возвращал единицы — этот мусор уезжал в wordCount
+     * разметки страницы поста.
+     */
+    public function test_word_count_counts_cyrillic_words(): void
+    {
+        $post = $this->makePost('<p>Привет, мир! Это проверка 2 слов.</p>');
+
+        $this->assertSame(6, $post->wordCount());
+    }
+
     public function test_label_declines_minuta_for_one(): void
     {
         $post = $this->makePost(str_repeat('слово ', 10));
