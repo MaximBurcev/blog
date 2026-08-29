@@ -8,52 +8,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Исходный текст статьи лежит в posts.content_orig с 22.02.2026 и до сих пор
- * не показывался нигде: читатель не знал даже, что перед ним машинный
- * перевод. Здесь — плашка о переводе и страница оригинала (?lang=en).
+ * Исходный текст статьи лежит в posts.content_orig с 22.02.2026 и доступен
+ * страницей оригинала (?lang=en). Плашки «Перевод статьи с …» над статьёй
+ * больше нет — убрана 29.08.2026 по решению владельца; здесь покрыта сама
+ * страница оригинала: санитайзинг, noindex, адреса.
  */
 class PostOriginalTextTest extends TestCase
 {
     use RefreshDatabase;
-
-    public function test_translation_notice_names_the_source_and_offers_the_original(): void
-    {
-        $post = $this->createPost();
-
-        $response = $this->get($post->permalink());
-
-        $response->assertSee('Перевод статьи с');
-        $response->assertSee('dev.to');
-        $response->assertSee($post->originalPermalink(), escape: false);
-    }
-
-    public function test_incomplete_translation_is_called_out(): void
-    {
-        $post = $this->createPost(['translation_incomplete' => true]);
-
-        $this->get($post->permalink())
-            ->assertSee('Часть блоков осталась без перевода')
-            // Именно значение атрибута class: само имя класса есть и в
-            // стилях страницы, так что поиск по подстроке проходил бы всегда.
-            ->assertSee('class="post-translation-notice post-translation-notice-warning"', escape: false);
-    }
-
-    public function test_post_written_by_hand_has_no_notice(): void
-    {
-        // Ни источника, ни оригинала — плашке неоткуда взяться, иначе она
-        // висела бы на собственных статьях блога.
-        //
-        // Ищем открытие атрибута class, а не текст плашки: «перевод статьи» —
-        // обычное сочетание слов, оно попадает и в тело статьи, и в meta
-        // description через excerpt(). Ассерция по тексту держалась бы только
-        // на регистре первой буквы и падала бы от правки фикстуры. Само имя
-        // класса как подстрока не годится — оно есть в стилях страницы.
-        $post = $this->createPost(['url' => null, 'content_orig' => null]);
-
-        $this->get($post->permalink())
-            ->assertDontSee('class="post-translation-notice', escape: false)
-            ->assertDontSee('Показать оригинал');
-    }
 
     public function test_original_page_shows_source_text_marked_as_english(): void
     {
@@ -66,7 +28,6 @@ class PostOriginalTextTest extends TestCase
         $response->assertDontSee('Русский перевод статьи');
         // lang на секции, а не на <html>: обвязка страницы остаётся русской.
         $response->assertSee('class="post-content" lang="en"', escape: false);
-        $response->assertSee('Вернуться к переводу');
     }
 
     public function test_original_page_is_kept_out_of_the_index(): void
@@ -146,17 +107,6 @@ class PostOriginalTextTest extends TestCase
             ->assertDontSee('cdn-images-1.medium.com');
     }
 
-    public function test_incomplete_translation_is_not_flagged_on_the_original(): void
-    {
-        // Предупреждение относится к переводу; на английском тексте ему нечего
-        // сказать.
-        $post = $this->createPost(['translation_incomplete' => true]);
-
-        $this->get($post->originalPermalink())
-            ->assertDontSee('class="post-translation-notice post-translation-notice-warning"', escape: false)
-            ->assertDontSee('Часть блоков осталась без перевода');
-    }
-
     public function test_news_original_keeps_its_own_address(): void
     {
         $news = $this->createPost(['is_news' => true, 'code' => 'news-with-original']);
@@ -165,7 +115,7 @@ class PostOriginalTextTest extends TestCase
 
         $response->assertOk();
         // Адрес новости, а не статьи: permalink() учитывает is_news, и
-        // canonical с «Вернуться к переводу» обязаны вести туда же.
+        // canonical обязан вести туда же.
         $response->assertSee(route('news.show', 'news-with-original'), escape: false);
         $response->assertDontSee(route('post.show', 'news-with-original'), escape: false);
     }
@@ -183,19 +133,6 @@ class PostOriginalTextTest extends TestCase
         // английскую страницу русским пересказом незачем.
         $response->assertSee('English text about queues', escape: false);
         $response->assertSee('— оригинал', escape: false);
-    }
-
-    public function test_stub_post_edited_by_hand_is_not_called_a_translation(): void
-    {
-        // Парсер не осилил статью, админ вписал текст руками — url от заглушки
-        // остался. Называть такой текст переводом значит соврать.
-        $post = $this->createPost([
-            'content_orig' => null,
-            'parse_status' => Post::PARSE_STATUS_FAILED,
-        ]);
-
-        $this->get($post->permalink())
-            ->assertDontSee('class="post-translation-notice', escape: false);
     }
 
     public function test_javascript_scheme_in_source_url_is_not_rendered_as_a_link(): void

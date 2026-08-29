@@ -15,38 +15,6 @@
     $hasCode = str_contains((string) $body, '<pre');
 @endphp
 
-@push('head')
-    {{-- Стили плашки о переводе держим здесь, а не в инлайновом <style>
-         макета: на главной, в категориях и в поиске этих классов нет, а
-         инлайн в <head> блокирует отрисовку каждой страницы сайта. --}}
-    {{-- Без nonce: в style-src его нет, там 'unsafe-inline' — так же, как у
-         инлайновых стилей главной и макета. --}}
-    <style>
-        /* Намеренно не alert-цвета: это контекст, а не ошибка, а переводная
-           у нас почти каждая статья — кричать на каждой нельзя. */
-        .post-translation-notice {
-            margin-top: 1.25rem;
-            /* Отступ снизу нужен с тех пор, как из тела статьи убрали обложку:
-               зазор до первого абзаца давал её margin-bottom, и без него
-               плашка прилипала к тексту. У непереводных статей своё поле есть
-               у блока с метаданными, а у переводных плашка стоит после него. */
-            margin-bottom: 1.5rem;
-            padding: 0.75rem 1rem;
-            border-left: 3px solid #cfd4da;
-            background-color: #f6f7f9;
-            font-size: 0.9rem;
-            color: #4a5056;
-        }
-
-        /* Неполный перевод — уже предупреждение: часть текста читатель
-           встретит по-английски прямо посреди статьи. */
-        .post-translation-notice-warning {
-            border-left-color: #e0a800;
-            background-color: #fdf8e8;
-        }
-    </style>
-@endpush
-
 @if($hasCode)
     @push('head')
         <link rel="stylesheet" href="{{ asset('assets/vendors/highlight/androidstudio.css') }}">
@@ -133,39 +101,6 @@
             <p class="edica-blog-post-meta" data-aos="fade-up"
                data-aos-delay="200">{{ $date->translatedFormat('F') }} {{ $date->day }}, {{ $date->year }}
                 • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $commentsCount }} Комментария</p>
-            {{-- Статья переводная — читатель должен знать это до того, как
-                 споткнётся о кривую фразу, а не после. Слово «машинный» из
-                 текста убрано намеренно: оно обесценивает материал ещё до
-                 первого абзаца, а ссылка на оригинал рядом и так объясняет,
-                 откуда текст. Заодно это
-                 единственное место, откуда доступен исходный текст: он лежит
-                 в content_orig с 22.02.2026 и до сих пор не показывался
-                 нигде. --}}
-            @if($post->isMachineTranslated())
-                {{-- Класс собираем строкой, а не @if внутри атрибута: иначе в
-                     разметку уезжают лишние пробелы, и «есть ли warning» уже
-                     не проверить точным совпадением. --}}
-                <aside class="post-translation-notice{{ $post->translation_incomplete && ! $showOriginal ? ' post-translation-notice-warning' : '' }}"
-                       data-aos="fade-up" data-aos-delay="250">
-                    @if($showOriginal)
-                        Исходный текст@if($post->sourceHost()) статьи с {{ $post->sourceHost() }}@endif.
-                        <a href="{{ $post->permalink() }}">Вернуться к переводу</a>
-                    @else
-                        @if($post->sourceUrl())
-                            Перевод статьи с
-                            <a href="{{ $post->sourceUrl() }}" target="_blank" rel="noopener noreferrer nofollow">{{ $post->sourceHost() }}</a>.
-                        @else
-                            Перевод статьи: возможны неточности.
-                        @endif
-                        @if($post->translation_incomplete)
-                            Часть блоков осталась без перевода.
-                        @endif
-                        @if($post->hasOriginal())
-                            <a href="{{ $post->originalPermalink() }}">Показать оригинал</a>
-                        @endif
-                    @endif
-                </aside>
-            @endif
 
             {{-- Обложки в теле статьи нет намеренно.
 
