@@ -8,6 +8,17 @@
     $timezone = 'Europe/Moscow';
     $date = new datetime('now', new DateTimeZone($timezone));
 
+    # Сервер всего один, поэтому по умолчанию задачи выполняются на
+    # production. Без этой переменной ['on' => $on] у задач давал 'on' => null,
+    # то есть ПУСТОЙ список серверов: отдельный запуск
+    # `./vendor/bin/envoy run up` (аварийное восстановление после упавшего
+    # деплоя) молча ничего не делал.
+    $on = 'production';
+
+    # Используется в config_project (artisan ... --env=...). Раньше
+    # переменная нигде не объявлялась, и флаг уходил пустым: `--env=`.
+    $env = 'production';
+
     if(!($authUser = $_ENV['DEPLOY_USER'] ?? false)) { throw new Exception('--DEPLOY_USER must be specified'); }
     if(!($authKey = $_ENV['DEPLOY_USER_KEY'] ?? false)) { throw new Exception('--DEPLOY_USER_KEY must be specified'); }
     if(!($authServer = $_ENV['DEPLOY_SERVER'] ?? false)) { throw new Exception('--DEPLOY_SERVER must be specified'); }
@@ -25,15 +36,73 @@
 
 @servers(['production' => 'deployer@103.137.249.210', '/home/sail/.ssh/id_rsa'])
 
+{{--
+    Push-check перед выкатом.
+
+    Envoy клонирует код с GitHub (задача gitclone), поэтому локальные коммиты,
+    которые не были запушены, на прод не доезжают — при этом деплой отчитывается
+    успехом и выкатывает СТАРЫЙ код. Инцидент 28.08.2026: выкатили релиз без
+    нужных коммитов, и никто этого не заметил.
+
+    Проверка в @before, а не в @setup, сознательно: @setup выполняется при
+    ЛЮБОМ вызове envoy, включая аварийные `envoy run up` / `envoy run rollback`,
+    когда локальное дерево может быть в любом состоянии — блокировать их
+    push-check'ом нельзя. Проверка привязана к gitclone — единственной задаче,
+    которая забирает код с GitHub.
+
+    Если `git fetch` не проходит (нет сети или доступа к GitHub), деплой
+    ПАДАЕТ, а не предупреждает: предупреждение в простыне вывода никто не
+    читает, и повтор инцидента 28.08 хуже, чем лишний прерванный деплой.
+--}}
+@before
+    if ($task === 'gitclone') {
+        $git = 'git -C ' . escapeshellarg(__DIR__);
+
+        exec($git . ' fetch origin ' . escapeshellarg($gitBranch) . ' 2>&1', $fetchOutput, $fetchExit);
+        if ($fetchExit !== 0) {
+            throw new Exception("git fetch origin {$gitBranch} не прошёл (код {$fetchExit}): " . implode(' ', $fetchOutput) . '. Деплой остановлен намеренно: без свежего fetch нельзя гарантировать, что origin содержит локальные коммиты (инцидент 28.08.2026).');
+        }
+
+        $unpushed = (int) trim((string) shell_exec($git . ' rev-list --count ' . escapeshellarg("origin/{$gitBranch}..HEAD")));
+        if ($unpushed > 0) {
+            throw new Exception("В локальной ветке {$unpushed} незапушенных коммитов. Envoy клонирует код с GitHub и выкатит его БЕЗ этих коммитов (инцидент 28.08.2026). Сначала выполните: git push origin {$gitBranch}");
+        }
+    }
+@endbefore
+
+{{--
+    Порядок шагов важен:
+
+    - backup — до миграций: точка восстановления БД, если миграция ляжет
+      криво. migrate:rollback запрещён (prohibitDestructiveCommands, см.
+      CLAUDE.md), поэтому бэкап — единственный путь назад для данных.
+    - down/up — maintenance-окно вокруг миграций и переключения симлинка.
+      Защиты от падения между down и up НЕТ (в Envoy нет try/finally): если
+      деплой упадёт на migrate/set_current/cache-clear, сайт останется
+      выключенным (503). Починка: `./vendor/bin/envoy run up` — задача
+      отдельная и работает сама по себе.
+    - cache-clear — ПОСЛЕ set_current, но до up: shared-кэш переживает деплой,
+      и в окне между cache:clear сборки (config_project) и переключением
+      симлинка старый код успевает закэшировать устаревшие ответы (инцидент
+      28.08.2026: бот закэшировал feed.xml без новых элементов на час TTL).
+      Пока сайт в maintenance, перекэшировать нечему.
+    - health_check — строго ПОСЛЕ up: иначе при его падении сайт остался бы
+      выключенным.
+--}}
 @story('deploy', ['on' => 'production'])
     gitclone
     composer
     env_link
     npm
     config_project
+    backup
+    down
     migrate
     set_current
+    cache-clear
+    up
     queue_restart
+    health_check
     releases_clean
 @endstory
 
@@ -41,7 +110,11 @@
     # Сортировка по имени (каталоги — таймстемпы), а не по mtime: у mtime
     # порядок сбивается от любой записи внутрь релиза, вплоть до того что
     # «самым свежим» становится недоудалённый старый каталог.
-    purging=$(ls -d {{$dirReleases}}/* | sort -r | tail -n +{{$releaseRotate}});
+    #
+    # `tail -n +N` выводит начиная с N-й строки, то есть пропускает N-1.
+    # Поэтому +$releaseRotate оставлял 4 релиза вместо заявленных 5 —
+    # нужен +($releaseRotate + 1).
+    purging=$(ls -d {{$dirReleases}}/* | sort -r | tail -n +{{$releaseRotate + 1}});
 
     if [ "$purging" != "" ]; then
         echo "# Purging old releases: $purging;"
@@ -98,9 +171,18 @@
 @endtask
 
 @task('backup', ['on' => $on])
-    echo '# Backup';
-    cd {{$dirCurrentRelease}};
-    php artisan backup:run
+    echo '# Backup (DB only)';
+    # Только база (--only-db), а не полный backup:run: полный архив включает
+    # storage/app/public (картинки постов) и собирается заметно дольше —
+    # перед каждым деплоем это лишнее окно. Полный бэкап и так делает
+    # планировщик ежедневно (app/Console/Kernel.php, 01:30), а здесь цель —
+    # точка восстановления БД на случай кривой миграции (migrate:rollback
+    # запрещён, см. CLAUDE.md).
+    #
+    # Выполняется в current (живом релизе), а не в собираемом: бэкапим ту БД,
+    # которую сейчас обслуживает прод.
+    cd {{$dirCurrent}};
+    php artisan backup:run --only-db;
 @endtask
 
 @task('config_project', ['on' => $on])
@@ -182,7 +264,16 @@
 
 @task('down', ['on' => $on])
     echo "# Down task"
-    cd {{$dirCurrentRelease}};
+    # ВАЖНО: выполняется в current (живом релизе), а не в собираемом. В shared
+    # выносятся только storage/framework/{sessions,cache,views} и логи, а файл
+    # storage/framework/down остаётся ВНУТРИ релиза — `artisan down` в новом
+    # релизе живой сайт бы вообще не закрыл. Обратная сторона: после
+    # set_current новый релиз down-файла не содержит, и сайт открывается сам;
+    # задача up ниже — страховка на этот случай.
+    #
+    # Отдельная задача, чтобы при упавшем между down и up деплое сайт можно
+    # было поднять без повторного выката: `./vendor/bin/envoy run up`.
+    cd {{$dirCurrent}};
     php artisan down;
 @endtask
 
@@ -199,7 +290,12 @@
 
 @task('up', ['on' => $on])
     echo "# Up task"
-    cd {{$dirCurrentRelease}};
+    # После set_current current указывает на новый релиз, где down-файла нет
+    # (см. комментарий в down), так что в story это страховочный no-op.
+    # Реальная работа задачи — аварийный запуск `./vendor/bin/envoy run up`
+    # после деплоя, упавшего между down и up: current тогда всё ещё указывает
+    # на старый релиз, где down-файл и лежит.
+    cd {{$dirCurrent}};
     php artisan up;
 @endtask
 
@@ -236,6 +332,81 @@
     # sudo обязателен: файлы кэша в shared/ созданы Apache (www-data),
     # у deployer нет прав их удалить — как и в releases_clean.
     sudo php artisan cache:clear;
+@endtask
+
+@task('health_check', ['on' => $on])
+    echo '# Health check';
+
+    # Дёргаем публичный APP_URL из .env, а не http://127.0.0.1/up: запрос без
+    # Host-заголовка Apache может отдать default-vhost, а не блог. /up —
+    # собственный маршрут (routes/health.php), закрыт в robots.txt, но
+    # доступен; отвечает 200 или 503 (app/Http/Controllers/HealthController.php).
+    app_url=$(grep -E '^APP_URL=' {{$dirCurrent}}/.env | head -1 | cut -d= -f2-);
+    if [ -z "$app_url" ]; then
+        app_url="http://127.0.0.1";
+    fi;
+
+    # Известное ограничение: mod_php кэширует realpath ~2 минуты, поэтому сразу
+    # после set_current запрос может обслужить СТАРЫЙ релиз — он тоже ответит
+    # 200. Шаг проверяет «сайт жив после выката», а не «отвечает именно новый
+    # код»; полноценная проверка версии релиза — отдельная история.
+    #
+    # `curl -sf` на не-2xx возвращает ненулевой код: задача падает, и деплой
+    # отчитывается ошибкой. Сайт при этом уже поднят (up идёт раньше), то есть
+    # падение health-check НЕ оставляет сайт в maintenance.
+    curl -sf --max-time 10 "$app_url/up" > /dev/null;
+    echo '# Health check passed';
+@endtask
+
+{{--
+    Откат на предыдущий релиз: переключение симлинка current + перезапуск
+    долгоживущих процессов + сброс shared-кэша.
+
+    Миграции НЕ откатываются: DB::prohibitDestructiveCommands() запрещает
+    migrate:rollback (см. CLAUDE.md), а строка запрета снимается только руками
+    на время осознанной операции. Поэтому откат безопасен только для кода,
+    обратно совместимого с уже накатанными миграциями. Если миграции нового
+    релиза несовместимы со старым кодом — чинить надо вперёд, а не откатом.
+
+    Запуск: ./vendor/bin/envoy run rollback
+--}}
+@story('rollback', ['on' => 'production'])
+    rollback_release
+@endstory
+
+@task('rollback_release', ['on' => 'production'])
+    echo '# Rolling back to previous release';
+
+    # Предыдущий релиз — второй свежий каталог: имена — таймстемпы, поэтому
+    # сортировки по имени достаточно (см. releases_clean про mtime).
+    previous=$(ls -d {{$dirReleases}}/* | sort -r | sed -n '2p');
+    if [ -z "$previous" ]; then
+        echo '# Предыдущего релиза нет — откатывать не на что' >&2;
+        exit 1;
+    fi;
+
+    echo "# Switching current to $previous";
+    ln -nfs $previous {{$dirCurrent}};
+    cd {{$dirCurrent}};
+
+    # На случай, если откат делается после деплоя, упавшего между down и up:
+    # down-файл остался в storage/framework/down того релиза, на который мы
+    # сейчас переключились, — без up сайт остался бы в maintenance.
+    php artisan up;
+
+    # Воркеры и Reverb продолжают исполнять код релиза, из которого стартовали
+    # (см. queue_restart) — возвращаем их на откаченный код тем же способом.
+    php artisan queue:restart;
+    sudo supervisorctl restart blog-reverb || true;
+
+    # shared-кэш переживает деплой и может содержать ответы уже откаченного
+    # нового кода (инцидент 28.08.2026 с feed.xml). sudo — файлы кэша в shared/
+    # создавал www-data, у deployer нет прав их удалить.
+    sudo php artisan cache:clear;
+
+    # ВНИМАНИЕ: mod_php кэширует realpath ~2 минуты — Apache может продолжать
+    # отдавать прежний релиз. При необходимости: sudo systemctl reload apache2.
+    echo '# Rolled back';
 @endtask
 
 @story('post-parse', ['on' => 'production'])
