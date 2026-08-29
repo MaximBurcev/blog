@@ -31,7 +31,6 @@ docker exec -it <container> ./vendor/bin/pint
 
 # Static analysis
 docker exec -it <container> ./vendor/bin/phpstan analyse
-docker exec -it <container> ./vendor/bin/psalm
 
 # Frontend
 npm run dev   # Vite dev server
@@ -45,7 +44,7 @@ npm run build # Production build
 
 ### Admin Interface
 
-**Filament Panel** at `/filament` — the only admin panel. Built with Filament 3, auto-discovers resources in `app/Filament/Resources/`. Configured in `app/Providers/Filament/FilamentPanelProvider.php`; access is gated by `User::canAccessPanel()` (role `UserRole::Admin`).
+**Filament Panel** at `/filament` — the only admin panel. Built with Filament 3, auto-discovers resources in `app/Filament/Resources/`. Configured in `app/Providers/Filament/FilamentPanelProvider.php`; access is gated by `User::canAccessPanel()` (roles `UserRole::Admin` and `UserRole::Editor`). Per-resource access lives in model policies (`app/Policies/`, registered in `AuthServiceProvider::$policies`) and is picked up by Filament automatically: content resources allow Admin+Editor (`ContentPolicy`), user management is Admin-only (`UserPolicy`).
 
 The former custom AdminLTE admin at `/admin` was disabled on 2026-07-27 and removed on 2026-07-30 together with its controllers, form requests, Blade views, Livewire components and the `jeroennoten/laravel-adminlte` package — everything had moved to Filament. The `admin` middleware alias (`AdminMiddleware`) is kept for future protected routes, though nothing uses it right now.
 
@@ -80,7 +79,10 @@ Single MySQL database, default `mysql` connection (`config/database.php`), confi
 накатанных миграций, и первым побуждением будет откатить. Теперь так нельзя:
 чинить нужно вперёд — доводить цикл до `set_current` из уже склонированного
 релиза, как описано в разделе про деплой. Если откат всё же неизбежен, строка
-запрета снимается на время операции.
+запрета снимается на время операции. Отдельно есть `./vendor/bin/envoy run
+rollback` — он откатывает только КОД (переключение симлинка `current` на
+предыдущий релиз) и безопасен, пока старый код совместим с уже накатанными
+миграциями.
 
 ### Controller Pattern
 
@@ -703,7 +705,11 @@ Blade templates for the public site; the admin UI is Filament's own. **Livewire 
 
 Laravel Envoy (`Envoy.blade.php`) deploys to production via SSH using a timestamped releases strategy (keeps last 5 releases). Requires env vars: `DEPLOY_USER`, `DEPLOY_USER_KEY`, `DEPLOY_SERVER`, `DEPLOY_REPOSITORY`, `DEPLOY_PATH`.
 
-After `envoy run deploy`, reload Apache — mod_php caches realpath and keeps serving the previous release for about two minutes otherwise.
+Story `deploy`: `gitclone` → `composer` → `env_link` → `npm` → `config_project` → `backup` (только БД, точка восстановления перед миграциями) → `down` → `migrate` → `set_current` → `cache-clear` (shared-кэш переживает деплой, инцидент 28.08.2026 с feed.xml) → `up` → `queue_restart` (воркеры + Reverb) → `health_check` (`curl -sf` на `$APP_URL/up`) → `releases_clean`. Перед `gitclone` срабатывает push-check: если локальный `HEAD` впереди `origin/main` или `git fetch` не проходит, деплой падает — Envoy клонирует код с GitHub, и незапушенные коммиты на прод не доедут (инцидент 28.08.2026: выкатили старый код).
+
+Maintenance-окно — от `down` до `set_current` (у нового релиза нет `storage/framework/down`, сайт открывается при переключении симлинка; `up` — страховка). Если деплой упал между `down` и `up`, сайт остаётся на 503 — чинится `./vendor/bin/envoy run up`, повторный выкат не нужен. Откат кода (миграции НЕ откатываются): `./vendor/bin/envoy run rollback` — переключает `current` на предыдущий релиз, поднимает сайт, перезапускает воркеры и Reverb, чистит shared-кэш.
+
+After `envoy run deploy`, reload Apache — mod_php caches realpath and keeps serving the previous release for about two minutes otherwise. По той же причине `health_check` сразу после выката может ответить старым релизом: он проверяет «сайт жив», а не «отвечает новый код».
 
 ### Long-running services on production (outside the deploy)
 
