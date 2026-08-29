@@ -1,0 +1,325 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: app/Console/Commands/ConvertImagesToWebpCommand.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$content_orig\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Console/Commands/TranslateDraftsCommand.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$id\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Console/Commands/TranslateDraftsCommand.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$title\.$#'
+			identifier: property.notFound
+			count: 3
+			path: app/Console/Commands/TranslateDraftsCommand.php
+
+		-
+			message: '#^Method App\\Filament\\Analytics\\Widgets\\LlmUsage\:\:rows\(\) should return Illuminate\\Support\\Collection\<int, object\> but returns Illuminate\\Support\\Collection\<int, stdClass\>\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Filament/Analytics/Widgets/LlmUsage.php
+
+		-
+			message: '#^Method App\\Filament\\Analytics\\Widgets\\SearchQueries\:\:top\(\) should return Illuminate\\Support\\Collection\<int, object\> but returns Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\SearchQuery\>\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Filament/Analytics/Widgets/SearchQueries.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$title\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Filament/Analytics/Widgets/TopPostsByViews.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Filament/Analytics/Widgets/TopPostsByViews.php
+
+		-
+			message: '#^Method App\\Filament\\Analytics\\Widgets\\TrafficSources\:\:campaigns\(\) should return Illuminate\\Support\\Collection\<int, object\> but returns Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\PostView\>\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Filament/Analytics/Widgets/TrafficSources.php
+
+		-
+			message: '#^Method App\\Filament\\Analytics\\Widgets\\TrafficSources\:\:groupedByReferer\(\) should return Illuminate\\Support\\Collection\<int, object\> but returns Illuminate\\Database\\Eloquent\\Collection\<int, App\\Models\\PostView\>\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Filament/Analytics/Widgets/TrafficSources.php
+
+		-
+			message: '#^Access to an undefined property App\\Filament\\Pages\\ParsePost\:\:\$form\.$#'
+			identifier: property.notFound
+			count: 3
+			path: app/Filament/Pages/ParsePost.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$code\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Filament/Resources/CommentResource.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\:\:parseFailed\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Filament/Resources/PostResource.php
+
+		-
+			message: '#^Called ''pluck'' on Laravel collection, but could have been retrieved as a query\.$#'
+			identifier: larastan.noUnnecessaryCollectionCall
+			count: 1
+			path: app/Filament/Resources/PostResource.php
+
+		-
+			message: '#^Cannot access property \$url on Illuminate\\Database\\Eloquent\\Model\|int\|string\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: app/Filament/Resources/PostResource/Pages/EditPost.php
+
+		-
+			message: '#^Parameter \#1 \$post of static method App\\Filament\\Resources\\PostResource\:\:dispatchReparse\(\) expects App\\Models\\Post, Illuminate\\Database\\Eloquent\\Model\|int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Filament/Resources/PostResource/Pages/EditPost.php
+
+		-
+			message: '#^Parameter \#1 \$release of static method App\\Filament\\Resources\\ReleaseResource\:\:dispatchParse\(\) expects App\\Models\\Release, Illuminate\\Database\\Eloquent\\Model\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Filament/Resources/ReleaseResource/Pages/CreateRelease.php
+
+		-
+			message: '#^Parameter \#1 \$release of static method App\\Filament\\Resources\\ReleaseResource\:\:dispatchParse\(\) expects App\\Models\\Release, Illuminate\\Database\\Eloquent\\Model\|int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Filament/Resources/ReleaseResource/Pages/EditRelease.php
+
+		-
+			message: '#^Parameter \#1 \$release of static method App\\Filament\\Resources\\ReleaseResource\:\:dispatchToolsImport\(\) expects App\\Models\\Release, Illuminate\\Database\\Eloquent\\Model\|int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Filament/Resources/ReleaseResource/Pages/EditRelease.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$role\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Filament/Resources/UserResource.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and 0 will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: app/Filament/Resources/UserResource.php
+
+		-
+			message: '#^Parameter \#1 \$user of static method App\\Filament\\Resources\\UserResource\:\:changePassword\(\) expects App\\Models\\User, Illuminate\\Database\\Eloquent\\Model\|int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Filament/Resources/UserResource/Pages/EditUser.php
+
+		-
+			message: '#^Call to an undefined static method App\\Http\\Controllers\\Controller\:\:sendResetLinkFailedResponse\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: app/Http/Controllers/Auth/ForgotPasswordController.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Relations\\HasMany\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Http/Controllers/Category/ShowController.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<TRelatedModel of Illuminate\\Database\\Eloquent\\Model\>\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: app/Http/Controllers/Main/IndexController.php
+
+		-
+			message: '#^Relation ''posts'' is not found in App\\Models\\Tag model\.$#'
+			identifier: larastan.relationExistence
+			count: 1
+			path: app/Http/Controllers/Main/IndexController.php
+
+		-
+			message: '#^Parameter \#1 \$comment of event class App\\Events\\CommentCreated constructor expects App\\Models\\Comment in App\\Events\\CommentCreated\:\:dispatch\(\), Illuminate\\Database\\Eloquent\\Model given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Http/Controllers/Post/Comment/StoreController.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Post\:\:\$tags\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Post/ShowController.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$title\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Http/Controllers/Post/ShowController.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Relations\\HasMany\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: app/Http/Controllers/Post/ShowController.php
+
+		-
+			message: '#^Relation ''tags'' is not found in App\\Models\\Post model\.$#'
+			identifier: larastan.relationExistence
+			count: 1
+			path: app/Http/Controllers/Post/ShowController.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<TRelatedModel of Illuminate\\Database\\Eloquent\\Model\>\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: app/Http/Controllers/Sitemap/XmlController.php
+
+		-
+			message: '#^Relation ''posts'' is not found in App\\Models\\Tag model\.$#'
+			identifier: larastan.relationExistence
+			count: 1
+			path: app/Http/Controllers/Sitemap/XmlController.php
+
+		-
+			message: '#^Method App\\Jobs\\StorePostJob\:\:selectArticleTitleNode\(\) should return DOMElement but returns DOMNameSpaceNode\|DOMNode\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Jobs/StorePostJob.php
+
+		-
+			message: '#^Method App\\Jobs\\StorePostJob\:\:selectArticleTitleNode\(\) should return DOMElement but returns DOMNameSpaceNode\|DOMNode\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: app/Jobs/StorePostJob.php
+
+		-
+			message: '#^Parameter \#1 \$h1 of method App\\Jobs\\StorePostJob\:\:looksLikeSiteLogoHeading\(\) expects DOMElement, DOMNameSpaceNode\|DOMNode given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Jobs/StorePostJob.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Contracts\\Auth\\MustVerifyEmail\:\:getAuthIdentifier\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Listeners/SecurityEventSubscriber.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type Illuminate\\Contracts\\Auth\\Authenticatable\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Listeners/SecurityEventSubscriber.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<Illuminate\\Database\\Eloquent\\Model\>\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Models/Category.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$name\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Models/Comment.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Models/Comment.php
+
+		-
+			message: '#^Access to an undefined property App\\Models\\Post\:\:\$tags\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Models/Post.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$title\.$#'
+			identifier: property.notFound
+			count: 1
+			path: app/Models/Post.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Models/Post.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>timestamp" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Models/Post.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: app/Models/Post.php
+
+		-
+			message: '#^Call to an undefined method Illuminate\\Database\\Eloquent\\Builder\<Illuminate\\Database\\Eloquent\\Model\>\:\:published\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: app/Models/Tag.php
+
+		-
+			message: '#^PHPDoc type array\<int, string\> of property App\\Models\\User\:\:\$fillable is not covariant with PHPDoc type list\<string\> of overridden property Illuminate\\Database\\Eloquent\\Model\:\:\$fillable\.$#'
+			identifier: property.phpDocType
+			count: 1
+			path: app/Models/User.php
+
+		-
+			message: '#^PHPDoc type array\<int, string\> of property App\\Models\\User\:\:\$hidden is not covariant with PHPDoc type list\<string\> of overridden property Illuminate\\Database\\Eloquent\\Model\:\:\$hidden\.$#'
+			identifier: property.phpDocType
+			count: 1
+			path: app/Models/User.php
+
+		-
+			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$title\.$#'
+			identifier: property.notFound
+			count: 2
+			path: app/Notifications/CommentCreatedNotification.php
+
+		-
+			message: '#^Parameter \#1 \$components of method Filament\\Panel\:\:livewireComponents\(\) expects array\<string, class\-string\<Livewire\\Component\>\>, array\{''App\\\\Filament\\\\Analytics\\\\Widgets\\\\PostViewsOverview'', ''App\\\\Filament\\\\Analytics\\\\Widgets\\\\ReadingDepth'', ''App\\\\Filament\\\\Analytics\\\\Widgets\\\\ReaderRetention'', ''App\\\\Filament\\\\Analytics\\\\Widgets\\\\PostViewsChart'', ''App\\\\Filament\\\\Analytics\\\\Widgets\\\\TrafficSources'', ''App\\\\Filament\\\\Analytics\\\\Widgets\\\\PublishingPace'', ''App\\\\Filament\\\\Analytics\\\\Widgets\\\\NewsArticlesSplit'', ''App\\\\Filament\\\\Analytics\\\\Widgets\\\\LlmUsage'', \.\.\.\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Providers/Filament/FilamentPanelProvider.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: app/Service/ContentImageService.php
+
+		-
+			message: '#^Parameter \#2 \$value of method Illuminate\\Support\\Collection\<mixed,\(int\|string\)\>\:\:put\(\) expects \(int\|string\), true given\.$#'
+			identifier: argument.type
+			count: 1
+			path: app/Service/ToolImportService.php
+
+		-
+			message: '#^Offset 2 on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: app/Service/WebpConverterService.php

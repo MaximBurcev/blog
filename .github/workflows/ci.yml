@@ -119,3 +119,10 @@ jobs:
         # --test: только проверяем, не переписываем. Падение здесь означает,
         # что Pint не прогнали перед коммитом.
         run: ./vendor/bin/pint --test
+
+      - name: Статический анализ
+        # always() по той же причине, что и у Pint: независимый сигнал.
+        # Прогон зелёный за счёт phpstan-baseline.neon — падение здесь
+        # означает НОВУЮ ошибку, которой в baseline нет.
+        if: always()
+        run: ./vendor/bin/phpstan analyse --no-progress

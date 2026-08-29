@@ -9,6 +9,7 @@ use App\Providers\RouteServiceProvider;
 use App\Providers\TelescopeServiceProvider;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Telescope\TelescopeApplicationServiceProvider;
 use Spatie\Html\Facades\Html;
 use Stichoza\GoogleTranslate\GoogleTranslate;
 
@@ -164,7 +165,7 @@ return [
     |
     */
 
-    'providers' => ServiceProvider::defaultProviders()->merge([
+    'providers' => ServiceProvider::defaultProviders()->merge(array_filter([
         /*
          * Package Service Providers...
          */
@@ -178,8 +179,14 @@ return [
         EventServiceProvider::class,
         FilamentPanelProvider::class,
         RouteServiceProvider::class,
-        TelescopeServiceProvider::class,
-    ])->toArray(),
+        // Telescope перенесён в require-dev (29.08.2026): на проде composer
+        // ставит с --no-dev, и App\Providers\TelescopeServiceProvider
+        // наследует отсутствующий TelescopeApplicationServiceProvider —
+        // регистрация без проверки давала бы fatal при загрузке класса.
+        class_exists(TelescopeApplicationServiceProvider::class)
+            ? TelescopeServiceProvider::class
+            : null,
+    ]))->toArray(),
 
     /*
     |--------------------------------------------------------------------------

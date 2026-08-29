@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use Laravel\Telescope\TelescopeServiceProvider;
 
 class Kernel extends ConsoleKernel
 {
@@ -14,10 +15,14 @@ class Kernel extends ConsoleKernel
     {
         // Telescope пишет в ту же БД и не чистится сам: без прунинга telescope_entries
         // разрослась до сотен тысяч строк с cookie, CSRF-токенами и биндингами запросов.
-        $schedule->command('telescope:prune --hours=48')
-            ->daily()
-            ->onOneServer()
-            ->withoutOverlapping();
+        // Пакет в require-dev: на проде его нет, и без проверки планировщик
+        // каждый день падал бы с «Command "telescope:prune" is not defined».
+        if (class_exists(TelescopeServiceProvider::class)) {
+            $schedule->command('telescope:prune --hours=48')
+                ->daily()
+                ->onOneServer()
+                ->withoutOverlapping();
+        }
 
         // failed_jobs копится с 2025 года и никем не разбирается.
         $schedule->command('queue:prune-failed --hours=336')
