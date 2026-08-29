@@ -68,7 +68,9 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 
     public function canAccessPanel(Panel $panel): bool
     {
-        return $this->role === UserRole::Admin;
+        // Editor пущен в панель, но его урезает политика UserPolicy:
+        // управление пользователями остаётся только за Admin.
+        return $this->role === UserRole::Admin || $this->role === UserRole::Editor;
     }
 
     /**
