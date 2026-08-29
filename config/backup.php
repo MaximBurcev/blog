@@ -181,10 +181,16 @@ return [
 
             /*
              * The disk names on which the backups will be stored.
+             *
+             * Список через env BACKUP_DISKS (дефолт «local», через запятую,
+             * напр. «local,s3»): включение S3 не должно требовать деплоя кода.
+             * Пустые сегменты отбрасываются, чтобы «local,» или пробелы
+             * не порождали несуществующий диск и не роняли backup:run.
              */
-            'disks' => [
-                'local',
-            ],
+            'disks' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', env('BACKUP_DISKS', 'local'))
+            ))),
         ],
 
         /*
