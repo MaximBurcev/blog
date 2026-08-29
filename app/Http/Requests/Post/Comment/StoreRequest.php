@@ -5,6 +5,7 @@ namespace App\Http\Requests\Post\Comment;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class StoreRequest extends FormRequest
@@ -33,6 +34,22 @@ class StoreRequest extends FormRequest
             // а просто "должно быть строкой" — само срабатывание проверяется
             // и тихо отсекается в контроллере, без показа ошибки боту.
             'website' => 'nullable|string|max:255',
+            // Ответ на комментарий. Родитель обязан быть опубликованным
+            // корневым комментарием этого же поста: иначе можно было бы
+            // «прицепить» сообщение к чужой ветке или ответить на то, что
+            // ещё на модерации (неопубликованный родитель невидим, и ответ
+            // повис бы в пустоте). Только корневой — вложенность ответов
+            // одноуровневая, страница поста глубже не рендерит.
+            'parent_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('comments', 'id')->where(function ($query) {
+                    $query->where('post_id', $this->route('post')?->id)
+                        ->where('published', true)
+                        ->whereNull('parent_id')
+                        ->whereNull('deleted_at');
+                }),
+            ],
         ];
     }
 
@@ -42,6 +59,7 @@ class StoreRequest extends FormRequest
             'message.required' => 'Введите текст комментария',
             'message.max' => 'Комментарий слишком длинный (максимум 2000 символов)',
             'name.required' => 'Введите имя',
+            'parent_id.exists' => 'Комментарий, на который вы отвечаете, недоступен',
         ];
     }
 

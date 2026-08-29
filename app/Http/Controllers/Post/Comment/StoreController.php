@@ -34,6 +34,8 @@ class StoreController extends Controller
             'user_id' => auth()->id(),
             'guest_name' => auth()->check() ? null : $data['name'],
             'message' => $data['message'],
+            // Ответ проходит ту же модерацию, что и обычный комментарий.
+            'parent_id' => $data['parent_id'] ?? null,
             'published' => false,
         ]);
 

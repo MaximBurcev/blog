@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Post;
 use App\Http\Controllers\Controller;
 use App\Models\Post;
 use App\Service\PostViewService;
+use App\Support\PostTableOfContents;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -71,9 +72,45 @@ class ShowController extends Controller
 
         $relatedPosts = Post::relatedTo($post)->get();
 
+        // Предыдущая/следующая публикация — строго внутри своей ленты:
+        // новость листается среди новостей, статья — среди статей, иначе
+        // по ссылке «следующая» читатель ленты новостей проваливался бы в
+        // длинную статью. Дата отсчёта — published_at (момент публикации), с
+        // фолбэком на created_at у записей, где он по какой-то причине пуст.
+        // Строгое сравнение: посты с published_at в ту же секунду в соседи не
+        // попадут — это редкий случай импорта пачкой, и потеря ссылки тут
+        // безобиднее дубля.
+        $siblings = $post->is_news ? Post::news() : Post::articles();
+        $since = $post->published_at ?? $post->created_at;
+        $previousPost = (clone $siblings)->published()
+            ->where('published_at', '<', $since)
+            ->orderByDesc('published_at')
+            ->first();
+        $nextPost = (clone $siblings)->published()
+            ->where('published_at', '>', $since)
+            ->orderBy('published_at')
+            ->first();
+
+        // Оглавление строится по отображаемому телу: у оригинала (?lang=en)
+        // заголовки английские, и пункты оглавления должны им совпадать.
+        $toc = new PostTableOfContents($showOriginal ? $post->originalBody() : $post->content);
+
         $isLiked = auth()->check() && $post->likes()->where('user_id', auth()->id())->exists();
 
-        $comments = $post->comments()->published()->with('user')->latest()->get();
+        // Пагинируем только корневые комментарии: ответы подгружаются к ним
+        // одним запросом (replies), и страница всегда показывает ветку целиком.
+        // Число для заголовка считаем отдельно — paginator->total() учитывал
+        // бы лишь корни, а читателю интересны все сообщения ветки.
+        $comments = $post->comments()
+            ->published()
+            ->whereNull('parent_id')
+            ->with(['user', 'replies' => fn ($query) => $query->published()->with('user')->oldest()])
+            ->latest()
+            ->paginate(20)
+            // Перелистывание должно оставлять читателя у комментариев, а не
+            // возвращать наверх статьи — ссылкам добавляем якорь секции.
+            ->fragment('comments');
+        $commentsCount = $post->comments()->published()->count();
 
         // Страница оригинала — англоязычная копия чужой статьи, в поиске ей
         // делать нечего: noindex, follow (по ссылкам краулер пусть идёт).
@@ -84,10 +121,12 @@ class ShowController extends Controller
         // есть выбить из выдачи саму статью-перевод. Склейку с переводом
         // делает не canonical, а сам факт того, что версия оригинала
         // неиндексируема и на неё нет внешних ссылок.
+        // canonical — всегда голый permalink без query: страница ?page=N —
+        // тот же пост, и склеивать её с собственной копией не нужно.
         $robots = $showOriginal ? 'noindex, follow' : null;
         $canonical = $showOriginal ? $post->originalPermalink() : $post->permalink();
 
         return view('post.show',
-            compact('post', 'date', 'relatedPosts', 'title', 'description', 'ogImage', 'ogType', 'articleMeta', 'isLiked', 'comments', 'viewsCount', 'showOriginal', 'robots', 'canonical'));
+            compact('post', 'date', 'relatedPosts', 'previousPost', 'nextPost', 'title', 'description', 'ogImage', 'ogType', 'articleMeta', 'isLiked', 'comments', 'commentsCount', 'toc', 'viewsCount', 'showOriginal', 'robots', 'canonical'));
     }
 }

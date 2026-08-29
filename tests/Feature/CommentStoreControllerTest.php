@@ -20,14 +20,14 @@ class CommentStoreControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function createPost(): Post
+    private function createPost(string $code = 'test-post'): Post
     {
-        return Post::withoutSyncingToSearch(function () {
-            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+        return Post::withoutSyncingToSearch(function () use ($code) {
+            $category = Category::create(['title' => 'Laravel '.$code, 'code' => 'laravel-'.$code]);
 
             return Post::create([
                 'title' => 'Test Post',
-                'code' => 'test-post',
+                'code' => $code,
                 'content' => 'content',
                 'published' => 1,
                 'category_id' => $category->id,
@@ -112,5 +112,100 @@ class CommentStoreControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertDontSee('Awaiting moderation');
+    }
+
+    /**
+     * Ответ на комментарий: сохраняется с parent_id и уходит на модерацию
+     * точно так же, как обычный комментарий (published=false).
+     */
+    public function test_reply_with_valid_parent_is_stored_unpublished(): void
+    {
+        $post = $this->createPost();
+        $parent = $post->comments()->create([
+            'guest_name' => 'Первый',
+            'message' => 'Корневой комментарий',
+            'published' => true,
+        ]);
+
+        $response = $this->post(route('post.comment.store', $post), [
+            'name' => 'Гость',
+            'message' => 'Ответ на комментарий',
+            'parent_id' => $parent->id,
+        ]);
+
+        $response->assertRedirect(route('post.show', $post->code).'#comments');
+
+        $reply = Comment::where('parent_id', $parent->id)->firstOrFail();
+        $this->assertFalse($reply->published);
+        $this->assertSame($post->id, $reply->post_id);
+    }
+
+    public function test_reply_to_comment_of_another_post_is_rejected(): void
+    {
+        $post = $this->createPost();
+        $otherPost = $this->createPost('other-post');
+        $foreign = $otherPost->comments()->create([
+            'guest_name' => 'Первый',
+            'message' => 'Комментарий чужого поста',
+            'published' => true,
+        ]);
+
+        $response = $this->post(route('post.comment.store', $post), [
+            'name' => 'Гость',
+            'message' => 'Ответ',
+            'parent_id' => $foreign->id,
+        ]);
+
+        $response->assertSessionHasErrors('parent_id');
+        // Новый комментарий не создался — остался только чужой корневой.
+        $this->assertSame(1, Comment::count());
+    }
+
+    public function test_reply_to_unpublished_comment_is_rejected(): void
+    {
+        $post = $this->createPost();
+        $parent = $post->comments()->create([
+            'guest_name' => 'Первый',
+            'message' => 'Ещё на модерации',
+            'published' => false,
+        ]);
+
+        $response = $this->post(route('post.comment.store', $post), [
+            'name' => 'Гость',
+            'message' => 'Ответ',
+            'parent_id' => $parent->id,
+        ]);
+
+        $response->assertSessionHasErrors('parent_id');
+        $this->assertSame(1, Comment::count());
+    }
+
+    /**
+     * Вложенность одноуровневая: отвечать можно только на корневой
+     * комментарий — страница поста глубже не рендерит.
+     */
+    public function test_reply_to_reply_is_rejected(): void
+    {
+        $post = $this->createPost();
+        $root = $post->comments()->create([
+            'guest_name' => 'Первый',
+            'message' => 'Корневой комментарий',
+            'published' => true,
+        ]);
+        $reply = $post->comments()->create([
+            'guest_name' => 'Второй',
+            'parent_id' => $root->id,
+            'message' => 'Ответ',
+            'published' => true,
+        ]);
+
+        $response = $this->post(route('post.comment.store', $post), [
+            'name' => 'Гость',
+            'message' => 'Ответ на ответ',
+            'parent_id' => $reply->id,
+        ]);
+
+        $response->assertSessionHasErrors('parent_id');
+        $this->assertSame(2, Comment::count());
     }
 }

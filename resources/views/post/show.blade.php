@@ -1,13 +1,12 @@
 @extends('layouts.main')
 
 @php
-    // Тело страницы: перевод или исходный текст (?lang=en). Читается один раз
-    // и здесь, чтобы ниже не пришлось помнить про $showOriginal в каждом
-    // месте, где нужен текст статьи.
+    // Тело страницы: перевод или исходный текст (?lang=en). Выбирает его
+    // контроллер, а PostTableOfContents возвращает то же тело с якорями у
+    // заголовков (originalBody(), а не сырая колонка: записи до 27.07.2026
+    // сохранялись мимо санитайзера, а картинки в оригинале ведут на чужой CDN).
     $showOriginal = $showOriginal ?? false;
-    // originalBody(), а не сырая колонка: записи до 27.07.2026 сохранялись
-    // мимо санитайзера, а картинки в оригинале ведут на чужой CDN.
-    $body = $showOriginal ? $post->originalBody() : $post->content;
+    $body = $toc->content();
 
     // highlight.js весит 120 КБ и раньше грузился с cdnjs на каждой странице
     // сайта. Теперь он локальный и подключается только там, где есть что
@@ -133,7 +132,7 @@
             <h1 class="edica-page-title" data-aos="fade-up">{{ $post->title }}</h1>
             <p class="edica-blog-post-meta" data-aos="fade-up"
                data-aos-delay="200">{{ $date->translatedFormat('F') }} {{ $date->day }}, {{ $date->year }}
-                • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $comments->count() }} Комментария</p>
+                • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $commentsCount }} Комментария</p>
             {{-- Статья переводная — читатель должен знать это до того, как
                  споткнётся о кривую фразу, а не после. Слово «машинный» из
                  текста убрано намеренно: оно обесценивает материал ещё до
@@ -190,6 +189,45 @@
 
                  Содержательные картинки внутри статьи это не затрагивает — они
                  живут в content и выводятся ниже. --}}
+            {{-- Оглавление: только у длинных статей (порог — в
+                 PostTableOfContents), ссылки — якоря на id, которые тот же
+                 класс проставил заголовкам в $body. --}}
+            @if($toc->items())
+                <nav class="post-toc" aria-label="Оглавление" data-aos="fade-up">
+                    <h2 class="post-toc-title">Содержание</h2>
+                    <ol class="post-toc-list">
+                        @foreach($toc->items() as $tocItem)
+                            <li class="post-toc-item post-toc-level-{{ $tocItem['level'] }}">
+                                <a href="#{{ $tocItem['id'] }}">{{ $tocItem['title'] }}</a>
+                            </li>
+                        @endforeach
+                    </ol>
+                </nav>
+                <style>
+                    .post-toc {
+                        margin-bottom: 1.5rem;
+                        padding: 1rem 1.25rem;
+                        border-left: 3px solid #f29431;
+                        background-color: #f6f7f9;
+                    }
+
+                    .post-toc-title {
+                        margin: 0 0 0.5rem;
+                        font-size: 1.1rem;
+                    }
+
+                    .post-toc-list {
+                        margin: 0;
+                        padding-left: 1.25rem;
+                    }
+
+                    .post-toc-level-3 {
+                        margin-left: 1.25rem;
+                        list-style: circle;
+                    }
+                </style>
+            @endif
+
             {{-- lang на секции, а не на <html>: заголовок, меню и подписи
                  вокруг остаются русскими, английский тут только у тела
                  статьи. Для скринридера это разница между английским
@@ -221,6 +259,64 @@
                     @endif
                 </p>
             @endif
+
+            {{-- Шаринг — только голые ссылки на шаринговые эндпоинты, без
+                 сторонних JS-виджетов: иначе каждый читатель статьи грузил бы
+                 скрипты соцсетей (CSP + приватность). Адрес берём из
+                 permalink() — он уже учитывает раздел (статья/новость). --}}
+            <div class="post-share">
+                <span class="post-share-label">Поделиться:</span>
+                <a class="post-share-link" target="_blank" rel="noopener noreferrer nofollow"
+                   href="https://t.me/share/url?url={{ urlencode($post->permalink()) }}&text={{ urlencode($post->title) }}">Telegram</a>
+                <a class="post-share-link" target="_blank" rel="noopener noreferrer nofollow"
+                   href="https://vk.com/share.php?url={{ urlencode($post->permalink()) }}">VK</a>
+                <button type="button" class="post-share-link post-share-copy" id="copy-link-btn"
+                        data-url="{{ $post->permalink() }}">Копировать ссылку</button>
+            </div>
+            <script nonce="{{ $cspNonce ?? '' }}">
+                document.addEventListener('DOMContentLoaded', function () {
+                    var copyBtn = document.getElementById('copy-link-btn');
+                    var label = copyBtn.textContent;
+
+                    copyBtn.addEventListener('click', function () {
+                        navigator.clipboard.writeText(copyBtn.dataset.url).then(function () {
+                            copyBtn.textContent = 'Ссылка скопирована';
+                            setTimeout(function () { copyBtn.textContent = label; }, 2000);
+                        });
+                    });
+                });
+            </script>
+            <style>
+                .post-share {
+                    display: flex;
+                    align-items: center;
+                    flex-wrap: wrap;
+                    gap: 10px;
+                    margin-top: 1.5rem;
+                }
+
+                .post-share-label {
+                    color: #6c757d;
+                    font-size: 0.9rem;
+                }
+
+                .post-share-link {
+                    display: inline-block;
+                    padding: 6px 14px;
+                    border: 1px solid #ececec;
+                    border-radius: 50px;
+                    background: #fff;
+                    font-size: 0.9rem;
+                    font-weight: 600;
+                    color: #343a40;
+                    cursor: pointer;
+                }
+
+                .post-share-link:hover {
+                    border-color: #f29431;
+                    color: #f29431;
+                }
+            </style>
 
             @auth()
                 <button id="like-btn" class="post-like-btn @if($isLiked) is-liked @endif" type="button"
@@ -387,30 +483,101 @@
                             </div>
                         </section>
                     @endif
+                    {{-- Переход по ленте: соседи по дате публикации внутри
+                         своего типа (новости/статьи), подбирает контроллер. --}}
+                    @if($previousPost || $nextPost)
+                        <nav class="post-neighbors" aria-label="Предыдущая и следующая публикация">
+                            @if($previousPost)
+                                <a class="post-neighbor" rel="prev" href="{{ $previousPost->permalink() }}">
+                                    <span class="post-neighbor-label">← Предыдущая</span>
+                                    <span class="post-neighbor-title">{{ $previousPost->title }}</span>
+                                </a>
+                            @endif
+                            @if($nextPost)
+                                <a class="post-neighbor post-neighbor-next" rel="next" href="{{ $nextPost->permalink() }}">
+                                    <span class="post-neighbor-label">Следующая →</span>
+                                    <span class="post-neighbor-title">{{ $nextPost->title }}</span>
+                                </a>
+                            @endif
+                        </nav>
+                        <style>
+                            .post-neighbors {
+                                display: flex;
+                                justify-content: space-between;
+                                gap: 20px;
+                                margin-top: 40px;
+                            }
+
+                            .post-neighbor {
+                                max-width: 48%;
+                                padding: 14px 18px;
+                                border: 1px solid #ececec;
+                                border-radius: 8px;
+                                color: #343a40;
+                            }
+
+                            .post-neighbor:hover {
+                                border-color: #f29431;
+                            }
+
+                            .post-neighbor-next {
+                                margin-left: auto;
+                                text-align: right;
+                            }
+
+                            .post-neighbor-label {
+                                display: block;
+                                font-size: 0.8rem;
+                                color: #6c757d;
+                            }
+
+                            .post-neighbor-title {
+                                font-weight: 600;
+                            }
+                        </style>
+                    @endif
                     <section class="comment-section" id="comments">
-                        <h2 class="section-title mb-4" data-aos="fade-up">Комментарии ({{ $comments->count() }})</h2>
+                        <h2 class="section-title mb-4" data-aos="fade-up">Комментарии ({{ $commentsCount }})</h2>
 
                         @if(session('success'))
                             <div class="alert alert-success">{{ session('success') }}</div>
                         @endif
 
+                        {{-- Пагинация только по корневым комментариям: ответы
+                             едут вместе с родителем, поэтому ветка никогда не
+                             разрывается между страницами. --}}
                         @forelse($comments as $comment)
-                            <div class="comment-item" data-aos="fade-up">
-                                <div class="comment-avatar">{{ mb_strtoupper(mb_substr($comment->authorName(), 0, 1)) }}</div>
-                                <div class="comment-body">
-                                    <div class="comment-item-header">
-                                        <span class="comment-author">{{ $comment->authorName() }}</span>
-                                        <span class="comment-date">{{ $comment->created_at->translatedFormat('d F Y, H:i') }}</span>
-                                    </div>
-                                    <p class="comment-message">{{ $comment->message }}</p>
+                            @include('post.comment', ['comment' => $comment])
+                            @if($comment->replies->isNotEmpty())
+                                <div class="comment-replies">
+                                    @foreach($comment->replies as $reply)
+                                        @include('post.comment', ['comment' => $reply, 'isReply' => true])
+                                    @endforeach
                                 </div>
-                            </div>
+                            @endif
                         @empty
                             <p class="comment-empty" data-aos="fade-up">Пока нет комментариев — будьте первым.</p>
                         @endforelse
 
-                        <form action="{{ route('post.comment.store', $post->id) }}" method="post" class="comment-form">
+                        @if($comments->hasPages())
+                            {{ $comments->links() }}
+                        @endif
+
+                        <form action="{{ route('post.comment.store', $post->id) }}" method="post" class="comment-form" id="comment-form">
                             @csrf
+
+                            {{-- Ответ: parent_id проставляет скрипт по клику
+                                 на «Ответить» у комментария, плашка показывает,
+                                 кому отвечаем. Без JS форма работает как раньше —
+                                 комментарием к самому посту. --}}
+                            <input type="hidden" name="parent_id" id="comment-parent-id" value="{{ old('parent_id') }}">
+                            <p class="comment-reply-hint" id="comment-reply-hint" hidden>
+                                Вы отвечаете на комментарий <b id="comment-reply-author"></b>.
+                                <button type="button" class="comment-reply-cancel" id="comment-reply-cancel">Отменить</button>
+                            </p>
+                            @error('parent_id')
+                                <div class="alert alert-danger">{{ $message }}</div>
+                            @enderror
 
                             {{-- Honeypot: невидимо человеку (offscreen + tabindex=-1 + autocomplete=off),
                                  боты-скрипты часто заполняют все найденные поля формы подряд. --}}
@@ -451,8 +618,61 @@
                             </div>
                         </form>
 
+                        <script nonce="{{ $cspNonce ?? '' }}">
+                            document.addEventListener('DOMContentLoaded', function () {
+                                var form = document.getElementById('comment-form');
+                                var parentInput = document.getElementById('comment-parent-id');
+                                var hint = document.getElementById('comment-reply-hint');
+                                var author = document.getElementById('comment-reply-author');
+
+                                document.querySelectorAll('.comment-reply-btn').forEach(function (btn) {
+                                    btn.addEventListener('click', function () {
+                                        parentInput.value = btn.dataset.replyId;
+                                        author.textContent = btn.dataset.replyAuthor;
+                                        hint.hidden = false;
+                                        form.scrollIntoView({ behavior: 'smooth' });
+                                        document.getElementById('message').focus();
+                                    });
+                                });
+
+                                document.getElementById('comment-reply-cancel').addEventListener('click', function () {
+                                    parentInput.value = '';
+                                    hint.hidden = true;
+                                });
+                            });
+                        </script>
+
                         <style>
                             .comment-section { margin-top: 40px; }
+
+                            .comment-replies {
+                                margin-left: 54px;
+                            }
+
+                            .comment-reply-btn {
+                                padding: 0;
+                                border: 0;
+                                background: none;
+                                color: #f29431;
+                                font-size: 0.85rem;
+                                cursor: pointer;
+                            }
+
+                            .comment-reply-hint {
+                                padding: 8px 12px;
+                                background: #f6f7f9;
+                                border-left: 3px solid #f29431;
+                                font-size: 0.9rem;
+                            }
+
+                            .comment-reply-cancel {
+                                padding: 0;
+                                border: 0;
+                                background: none;
+                                color: #6c757d;
+                                text-decoration: underline;
+                                cursor: pointer;
+                            }
 
                             .comment-item {
                                 display: flex;
