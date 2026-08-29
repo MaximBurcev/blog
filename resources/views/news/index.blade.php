@@ -32,17 +32,29 @@
 
             @forelse($posts as $post)
                 <article class="news-item mb-4 pb-4 border-bottom" data-aos="fade-up">
-                    <h2 class="h5 mb-1">
-                        <a href="{{ route('news.show', $post->code) }}">{{ $post->title }}</a>
-                    </h2>
+                    <div class="row">
+                        <div class="col-md-3 mb-2 mb-md-0">
+                            <a href="{{ route('news.show', $post->code) }}">
+                                <div class="blog-post-thumbnail-wrapper">
+                                    <x-post-image :path="$post->preview_image" :alt="$post->title"
+                                                  :width="370" :height="240"/>
+                                </div>
+                            </a>
+                        </div>
+                        <div class="col-md-9">
+                            <h2 class="h5 mb-1">
+                                <a href="{{ route('news.show', $post->code) }}">{{ $post->title }}</a>
+                            </h2>
 
-                    <div class="text-muted small mb-2">
-                        <time datetime="{{ $post->created_at->toDateString() }}">
-                            {{ $post->created_at->translatedFormat('j F Y') }}
-                        </time>
-                        @if($post->url)
-                            · {{ parse_url($post->url, PHP_URL_HOST) }}
-                        @endif
+                            <div class="text-muted small mb-2">
+                                <time datetime="{{ $post->created_at->toDateString() }}">
+                                    {{ $post->created_at->translatedFormat('j F Y') }}
+                                </time>
+                                @if($post->url)
+                                    · {{ parse_url($post->url, PHP_URL_HOST) }}
+                                @endif
+                            </div>
+                        </div>
                     </div>
                 </article>
             @empty

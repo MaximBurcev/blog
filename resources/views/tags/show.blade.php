@@ -45,20 +45,7 @@
             <section class="featured-posts-section">
                 <div class="row">
                     @foreach($posts as $post)
-                        <div class="col-md-4 fetured-post blog-post" data-aos="fade-up">
-                            <div class="blog-post-thumbnail-wrapper">
-                                <x-post-image :path="$post->preview_image" :alt="$post->title"
-                                              :width="370" :height="240"/>
-                            </div>
-                            @if($post->category)
-                                <p class="blog-post-category">
-                                    <a href="{{ route('category.show', $post->category->code) }}">{{ $post->category->title }}</a>
-                                </p>
-                            @endif
-                            <a href="{{ $post->permalink() }}" class="blog-post-permalink">
-                                <h2 class="blog-post-title">{{ $post->title }}</h2>
-                            </a>
-                        </div>
+                        @include('partials.post-card', ['post' => $post])
                     @endforeach
                 </div>
                 <div class="row">

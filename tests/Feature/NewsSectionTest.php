@@ -125,6 +125,15 @@ class NewsSectionTest extends TestCase
         $this->get(route('news.index'))->assertOk()->assertSee('Новостей пока нет');
     }
 
+    public function test_news_listing_shows_cover_image(): void
+    {
+        $this->makePost(['is_news' => true, 'preview_image' => 'uploads/news-cover.jpg']);
+
+        $this->get(route('news.index'))
+            ->assertOk()
+            ->assertSee('storage/uploads/news-cover.jpg', escape: false);
+    }
+
     public function test_listing_is_reachable_from_the_menu(): void
     {
         $this->get('/')->assertOk()->assertSee(route('news.index'), escape: false);

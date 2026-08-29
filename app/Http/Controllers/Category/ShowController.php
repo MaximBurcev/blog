@@ -10,15 +10,16 @@ class ShowController extends Controller
     public function __invoke(string $code)
     {
         $category = Category::where('code', $code)->firstOrFail();
-        // select() под карточку листинга, как на главной: без него на каждый
-        // пост тянутся оба LONGTEXT-поля (content/content_orig), хотя
-        // карточке нужны только заголовок, адрес и превью. is_news
+        // select() под карточку листинга, как на главной: content_orig не
+        // выбирается, но content нужен — карточка показывает анонс и время
+        // чтения (Post::excerpt()/readingTimeLabel() считаются от него, и без
+        // колонки оба молча вернут пустоту). is_news
         // обязателен: на нём стоит Post::permalink(), а невыбранная колонка
         // молча читается как null — и новости получили бы адрес статьи (301
         // вместо ссылки). Сортировка обязательна: пагинация без orderBy не
         // гарантирует, что ?page=2 не повторит посты с первой страницы.
         $posts = $category->posts()->published()
-            ->select(['posts.id', 'posts.title', 'posts.code', 'posts.preview_image', 'posts.category_id', 'posts.is_news', 'posts.created_at'])
+            ->select(['posts.id', 'posts.title', 'posts.code', 'posts.content', 'posts.preview_image', 'posts.category_id', 'posts.is_news', 'posts.published_at', 'posts.created_at'])
             ->latest('created_at')
             ->paginate(6);
         $title = 'Посты категории '.$category->title;

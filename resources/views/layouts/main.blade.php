@@ -166,12 +166,24 @@
                         <a class="nav-link" href="{{ route('news.index') }}">Новости</a>
                     </li>
                     <li>
-                        <a class="nav-link" href="{{ route('tools.index') }}">Инструменты</a>
+                        <a class="nav-link" href="{{ route('category.index') }}">Категории</a>
                     </li>
                     <li>
-                        <a class="nav-link" href="{{ route('main.search') }}">Поиск</a>
+                        <a class="nav-link" href="{{ route('tag.index') }}">Теги</a>
+                    </li>
+                    <li>
+                        <a class="nav-link" href="{{ route('tools.index') }}">Инструменты</a>
                     </li>
                 </ul>
+
+                {{-- Форма вместо ссылки «Поиск»: запрос вводится прямо из шапки,
+                     а страница /search остаётся точкой приёма. На мобильном
+                     форма сворачивается вместе с меню в общий collapse. --}}
+                <form class="form-inline my-2 my-lg-0" action="{{ route('main.search') }}" method="get" role="search">
+                    <input class="form-control mr-sm-2" type="search" name="q"
+                           placeholder="Поиск по блогу" value="{{ $query ?? '' }}" aria-label="Поиск по блогу">
+                    <button class="btn btn-outline-primary my-2 my-sm-0" type="submit">Найти</button>
+                </form>
 
             </div>
         </nav>

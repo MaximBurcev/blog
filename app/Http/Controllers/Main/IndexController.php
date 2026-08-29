@@ -24,8 +24,12 @@ class IndexController extends Controller
         // articles(): новости — те же посты с флагом is_news, но у них свой
         // раздел /news. В общей ленте они бы вытеснили статьи, потому что
         // выходят чаще.
+        // content в select() обязателен: карточка листинга показывает анонс
+        // и время чтения (Post::excerpt()/readingTimeLabel() считаются от
+        // content), и без колонки оба молча вернут пустоту. is_news — на нём
+        // стоит Post::permalink() в карточке (см. Category\ShowController).
         $posts = Post::published()->articles()
-            ->select(['id', 'title', 'code', 'preview_image', 'category_id', 'created_at'])
+            ->select(['id', 'title', 'code', 'content', 'preview_image', 'category_id', 'is_news', 'published_at', 'created_at'])
             ->orderBy('created_at', 'desc')
             ->paginate(12);
         // Три коррелированных подзапроса (views/likes/comments) считались для

@@ -10,12 +10,13 @@ class ShowController extends Controller
     public function __invoke(string $code)
     {
         $tag = Tag::where('code', $code)->firstOrFail();
-        // См. Category\ShowController: узкий select() под карточку (иначе
-        // тянутся оба LONGTEXT) и явная сортировка под пагинацию.
+        // См. Category\ShowController: content попал в select(), потому что
+        // карточка показывает анонс и время чтения; явная сортировка под
+        // пагинацию.
         // Имена колонок квалифицированы: это выборка через pivot post_tags,
         // и голый 'id' в select неоднозначен.
         $posts = $tag->posts()->published()
-            ->select(['posts.id', 'posts.title', 'posts.code', 'posts.preview_image', 'posts.category_id', 'posts.is_news', 'posts.created_at'])
+            ->select(['posts.id', 'posts.title', 'posts.code', 'posts.content', 'posts.preview_image', 'posts.category_id', 'posts.is_news', 'posts.published_at', 'posts.created_at'])
             ->latest('created_at')
             ->paginate(6);
         $title = 'Посты с тегом '.$tag->title;

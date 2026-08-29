@@ -77,4 +77,75 @@ class MainIndexControllerTest extends TestCase
         $response->assertSee('PHP');
         $response->assertDontSee('Unused');
     }
+
+    public function test_card_shows_excerpt_date_and_reading_time(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+
+            Post::create([
+                'title' => 'Test post',
+                'code' => 'test-post-card',
+                'content' => '<p>Анонсная фраза карточки и ещё немного текста.</p>',
+                'published' => 1,
+                'category_id' => $category->id,
+            ]);
+        });
+
+        // Дата — published_at ?? created_at: при публикации published_at
+        // ставит хук модели (Post::booted), поэтому это сегодняшний день.
+        $this->get(route('main.index'))
+            ->assertSee('Анонсная фраза карточки')
+            ->assertSee('минута чтения')
+            ->assertSee(now()->translatedFormat('j F Y'));
+    }
+
+    public function test_category_listing_card_shows_excerpt_and_reading_time(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+
+            Post::create([
+                'title' => 'Test post',
+                'code' => 'test-post-category-card',
+                'content' => '<p>Анонс категорийной карточки.</p>',
+                'published' => 1,
+                'category_id' => $category->id,
+            ]);
+        });
+
+        $this->get(route('category.show', 'laravel'))
+            ->assertSee('Анонс категорийной карточки')
+            ->assertSee('минута чтения');
+    }
+
+    public function test_tag_listing_card_shows_excerpt_and_reading_time(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
+            $tag = Tag::create(['title' => 'PHP', 'code' => 'php']);
+
+            $post = Post::create([
+                'title' => 'Test post',
+                'code' => 'test-post-tag-card',
+                'content' => '<p>Анонс карточки по тегу.</p>',
+                'published' => 1,
+                'category_id' => $category->id,
+            ]);
+            $post->tags()->attach($tag->id);
+        });
+
+        $this->get(route('tag.show', 'php'))
+            ->assertSee('Анонс карточки по тегу')
+            ->assertSee('минута чтения');
+    }
+
+    public function test_header_has_search_form_and_section_links(): void
+    {
+        $this->get(route('main.index'))
+            ->assertSee('action="'.route('main.search').'"', escape: false)
+            ->assertSee('name="q"', escape: false)
+            ->assertSee('href="'.route('category.index').'"', escape: false)
+            ->assertSee('href="'.route('tag.index').'"', escape: false);
+    }
 }
