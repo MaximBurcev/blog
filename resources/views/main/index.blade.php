@@ -40,7 +40,8 @@
                         <div class="row blog-post-row">
 
                             @foreach($posts as $post)
-                                @include('partials.post-card', ['post' => $post])
+                                {{-- На главной карточка без анонса — компактнее, решение владельца 29.08.2026 --}}
+                                @include('partials.post-card', ['post' => $post, 'withExcerpt' => false])
                             @endforeach
 
                         </div>

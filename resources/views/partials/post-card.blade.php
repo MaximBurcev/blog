@@ -7,6 +7,9 @@
     Дата — published_at с фолбэком на created_at, как в ленте новостей.
     $loop->first приезжает из оборачивающего @foreach: первая карточка —
     кандидат в LCP, и откладывать её загрузку нечем.
+    Анонс показывается не везде: на главной он отключён ($withExcerpt=false,
+    29.08.2026 — по решению владельца карточка компактнее), в разделах —
+    остаётся.
 --}}
 <div class="col-md-4 fetured-post blog-post" data-aos="fade-up">
     <a href="{{ $post->permalink() }}">
@@ -29,5 +32,7 @@
         </time>
         · {{ $post->readingTimeLabel() }}
     </p>
-    <p class="blog-post-excerpt">{{ $post->excerpt() }}</p>
+    @if($withExcerpt ?? true)
+        <p class="blog-post-excerpt">{{ $post->excerpt() }}</p>
+    @endif
 </div>

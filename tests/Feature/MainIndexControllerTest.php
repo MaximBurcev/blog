@@ -78,7 +78,7 @@ class MainIndexControllerTest extends TestCase
         $response->assertDontSee('Unused');
     }
 
-    public function test_card_shows_excerpt_date_and_reading_time(): void
+    public function test_card_shows_date_and_reading_time_without_excerpt(): void
     {
         Post::withoutSyncingToSearch(function () {
             $category = Category::create(['title' => 'Laravel', 'code' => 'laravel']);
@@ -94,8 +94,10 @@ class MainIndexControllerTest extends TestCase
 
         // Дата — published_at ?? created_at: при публикации published_at
         // ставит хук модели (Post::booted), поэтому это сегодняшний день.
+        // Анонса на главной нет намеренно (решение владельца 29.08.2026),
+        // в разделах категорий и тегов он остаётся.
         $this->get(route('main.index'))
-            ->assertSee('Анонсная фраза карточки')
+            ->assertDontSee('Анонсная фраза карточки')
             ->assertSee('минута чтения')
             ->assertSee(now()->translatedFormat('j F Y'));
     }
