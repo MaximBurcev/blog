@@ -417,8 +417,11 @@
     # Срез контента прода: сколько всего, сколько опубликовано, сколько
     # черновиков ждут вычитки. Нужен, чтобы решения про публикацию
     # принимались по цифрам, а не по ощущению от админки.
+    # llm_сегодня — контроль, что полуденная партия posts:translate-drafts
+    # реально отработала: числа черновиков сами по себе этого не показывают
+    # (перепереведённый черновик остаётся черновиком до вычитки).
     cd {{$dirCurrent}};
-    php artisan tinker --execute="printf('всего=%d опубликовано=%d черновиков_ok=%d failed=%d ревью_перевода=%d'.PHP_EOL, \App\Models\Post::count(), \App\Models\Post::where('published', true)->count(), \App\Models\Post::where('published', false)->where('parse_status', 'ok')->count(), \App\Models\Post::where('parse_status', 'failed')->count(), \App\Models\Post::where('translation_incomplete', true)->count());"
+    php artisan tinker --execute="printf('всего=%d опубликовано=%d черновиков_ok=%d failed=%d ревью_перевода=%d llm_сегодня=%d'.PHP_EOL, \App\Models\Post::count(), \App\Models\Post::where('published', true)->count(), \App\Models\Post::where('published', false)->where('parse_status', 'ok')->count(), \App\Models\Post::where('parse_status', 'failed')->count(), \App\Models\Post::where('translation_incomplete', true)->count(), \App\Models\LlmCall::whereDate('created_at', today())->count());"
 @endtask
 
 @task('run_post_parse', ['on' => 'production'])
