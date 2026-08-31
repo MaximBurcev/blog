@@ -417,11 +417,13 @@
     # Срез контента прода: сколько всего, сколько опубликовано, сколько
     # черновиков ждут вычитки. Нужен, чтобы решения про публикацию
     # принимались по цифрам, а не по ощущению от админки.
-    # llm_сегодня — контроль, что полуденная партия posts:translate-drafts
-    # реально отработала: числа черновиков сами по себе этого не показывают
-    # (перепереведённый черновик остаётся черновиком до вычитки).
+    # llm_сегодня/llm_вчера — контроль, что полуденная партия
+    # posts:translate-drafts реально отработала: числа черновиков сами по себе
+    # этого не показывают (перепереведённый черновик остаётся черновиком до
+    # вычитки). черновиков_llm — сколько из них уже переведено Gemini
+    # (translated_by начинается с 'gemini'), это и есть прогресс разбора.
     cd {{$dirCurrent}};
-    php artisan tinker --execute="printf('всего=%d опубликовано=%d черновиков_ok=%d failed=%d ревью_перевода=%d llm_сегодня=%d'.PHP_EOL, \App\Models\Post::count(), \App\Models\Post::where('published', true)->count(), \App\Models\Post::where('published', false)->where('parse_status', 'ok')->count(), \App\Models\Post::where('parse_status', 'failed')->count(), \App\Models\Post::where('translation_incomplete', true)->count(), \App\Models\LlmCall::whereDate('created_at', today())->count());"
+    php artisan tinker --execute="printf('всего=%d опубликовано=%d черновиков_ok=%d failed=%d ревью_перевода=%d llm_сегодня=%d llm_вчера=%d черновиков_llm=%d'.PHP_EOL, \App\Models\Post::count(), \App\Models\Post::where('published', true)->count(), \App\Models\Post::where('published', false)->where('parse_status', 'ok')->count(), \App\Models\Post::where('parse_status', 'failed')->count(), \App\Models\Post::where('translation_incomplete', true)->count(), \App\Models\LlmCall::whereDate('created_at', today())->count(), \App\Models\LlmCall::whereDate('created_at', today()->subDay())->count(), \App\Models\Post::where('published', false)->where('parse_status', 'ok')->where('translated_by', 'like', 'gemini%')->count());"
 @endtask
 
 @task('run_post_parse', ['on' => 'production'])
