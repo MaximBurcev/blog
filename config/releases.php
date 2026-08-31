@@ -183,6 +183,10 @@ return [
         // на рассылку. Класс-селектор не подошёл бы: совпавшие узлы
         // склеиваются (SelectorXPathBuilder) и форма попала бы в пост.
         'yellowraincoat.co.uk' => 'article',
+        // Next.js: семантических <article>/<main> нет, тело статьи лежит в
+        // единственном div.article-content (sidebar-box-content у сайдбара —
+        // другой класс, не пересекается).
+        'helgesver.re' => '.article-content',
 
         // Источники JavaScript Weekly. Замерено 26.08.2026 на выпуске 799,
         // в скобках — РАЗМЕР HTML выбранного блока и во что он обходится:
