@@ -104,6 +104,26 @@ class TranslateDraftsCommandTest extends TestCase
         });
     }
 
+    public function test_skips_already_llm_translated_drafts(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            // Регрессия 30.08.2026: без этого фильтра партия каждый день
+            // переводила одни и те же 20 самых старых черновиков.
+            $alreadyDone = $this->draft(['translated_by' => 'gemini-3.6-flash']);
+            $waiting = $this->draft();
+
+            $this->app->instance(Translator::class, $this->fakeTranslator());
+
+            $this->artisan('posts:translate-drafts')->assertSuccessful();
+
+            // Переведён только ждущий: готовый не должен ни попасть в
+            // партию, ни обновиться (updated_at зафиксируем грубо — по
+            // translated_by: перезапись сменила бы его на gemini-test).
+            $this->assertSame('gemini-test', $waiting->refresh()->translated_by);
+            $this->assertSame('gemini-3.6-flash', $alreadyDone->refresh()->translated_by);
+        });
+    }
+
     public function test_stops_batch_on_fallback_engine(): void
     {
         Post::withoutSyncingToSearch(function () {

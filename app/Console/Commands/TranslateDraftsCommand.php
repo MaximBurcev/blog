@@ -99,6 +99,14 @@ class TranslateDraftsCommand extends Command
     /**
      * Готовые к переводу черновики: разобраны успешно, не опубликованы, есть
      * сохранённый оригинал. Сначала старые — они дольше всех ждут вычитки.
+     *
+     * Уже переведённые Gemini не берём ОБЯЗАТЕЛЬНО: без этого фильтра партия
+     * каждый день переводила одни и те же 20 самых старых черновиков — именно
+     * так 30.08.2026 две трети суточной квоты ушли на повторный перевод уже
+     * хороших текстов, а очередь не сдвинулась (поймано по llm_calls:
+     * вызовов 52, новых переведённых 0). NOT LIKE через вложенный where:
+     * у NULL-движка `translated_by NOT LIKE ...` даёт NULL, и такие посты
+     * выпали бы из выборки — а это главные её клиенты.
      */
     private function drafts(): Builder
     {
@@ -107,6 +115,9 @@ class TranslateDraftsCommand extends Command
             ->where('parse_status', Post::PARSE_STATUS_OK)
             ->whereNotNull('content_orig')
             ->where('content_orig', '!=', '')
+            ->where(fn (Builder $query) => $query
+                ->whereNull('translated_by')
+                ->orWhere('translated_by', 'not like', 'gemini%'))
             ->oldest('created_at');
     }
 }
