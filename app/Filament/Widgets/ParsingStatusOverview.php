@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Resources\PostResource;
 use App\Models\Post;
 use App\Service\Translation\FallbackTranslator;
 use App\Service\Translation\GeminiTranslator;
@@ -222,7 +223,13 @@ class ParsingStatusOverview extends BaseWidget
                 ? "Упавших задач за сутки: {$failedJobs}"
                 : 'Упавших задач за сутки нет')
             ->icon('heroicon-m-exclamation-triangle')
-            ->color($failedPosts > 0 || $failedJobs > 0 ? 'danger' : 'gray');
+            ->color($failedPosts > 0 || $failedJobs > 0 ? 'danger' : 'gray')
+            // Список постов с включённым фильтром «Ошибка парсинга»: стат
+            // показывает только число, а посмотреть, что именно сломалось,
+            // раньше было нельзя — фильтр приходилось включать вручную.
+            ->url(PostResource::getUrl('index', [
+                'tableFilters' => ['parse_failed' => ['isActive' => true]],
+            ]));
     }
 
     private function plural(int $count, string $one, string $few, string $many): string
