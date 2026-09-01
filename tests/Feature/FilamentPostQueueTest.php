@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Filament\Resources\PostResource\Pages\EditPost;
 use App\Filament\Resources\PostResource\Pages\ListPosts;
 use App\Models\Post;
 use App\Models\User;
@@ -147,6 +148,22 @@ class FilamentPostQueueTest extends TestCase
                 ->call('updateTableColumnState', 'published', (string) $post->getKey(), true);
 
             $this->assertTrue($post->fresh()->published);
+        });
+    }
+
+    public function test_edit_page_shows_translation_engine(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $llm = $this->makePost(['translated_by' => 'gemini-3.5-flash']);
+            $scraper = $this->makePost(['translated_by' => 'google']);
+
+            Livewire::actingAs($this->admin())
+                ->test(EditPost::class, ['record' => $llm->getKey()])
+                ->assertSee('LLM (gemini-3.5-flash)');
+
+            Livewire::actingAs($this->admin())
+                ->test(EditPost::class, ['record' => $scraper->getKey()])
+                ->assertSee('Скрейпер (запасной движок, стоит перевести заново)');
         });
     }
 

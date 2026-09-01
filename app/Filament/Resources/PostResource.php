@@ -95,6 +95,21 @@ class PostResource extends Resource
                     ->label('Ошибка парсинга')
                     ->content(fn (?Post $record): string => (string) $record?->parse_error)
                     ->visible(fn (?Post $record): bool => filled($record?->parse_error)),
+                // Чем переведён пост — та же разметка значений, что в колонке
+                // «Движок» списка, но без бейджа: модель показываем сразу,
+                // тултипу здесь взяться негде. Заметить молчаливый уход на
+                // запасной движок можно и со страницы редактирования, а не
+                // только из списка.
+                Forms\Components\Placeholder::make('translated_by_note')
+                    ->label('Перевод')
+                    ->content(fn (?Post $record): string => match (true) {
+                        $record?->translated_by === null => '—',
+                        str_starts_with($record->translated_by, GeminiTranslator::PROVIDER) => 'LLM ('.$record->translated_by.')',
+                        $record->translated_by === 'google' => 'Скрейпер (запасной движок, стоит перевести заново)',
+                        $record->translated_by === 'none' => 'Не переведён',
+                        default => $record->translated_by,
+                    })
+                    ->visible(fn (?Post $record): bool => filled($record?->translated_by)),
             ])->columns(1);
     }
 
