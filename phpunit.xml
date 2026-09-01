@@ -40,6 +40,13 @@
             для этого не нужен.
         -->
         <env name="SCOUT_DRIVER" value="null"/>
+        <!--
+            LLM-тегирование выключено по умолчанию: GEMINI_API_KEY берётся из
+            .env разработчика, и PostServiceTest без Http::fake ушёл бы живым
+            запросом в Google на каждом безтеговом посте. Тесты самого
+            тегирования включают его обратно через config().
+        -->
+        <env name="TAGGING_LLM_ENABLED" value="false"/>
         <!-- Кэш конфига в CI не собирается, а вот локальный .env может
              оказаться каким угодно: фиксируем соединение явно. -->
         <env name="DB_CONNECTION" value="mysql"/>

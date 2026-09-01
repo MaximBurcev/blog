@@ -9,10 +9,10 @@ use Illuminate\Support\Facades\Log;
 /**
  * Один вызов языковой модели: сколько токенов, сколько времени, чем кончился.
  *
- * Пишется из App\Service\Translation\GeminiTranslator, читается виджетом
- * «Расход на перевод» и командой llm-calls:prune. Больше в приложении её никто
- * не трогает: на сам перевод эта таблица не влияет никак — она про деньги и
- * наблюдаемость, не про результат.
+ * Пишется из App\Service\Translation\GeminiClient (перевод и тегирование),
+ * читается виджетом «Расход на перевод» и командой llm-calls:prune. Больше в
+ * приложении её никто не трогает: на сам перевод эта таблица не влияет никак
+ * — она про деньги и наблюдаемость, не про результат.
  *
  * @property int $id
  * @property string $engine
@@ -43,6 +43,9 @@ class LlmCall extends Model
 
     /** Заголовок. */
     public const KIND_TEXT = 'text';
+
+    /** Подбор тегов статьи (LlmTaggerService). */
+    public const KIND_TAGS = 'tags';
 
     /** Ответ получен и принят. */
     public const OUTCOME_OK = 'ok';

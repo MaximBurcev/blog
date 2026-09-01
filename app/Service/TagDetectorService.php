@@ -57,8 +57,13 @@ class TagDetectorService
     /**
      * Ищет тег без учёта регистра (чтобы не плодить дубли вроде
      * "Laravel" и "laravel"), создаёт с уникальным slug при отсутствии.
+     *
+     * Публичный ради LlmTaggerService: модель предлагает названия тегов, и
+     * разворачивать их в записи надо ровно тем же способом, что и словарь —
+     * иначе у «найти по title без учёта регистра» появилась бы вторая копия,
+     * которая неизбежно разъедется с первой.
      */
-    private function findOrCreateTag(string $title): Tag
+    public function findOrCreateTag(string $title): Tag
     {
         $existing = Tag::whereRaw('LOWER(title) = ?', [mb_strtolower($title)])->first();
         if ($existing) {
@@ -67,7 +72,34 @@ class TagDetectorService
 
         return Tag::create([
             'title' => $title,
-            'code' => Str::slug($title),
+            'code' => $this->uniqueCode($title),
         ]);
+    }
+
+    /**
+     * Slug — публичный адрес страницы тега, поэтому обязан быть уникальным.
+     *
+     * Разные названия могут схлопнуться в один slug («C++» и «C#» оба дают
+     * "c"): без суффикса второй тег жил бы по адресу первого. Модель в
+     * LlmTaggerService присылает названия из головы, так что коллизия —
+     * штатный случай, а не экзотика.
+     */
+    private function uniqueCode(string $title): string
+    {
+        $base = Str::slug($title);
+
+        // Для названий из одних спецсимволов slug пуст — подставляем корень,
+        // чтобы адрес всё равно был читаемым.
+        $base = $base !== '' ? $base : 'tag';
+
+        $code = $base;
+        $suffix = 2;
+
+        while (Tag::where('code', $code)->exists()) {
+            $code = $base.'-'.$suffix;
+            $suffix++;
+        }
+
+        return $code;
     }
 }

@@ -18,6 +18,7 @@ class PostService
         private readonly TranslateService $translateService,
         private readonly CategoryDetectorService $categoryDetectorService,
         private readonly TagDetectorService $tagDetectorService,
+        private readonly LlmTaggerService $llmTaggerService,
     ) {}
 
     public function store(PostData $postData): Post
@@ -82,6 +83,13 @@ class PostService
 
             if (empty($tagIds)) {
                 $tagIds = $this->tagDetectorService->detect($data['title'], $data['url'] ?? '', $data['content'] ?? '');
+            }
+
+            // Словарь молчит — спрашиваем модель. Она платная и медленная,
+            // поэтому именно в таком порядке, и только для безтеговых постов:
+            // иначе статья уходила на сайт вообще без тегов.
+            if (empty($tagIds)) {
+                $tagIds = $this->llmTaggerService->detect($data['title'], $data['url'] ?? '', $data['content'] ?? '');
             }
 
             if (! empty($tagIds)) {
@@ -255,6 +263,11 @@ class PostService
 
             if (empty($tagIds)) {
                 $tagIds = $this->tagDetectorService->detect($data['title'], $post->url ?? '', $data['content'] ?? '');
+            }
+
+            // Как и в store(): словарь молчит — запасной путь через модель.
+            if (empty($tagIds)) {
+                $tagIds = $this->llmTaggerService->detect($data['title'], $post->url ?? '', $data['content'] ?? '');
             }
 
             if (empty($data['preview_image']) && ! empty($data['content'])) {
