@@ -22,13 +22,9 @@
 
             <h1 class="edica-page-title" data-aos="fade-up">Инструменты</h1>
 
-            <p class="text-muted" data-aos="fade-up">
-                Утилиты и библиотеки из дайджеста PHP Weekly — с описанием на русском.
-            </p>
-
             <div class="row">
                 @forelse($tools as $tool)
-                    <div class="col-md-6" data-aos="fade-up">
+                    <div class="col-md-12" data-aos="fade-up">
                         <article class="tool-item mb-4 pb-4 border-bottom">
                             <h2 class="h5 mb-1">
                                 <a href="{{ $tool->url }}" target="_blank" rel="noopener">{{ $tool->name }}</a>
