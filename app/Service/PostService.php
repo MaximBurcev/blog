@@ -19,6 +19,7 @@ class PostService
         private readonly CategoryDetectorService $categoryDetectorService,
         private readonly TagDetectorService $tagDetectorService,
         private readonly LlmTaggerService $llmTaggerService,
+        private readonly LlmCategoryService $llmCategoryService,
     ) {}
 
     public function store(PostData $postData): Post
@@ -60,6 +61,17 @@ class PostService
 
             if (empty($data['category_id'])) {
                 $data['category_id'] = $this->categoryDetectorService->detect(
+                    $data['title'],
+                    $data['url'] ?? '',
+                    $data['content'] ?? ''
+                );
+            }
+
+            // Словарь молчит — спрашиваем модель. Она платная и медленная,
+            // поэтому именно в таком порядке: иначе статья уходила на сайт
+            // вообще без раздела.
+            if (empty($data['category_id'])) {
+                $data['category_id'] = $this->llmCategoryService->detect(
                     $data['title'],
                     $data['url'] ?? '',
                     $data['content'] ?? ''
@@ -255,6 +267,15 @@ class PostService
 
             if (empty($data['category_id'])) {
                 $data['category_id'] = $this->categoryDetectorService->detect(
+                    $data['title'],
+                    $post->url ?? '',
+                    $data['content'] ?? ''
+                );
+            }
+
+            // Как и в store(): словарь молчит — запасной путь через модель.
+            if (empty($data['category_id'])) {
+                $data['category_id'] = $this->llmCategoryService->detect(
                     $data['title'],
                     $post->url ?? '',
                     $data['content'] ?? ''

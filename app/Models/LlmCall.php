@@ -47,6 +47,9 @@ class LlmCall extends Model
     /** Подбор тегов статьи (LlmTaggerService). */
     public const KIND_TAGS = 'tags';
 
+    /** Подбор категории статьи (LlmCategoryService). */
+    public const KIND_CATEGORY = 'category';
+
     /** Ответ получен и принят. */
     public const OUTCOME_OK = 'ok';
 

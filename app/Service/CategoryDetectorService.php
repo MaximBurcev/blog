@@ -57,8 +57,13 @@ class CategoryDetectorService
     /**
      * Ищет категорию без учёта регистра (чтобы не плодить дубли вроде
      * "Laravel" и "laravel"), создаёт с уникальным slug при отсутствии.
+     *
+     * Публичный ради LlmCategoryService: модель предлагает название
+     * категории, и разворачивать его в запись надо ровно тем же способом,
+     * что и словарь — иначе у «найти по title без учёта регистра» появилась
+     * бы вторая копия, которая неизбежно разъедется с первой.
      */
-    private function findOrCreateCategory(string $title): Category
+    public function findOrCreateCategory(string $title): Category
     {
         $existing = Category::whereRaw('LOWER(title) = ?', [mb_strtolower($title)])->first();
         if ($existing) {
@@ -67,7 +72,32 @@ class CategoryDetectorService
 
         return Category::create([
             'title' => $title,
-            'code' => Str::slug($title),
+            'code' => $this->uniqueCode($title),
         ]);
+    }
+
+    /**
+     * Slug — публичный адрес страницы раздела, поэтому обязан быть
+     * уникальным. Модель в LlmCategoryService присылает названия из головы,
+     * и два разных названия могут схлопнуться в один slug: без суффикса
+     * второй раздел жил бы по адресу первого.
+     */
+    private function uniqueCode(string $title): string
+    {
+        $base = Str::slug($title);
+
+        // Для названий из одних спецсимволов slug пуст — подставляем корень,
+        // чтобы адрес всё равно был читаемым.
+        $base = $base !== '' ? $base : 'category';
+
+        $code = $base;
+        $suffix = 2;
+
+        while (Category::where('code', $code)->exists()) {
+            $code = $base.'-'.$suffix;
+            $suffix++;
+        }
+
+        return $code;
     }
 }

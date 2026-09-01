@@ -47,6 +47,8 @@
             тегирования включают его обратно через config().
         -->
         <env name="TAGGING_LLM_ENABLED" value="false"/>
+        <!-- То же для категорий: флаги раздельные, чтобы выключать их независимо. -->
+        <env name="TAGGING_LLM_CATEGORY_ENABLED" value="false"/>
         <!-- Кэш конфига в CI не собирается, а вот локальный .env может
              оказаться каким угодно: фиксируем соединение явно. -->
         <env name="DB_CONNECTION" value="mysql"/>
