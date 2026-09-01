@@ -21,6 +21,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\HtmlString;
 
 class PostResource extends Resource
@@ -59,6 +60,29 @@ class PostResource extends Resource
                             : e((string) $record?->url)
                     ))
                     ->visible(fn (?Post $record): bool => filled($record?->url)),
+                // Чем переведён пост. Тот же бейдж и те же цвета, что в
+                // колонке «Движок» списка (Blade::render даёт именно компонент
+                // fi-badge, а не похожую вёрстку — расходиться они не должны),
+                // но модель видна сразу, тултипу здесь взяться негде. Место —
+                // под «Источником»: оба поля отвечают на вопрос «откуда этот
+                // пост взялся» ещё до чтения контента.
+                Forms\Components\Placeholder::make('translated_by_note')
+                    ->label('Перевод')
+                    ->content(function (?Post $record): HtmlString {
+                        [$text, $color] = match (true) {
+                            $record?->translated_by === null => ['—', 'gray'],
+                            str_starts_with($record->translated_by, GeminiTranslator::PROVIDER) => ['LLM ('.$record->translated_by.')', 'success'],
+                            $record->translated_by === 'google' => ['Скрейпер (запасной движок, стоит перевести заново)', 'warning'],
+                            $record->translated_by === 'none' => ['Не переведён', 'gray'],
+                            default => [$record->translated_by, 'gray'],
+                        };
+
+                        return new HtmlString(Blade::render(
+                            '<x-filament::badge :color="$color">{{ $text }}</x-filament::badge>',
+                            ['color' => $color, 'text' => $text],
+                        ));
+                    })
+                    ->visible(fn (?Post $record): bool => filled($record?->translated_by)),
                 TextInput::make('title')->required()->reactive()
                     ->afterStateUpdated(function (string $operation, $set, $state) {
                         // Только на создании: у существующего поста code — это
@@ -95,21 +119,6 @@ class PostResource extends Resource
                     ->label('Ошибка парсинга')
                     ->content(fn (?Post $record): string => (string) $record?->parse_error)
                     ->visible(fn (?Post $record): bool => filled($record?->parse_error)),
-                // Чем переведён пост — та же разметка значений, что в колонке
-                // «Движок» списка, но без бейджа: модель показываем сразу,
-                // тултипу здесь взяться негде. Заметить молчаливый уход на
-                // запасной движок можно и со страницы редактирования, а не
-                // только из списка.
-                Forms\Components\Placeholder::make('translated_by_note')
-                    ->label('Перевод')
-                    ->content(fn (?Post $record): string => match (true) {
-                        $record?->translated_by === null => '—',
-                        str_starts_with($record->translated_by, GeminiTranslator::PROVIDER) => 'LLM ('.$record->translated_by.')',
-                        $record->translated_by === 'google' => 'Скрейпер (запасной движок, стоит перевести заново)',
-                        $record->translated_by === 'none' => 'Не переведён',
-                        default => $record->translated_by,
-                    })
-                    ->visible(fn (?Post $record): bool => filled($record?->translated_by)),
             ])->columns(1);
     }
 
