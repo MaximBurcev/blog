@@ -19,6 +19,7 @@ return [
         'cakephp' => 'CakePHP',
         'typo3' => 'TYPO3',
         'docker' => 'Docker',
+        'magento' => 'Magento',
         'kubernetes' => 'Kubernetes',
         'mysql' => 'MySQL',
         'postgresql' => 'PostgreSQL',
