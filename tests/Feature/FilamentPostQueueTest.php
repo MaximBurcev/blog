@@ -43,6 +43,45 @@ class FilamentPostQueueTest extends TestCase
         ], $attributes));
     }
 
+    public function test_review_tab_shows_only_ready_drafts(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $ready = $this->makePost([
+                'parse_status' => Post::PARSE_STATUS_OK,
+                'translation_incomplete' => false,
+            ]);
+            $needsTranslationReview = $this->makePost([
+                'parse_status' => Post::PARSE_STATUS_OK,
+                'translation_incomplete' => true,
+            ]);
+            $published = $this->makePost([
+                'published' => true,
+                'parse_status' => Post::PARSE_STATUS_OK,
+            ]);
+            $parseFailed = $this->makePost(['parse_status' => Post::PARSE_STATUS_FAILED]);
+
+            Livewire::actingAs($this->admin())
+                ->test(ListPosts::class)
+                ->set('activeTab', 'review')
+                ->assertCanSeeTableRecords([$ready])
+                ->assertCanNotSeeTableRecords([$needsTranslationReview, $published, $parseFailed]);
+        });
+    }
+
+    public function test_translation_tab_shows_flagged_posts(): void
+    {
+        Post::withoutSyncingToSearch(function () {
+            $flagged = $this->makePost(['translation_incomplete' => true]);
+            $fine = $this->makePost(['translation_incomplete' => false]);
+
+            Livewire::actingAs($this->admin())
+                ->test(ListPosts::class)
+                ->set('activeTab', 'translation')
+                ->assertCanSeeTableRecords([$flagged])
+                ->assertCanNotSeeTableRecords([$fine]);
+        });
+    }
+
     public function test_title_search_finds_post(): void
     {
         Post::withoutSyncingToSearch(function () {
