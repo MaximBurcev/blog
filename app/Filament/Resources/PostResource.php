@@ -77,8 +77,12 @@ class PostResource extends Resource
                             default => [$record->translated_by, 'gray'],
                         };
 
+                        // fi-badge — flex-элемент и как ребёнок блока
+                        // растягивается на всю ширину формы (в таблице это
+                        // не видно: ячейка сама по контенту). Оборачиваем во
+                        // flex-строку: внутри неё ширина бейджа — по тексту.
                         return new HtmlString(Blade::render(
-                            '<x-filament::badge :color="$color">{{ $text }}</x-filament::badge>',
+                            '<div class="flex"><x-filament::badge :color="$color">{{ $text }}</x-filament::badge></div>',
                             ['color' => $color, 'text' => $text],
                         ));
                     })
