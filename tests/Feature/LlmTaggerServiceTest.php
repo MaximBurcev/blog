@@ -35,9 +35,12 @@ class LlmTaggerServiceTest extends TestCase
             'tagging.llm_enabled' => true,
             'translation.gemini.key' => 'test-key',
             'translation.gemini.model' => 'gemini-3.6-flash',
+            // Цепочка из двух моделей фиксирована: иначе список брался бы из
+            // .env разработчика, и прогон зависел бы от машины.
+            'translation.gemini.fallback_models' => ['gemini-3.5-flash'],
             // Без задержек: иначе прогон упирается в реальные паузы повторов.
             'translation.gemini.retry_delays_ms' => [0],
-            // Размыкатель включается только в тесте про него; в остальных он
+            // Размыкатель включается только в тестах про него; в остальных он
             // гасил бы движок после первого же смоделированного отказа.
             'translation.circuit_breaker_seconds' => 0,
         ]);
@@ -109,12 +112,70 @@ class LlmTaggerServiceTest extends TestCase
         $this->assertDatabaseHas('llm_calls', ['kind' => LlmCall::KIND_TAGS, 'outcome' => LlmCall::OUTCOME_ERROR]);
     }
 
-    public function test_open_circuit_breaker_skips_the_network(): void
+    public function test_down_main_model_falls_through_to_the_next_one(): void
     {
-        // Модель уже ответила неретраибельной ошибкой — теги не перевод,
-        // выжидать таймаут на каждом посте ради них незачем.
+        // Квота у Google считается ПО МОДЕЛИ: исчерпавшая лимит основная —
+        // не повод останавливать разметку, пока у запасной квота свободна.
         config(['translation.circuit_breaker_seconds' => 300]);
         FallbackTranslator::markDown('gemini-3.6-flash');
+
+        $this->fakeAnswer('["USPS"]');
+
+        $ids = $this->tagger()->detect('USPS labels');
+
+        $this->assertCount(1, $ids);
+        // Запрос ушёл ровно один и именно к запасной модели: разомкнутую
+        // основную не трогаем, чтобы не жечь время парсинга.
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'models/gemini-3.5-flash:'));
+        $this->assertDatabaseHas('llm_calls', [
+            'kind' => LlmCall::KIND_TAGS,
+            'model' => 'gemini-3.5-flash',
+            'outcome' => LlmCall::OUTCOME_OK,
+        ]);
+    }
+
+    public function test_quota_error_on_main_model_falls_through_to_the_next_one(): void
+    {
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'models/gemini-3.6-flash:')) {
+                return Http::response(['error' => ['message' => 'quota exceeded']], 429);
+            }
+
+            return Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [['text' => '["USPS"]']]],
+                    'finishReason' => 'STOP',
+                ]],
+            ]);
+        });
+
+        $ids = $this->tagger()->detect('USPS labels');
+
+        $this->assertCount(1, $ids);
+        $this->assertSame('USPS', Tag::find($ids[0])?->title);
+        // Оба захода в журнале, каждый под своей моделью: по ним видно и
+        // отказ основной, и то, кто реально разметил статью.
+        $this->assertDatabaseHas('llm_calls', [
+            'kind' => LlmCall::KIND_TAGS,
+            'model' => 'gemini-3.6-flash',
+            'outcome' => LlmCall::OUTCOME_ERROR,
+        ]);
+        $this->assertDatabaseHas('llm_calls', [
+            'kind' => LlmCall::KIND_TAGS,
+            'model' => 'gemini-3.5-flash',
+            'outcome' => LlmCall::OUTCOME_OK,
+        ]);
+    }
+
+    public function test_all_models_down_returns_nothing_without_network(): void
+    {
+        // Разметка — не перевод: когда недоступны ВСЕ модели цепочки,
+        // выжидать таймаут на каждом посте ради заведомо провального запроса
+        // незачем.
+        config(['translation.circuit_breaker_seconds' => 300]);
+        FallbackTranslator::markDown('gemini-3.6-flash');
+        FallbackTranslator::markDown('gemini-3.5-flash');
 
         Http::fake();
 

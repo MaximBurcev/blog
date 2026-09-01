@@ -4,7 +4,6 @@ namespace App\Service;
 
 use App\Models\LlmCall;
 use App\Models\Tag;
-use App\Service\Translation\FallbackTranslator;
 use App\Service\Translation\GeminiClient;
 use Illuminate\Support\Facades\Log;
 
@@ -68,19 +67,10 @@ class LlmTaggerService
             return [];
         }
 
-        // Разомкнутый предохранитель означает, что модель уже ответила
-        // неретраибельной ошибкой (исчерпанная квота, регион, отозванный
-        // ключ). Теги — не перевод: выжидать полный таймаут на каждом посте
-        // ради заведомо провального запроса незачем.
-        if (FallbackTranslator::isDown($this->client->model())) {
-            Log::info('LlmTagger: модель на паузе, тегирование пропущено', [
-                'model' => $this->client->model(),
-            ]);
-
-            return [];
-        }
-
-        $answer = $this->client->ask($this->prompt($title, $url, $content), LlmCall::KIND_TAGS);
+        // Предохранитель сам по себе не стоп-слово: квота считается по
+        // модели, поэтому при разомкнутой основной пробуем запасные —
+        // обход цепочки и пропуск недоступных внутри askAlongChain.
+        $answer = $this->client->askAlongChain($this->prompt($title, $url, $content), LlmCall::KIND_TAGS);
 
         if ($answer->text === null) {
             return [];
