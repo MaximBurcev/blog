@@ -24,6 +24,21 @@ final class SelectorXPathBuilder
             return '//*[@id='.self::literal(ltrim($selector, '#')).']';
         }
 
+        // [class*="..."] (возможно, несколько групп подряд) — подстрочный
+        // матч. Нужен для CSS-модулей с нестабильным build-хешем в имени
+        // класса («Body-module-scss-module__z40yvW__body»): точное совпадение
+        // класса ломается при каждом перевыкате сайта-источника, а устойчивая
+        // часть имени («Body-module», «__body») переживает их.
+        if (preg_match_all('/\[class\*="([^"]*)"\]/', $selector, $m, PREG_SET_ORDER) > 0
+            && implode('', array_column($m, 0)) === $selector) {
+            $conditions = array_map(
+                fn (array $match): string => 'contains(@class, '.self::literal($match[1]).')',
+                $m,
+            );
+
+            return '//*['.implode(' and ', $conditions).']';
+        }
+
         if (str_starts_with($selector, '.')) {
             return self::classQuery(ltrim($selector, '.'));
         }

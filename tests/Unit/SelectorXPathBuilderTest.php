@@ -100,4 +100,43 @@ class SelectorXPathBuilderTest extends TestCase
 
         $this->assertSame(0, $nodes->count());
     }
+
+    public function test_class_substring_selector_matches_css_module_hash_names(): void
+    {
+        // Имя класса CSS-модуля с build-хешем: точное совпадение сломалось бы
+        // при перевыкате источника, подстрока переживает смену хеша.
+        $html = '<html><body><div class="Body-module-scss-module__z40yvW__body">content</div></body></html>';
+
+        $nodes = $this->queryXPath($html, SelectorXPathBuilder::build('[class*="Body-module"][class*="__body"]'));
+
+        $this->assertSame(1, $nodes->count());
+    }
+
+    public function test_class_substring_selector_requires_all_conditions(): void
+    {
+        $html = '<html><body>'.
+            '<div class="Body-module-aaa">no body part</div>'.
+            '<div class="Other-module__body">no Body-module part</div>'.
+            '</body></html>';
+
+        $nodes = $this->queryXPath($html, SelectorXPathBuilder::build('[class*="Body-module"][class*="__body"]'));
+
+        $this->assertSame(0, $nodes->count());
+    }
+
+    public function test_injection_payload_in_substring_selector_is_escaped(): void
+    {
+        $html = '<html><body>'.
+            '<div class="article-body">content</div>'.
+            '<script>alert(1)</script>'.
+            '</body></html>';
+
+        $payload = '[class*="article-body")] | //script | //*[contains(@class, "x';
+
+        $nodes = $this->queryXPath($html, SelectorXPathBuilder::build($payload));
+
+        // Хвост за скобками не пропускается форматом — значение целиком уходит
+        // в безопасный класс-запрос, такого класса нет, результат пуст.
+        $this->assertSame(0, $nodes->count());
+    }
 }
