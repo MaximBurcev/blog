@@ -71,3 +71,13 @@ Route::get('/sitemap.xml', XmlController::class)->name('sitemap.xml')
 
 Route::get('/feed.xml', App\Http\Controllers\Feed\IndexController::class)->name('feed.index')
     ->middleware('cache.headers:public;max_age=3600');
+
+// Файл подтверждения ключа IndexNow: поисковик сверяет ключ из запроса с
+// содержимым /{key}.txt, без этого адреса отправки отвергаются. Проверка
+// ключа внутри обработчика, а не при регистрации маршрута: маршруты грузятся
+// раньше, чем тесты успевают подменить конфиг, да и route:cache так проще.
+Route::get('/{indexnowKey}.txt', function (string $indexnowKey) {
+    abort_unless(filled(config('indexnow.key')) && $indexnowKey === config('indexnow.key'), 404);
+
+    return response($indexnowKey, 200, ['Content-Type' => 'text/plain']);
+})->where('indexnowKey', '[a-f0-9]{16,64}')->name('indexnow.key');

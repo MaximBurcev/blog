@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Jobs\GenerateImageVariantsJob;
+use App\Jobs\SubmitUrlToIndexNow;
 use App\Service\HtmlSanitizerService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -141,6 +142,22 @@ class Post extends Model
                     GenerateImageVariantsJob::dispatch($post->$field)->afterCommit();
                 }
             }
+        });
+
+        static::saved(function (self $post) {
+            // Публикация — сигнал для IndexNow. Хук здесь, а не в админке,
+            // по той же причине, что published_at выше: опубликовать пост
+            // можно из формы, тогглом в списке, массовым действием и из
+            // tinker — и везде поисковик должен узнать о странице.
+            //
+            // wasChanged('published') отсекает правки уже опубликованного:
+            // IndexNow про обновления контента, но перепарсинг и так
+            // пересохраняет пост — без условия каждая правка гоняла бы пинг.
+            if (! $post->published || ! $post->wasChanged('published')) {
+                return;
+            }
+
+            SubmitUrlToIndexNow::dispatch($post->permalink())->afterCommit();
         });
     }
 
