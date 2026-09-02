@@ -1097,6 +1097,8 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         // оказаться и LLM, и прежним скрейпером, и джобе незачем знать, каким
         // именно. Раньше здесь жёстко звался processNode(), поэтому весь
         // парсинг шёл мимо настроек перевода вообще.
+        $contentOrig = $this->imageService->absolutizeImageUrls($contentOrig, (string) ($this->data['url'] ?? ''));
+
         $result = $this->translator->translateHtml($contentOrig);
 
         if ($result->failed || $result->partial) {

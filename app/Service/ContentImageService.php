@@ -143,6 +143,55 @@ class ContentImageService
     }
 
     /**
+     * Переводит относительные адреса картинок в абсолютные по адресу статьи.
+     *
+     * Без этого img src="/_next/image?..." со страницы источника попадал в
+     * нашу разметку как есть: isDownloadableImageUrl() пропускает не-http
+     * адреса, и на сайте пост оставался с битыми ссылками на чужой
+     * /_next/image (404). Запускать ДО перевода: модель получает уже
+     * окончательные адреса и не успевает их исковеркать.
+     */
+    public function absolutizeImageUrls(string $content, string $baseUrl): string
+    {
+        $base = parse_url($baseUrl);
+
+        if (empty($base['scheme']) || empty($base['host'])) {
+            return $content;
+        }
+
+        $origin = $base['scheme'].'://'.$base['host'];
+
+        return preg_replace_callback('/<img[^>]+src="([^"]+)"[^>]*>/i', function (array $matches) use ($origin, $base) {
+            // HTML-сущности декодируем: иначе '&amp;w=3840' дальше по
+            // конвейеру качался бы буквально, ломая query-параметры CDN.
+            $src = html_entity_decode($matches[1]);
+
+            // Next.js image-optimizer: /_next/image?url=<encoded CDN-адрес>.
+            // Разворачиваем до прямого адреса CDN — через чужой оптимизатор
+            // качался бы файл максимальной ширины (w=3840).
+            if (str_contains((string) parse_url($src, PHP_URL_PATH), '/_next/image')) {
+                parse_str((string) parse_url($src, PHP_URL_QUERY), $query);
+
+                if (filled($query['url'] ?? null)) {
+                    $src = $query['url'];
+                }
+            }
+
+            if (str_starts_with($src, '//')) {
+                $src = $base['scheme'].':'.$src;
+            } elseif (str_starts_with($src, '/')) {
+                $src = $origin.$src;
+            }
+
+            // (?<![-\w]) — не трогаем data-src (см. replaceBareImages).
+            // $ и \ в адресе экранируем: это replacement-строка preg_replace.
+            $replacement = 'src="'.str_replace(['\\', '$'], ['\\\\', '\\$'], $src).'"';
+
+            return preg_replace('/(?<![-\w])src="[^"]*"/i', $replacement, $matches[0], 1) ?? $matches[0];
+        }, $content) ?? $content;
+    }
+
+    /**
      * Заменяет <picture>...</picture> с ленивой загрузкой (source srcset,
      * сам <img> без src — паттерн Medium/gitconnected для картинок в теле
      * статьи) на обычный <img src="local-path">. Без этого
