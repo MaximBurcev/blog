@@ -375,7 +375,11 @@ class ContentImageService
 
     private function replaceLinkedImages(string $content): string
     {
-        $pattern = '/<a[^>]+href="([^"]+)"[^>]*>.*?<img[^>]+src="([^"]+)"[^>]*>.*?<\/a>/i';
+        // Между <a> и <img> — только пробелы. Прежний вариант с ленивым .*?
+        // цеплял от ЛЮБОЙ ссылки выше по тексту до первой картинки ниже, и
+        // при успешной подмене стирал всё между ними — текст и чужие <img>
+        // (anthropic.com 03.09.2026: статья теряла 5 из 8 иллюстраций).
+        $pattern = '/<a[^>]+href="([^"]+)"[^>]*>\s*<img[^>]+src="([^"]+)"[^>]*>\s*<\/a>/i';
 
         return preg_replace_callback($pattern, function ($matches) {
             $imageUrl = $matches[2];

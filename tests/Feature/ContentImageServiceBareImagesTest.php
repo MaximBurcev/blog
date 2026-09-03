@@ -78,6 +78,28 @@ class ContentImageServiceBareImagesTest extends TestCase
         $this->assertMatchesRegularExpression('#<a href="[^"]+"><img src="[^"]+"></a>#', $result);
     }
 
+    public function test_unrelated_anchor_before_image_does_not_swallow_content(): void
+    {
+        $this->fakeImages();
+
+        // Регрессия anthropic.com (03.09.2026): ленивый .*? в паттерне
+        // replaceLinkedImages цеплял от любой ссылки до первой картинки ниже
+        // и при подмене стирал всё между ними — статья теряла 5 из 8
+        // иллюстраций вместе с текстом.
+        $result = $this->service()->downloadAndReplaceImages(
+            '<p>Автор: <a href="https://example.com/author">Имя</a>.</p>'.
+            '<p>Абзац текста, который не должен пропасть.</p>'.
+            '<p><img src="https://cdn.test/one.png"></p>'.
+            '<p>Ещё текст между картинками.</p>'.
+            '<p><img src="https://cdn.test/two.png"></p>'
+        );
+
+        $this->assertStringContainsString('Абзац текста, который не должен пропасть.', $result);
+        $this->assertStringContainsString('Ещё текст между картинками.', $result);
+        $this->assertSame(2, substr_count($result, '<img'));
+        $this->assertStringNotContainsString('cdn.test', $result);
+    }
+
     /**
      * Ключевое: второй проход не должен перекачивать то, что уже скачал
      * первый — иначе каждая картинка в ссылке сохранялась бы дважды.
