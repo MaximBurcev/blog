@@ -78,7 +78,7 @@ class CspNonceTest extends TestCase
     {
         // Filament и Livewire вставляют свои инлайны без nonce, а Alpine
         // вычисляет выражения через new Function — там политика мягче.
-        $response = $this->get('/filament/login');
+        $response = $this->get('/'.config('admin.panel_path', 'filament').'/login');
 
         $scriptSrc = $this->scriptSrc($response->headers->get('Content-Security-Policy'));
 

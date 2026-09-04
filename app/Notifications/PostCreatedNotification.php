@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Filament\Resources\PostResource;
 use App\Models\Post;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -28,7 +29,10 @@ class PostCreatedNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $url = url('/filament/posts/'.$this->post->id.'/edit');
+        // Адрес строит сам Filament: путь панели настраиваемый
+        // (config/admin.php), руками собранный url('/filament/...') при смене
+        // адреса панели превратился бы в мёртвую ссылку в письме.
+        $url = PostResource::getUrl('edit', ['record' => $this->post]);
 
         return (new MailMessage)
             ->subject('Новый пост: '.$this->post->title)

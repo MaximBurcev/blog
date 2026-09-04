@@ -36,11 +36,22 @@ class SecurityHeaders
      * (Filament, Livewire, log-viewer, Telescope): инлайновые скрипты там без
      * nonce, а превью загруженного файла рисуется из blob:.
      *
-     * Константа управляет сразу тремя директивами — script-src, img-src и
+     * Метод, а не константа: путь панели настраивается (config/admin.php), и
+     * при его смене панель со строгой политикой умерла бы сразу — инлайны
+     * Filament без unsafe-inline не исполняются.
+     *
+     * Список управляет сразу тремя директивами — script-src, img-src и
      * worker-src: добавляя сюда путь ради скриптов, вы заодно разрешаете там
      * blob:-картинки и blob:-воркеры.
+     *
+     * @return string[]
      */
-    private const RELAXED_PATHS = ['filament', 'filament/*', 'livewire/*', 'log-viewer', 'log-viewer/*', 'telescope', 'telescope/*'];
+    private static function relaxedPaths(): array
+    {
+        $panel = trim((string) config('admin.panel_path', 'filament'), '/');
+
+        return [$panel, $panel.'/*', 'livewire/*', 'log-viewer', 'log-viewer/*', 'telescope', 'telescope/*'];
+    }
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -107,7 +118,7 @@ class SecurityHeaders
 
     private function csp(Request $request): string
     {
-        $relaxed = $request->is(self::RELAXED_PATHS);
+        $relaxed = $request->is(self::relaxedPaths());
         $extra = (array) config('security.csp.extra_hosts', []);
         // Dev-сервер Vite отдаёт модули со своего порта и держит там же
         // HMR-сокет — без этих источников `npm run dev` умрёт под CSP

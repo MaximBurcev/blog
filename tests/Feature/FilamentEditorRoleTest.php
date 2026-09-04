@@ -65,7 +65,7 @@ class FilamentEditorRoleTest extends TestCase
 
         $this->assertTrue($editor->canAccessPanel(Filament::getCurrentPanel() ?? Filament::getDefaultPanel()));
 
-        $this->actingAs($editor)->get('/filament')->assertOk();
+        $this->actingAs($editor)->get('/'.config('admin.panel_path', 'filament'))->assertOk();
     }
 
     public function test_reader_cannot_access_panel(): void
@@ -74,7 +74,7 @@ class FilamentEditorRoleTest extends TestCase
 
         $this->assertFalse($reader->canAccessPanel(Filament::getCurrentPanel() ?? Filament::getDefaultPanel()));
 
-        $this->actingAs($reader)->get('/filament')->assertForbidden();
+        $this->actingAs($reader)->get('/'.config('admin.panel_path', 'filament'))->assertForbidden();
     }
 
     public function test_editor_sees_posts_and_can_bulk_publish(): void

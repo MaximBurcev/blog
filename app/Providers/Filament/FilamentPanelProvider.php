@@ -37,7 +37,9 @@ class FilamentPanelProvider extends PanelProvider
         return $panel
             ->default()
             ->id('filament')
-            ->path('filament')
+            // Адрес панели настраивается (config/admin.php), дефолт —
+            // исторический /filament. Меняется через ADMIN_PANEL_PATH в .env.
+            ->path(config('admin.panel_path', 'filament'))
             ->login()
             ->favicon(asset('favicon.svg'))
             // По умолчанию Filament ограничивает контент 7xl (80rem) — широкая

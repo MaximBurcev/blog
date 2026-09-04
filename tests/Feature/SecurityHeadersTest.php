@@ -107,7 +107,7 @@ class SecurityHeadersTest extends TestCase
      */
     public function test_csp_allows_blob_images_and_workers_in_admin_panel_only(): void
     {
-        $admin = $this->get('/filament/login')->headers->get('Content-Security-Policy');
+        $admin = $this->get('/'.config('admin.panel_path', 'filament').'/login')->headers->get('Content-Security-Policy');
         $public = $this->get('/')->headers->get('Content-Security-Policy');
 
         $this->assertMatchesRegularExpression('/img-src[^;]*blob:/', $admin);

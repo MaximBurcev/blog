@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Filament\Resources\CommentResource;
 use App\Models\Comment;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -20,7 +21,9 @@ class CommentCreatedNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $url = url('/filament/comments/'.$this->comment->id.'/edit');
+        // См. PostCreatedNotification: адрес строит Filament, путь панели
+        // настраивается через config/admin.php.
+        $url = CommentResource::getUrl('edit', ['record' => $this->comment]);
 
         return (new MailMessage)
             ->subject('Новый комментарий к посту: '.$this->comment->post->title)
