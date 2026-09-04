@@ -250,7 +250,12 @@
     php artisan clear-compiled --env={{$env}};
     php artisan optimize --env={{$env}};
     php artisan config:cache --env={{$env}};
-    php artisan cache:clear --env={{$env}};
+    # sudo обязателен, как и в задаче cache-clear: в shared-кэше Apache
+    # (mod_php) создаёт каталоги со своим umask без group-write, и очистка
+    # от deployer падала на них с «Failed to clear cache» (инцидент
+    # 04.09.2026 — деплой вставал на этом шаге). Долговременное лекарство —
+    # umask 002 для Apache/воркеров на сервере, до него — sudo.
+    sudo php artisan cache:clear --env={{$env}};
 
     # ПОСЛЕ optimize, а не вместе с общим chmod выше: config:cache создаёт
     # bootstrap/cache/config.php уже после него, с umask деплойщика — файл
