@@ -39,6 +39,41 @@
     @endpush
 @endif
 
+{{-- Прогресс чтения: скрипт отдельно от highlight.js, потому что полоска
+     нужна всегда, а подсветка — только если в статье есть <pre>. --}}
+@push('scripts')
+    <script nonce="{{ $cspNonce ?? '' }}">
+        document.addEventListener('DOMContentLoaded', function () {
+            var bar = document.getElementById('reading-progress');
+            var content = document.querySelector('.post-content');
+            if (!bar || !content) return;
+
+            var ticking = false;
+            window.addEventListener('scroll', function () {
+                if (!ticking) {
+                    window.requestAnimationFrame(function () {
+                        var rect = content.getBoundingClientRect();
+                        var contentTop = rect.top + window.pageYOffset;
+                        var contentHeight = content.offsetHeight;
+                        var scrolled = window.pageYOffset - contentTop;
+                        var viewportHeight = window.innerHeight;
+                        var total = contentHeight - viewportHeight;
+
+                        if (total <= 0) {
+                            bar.style.width = '100%';
+                        } else {
+                            var pct = Math.min(100, Math.max(0, (scrolled / total) * 100));
+                            bar.style.width = pct + '%';
+                        }
+                        ticking = false;
+                    });
+                    ticking = true;
+                }
+            });
+        });
+    </script>
+@endpush
+
 {{-- На странице оригинала разметки нет: она описывает материал блога, а тот
      живёт по адресу перевода (@id ведёт именно туда). Дублировать её на
      noindex-копии значит заявлять поисковику две страницы с одним @id. --}}
@@ -88,6 +123,24 @@
 @endunless
 
 @section('content')
+    {{-- Прогресс чтения: тонкая полоска сверху, заполняется по мере прокрутки
+         контента статьи. Только визуальная обратная связь — ничего не считает,
+         данных не отправляет. --}}
+    <div class="reading-progress" id="reading-progress" aria-hidden="true"></div>
+    <style>
+        .reading-progress {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 3px;
+            background: #f29431;
+            z-index: 9999;
+            transition: none;
+            pointer-events: none;
+        }
+    </style>
+
     <main class="blog-post">
         <div class="container">
             <nav aria-label="Хлебные крошки" class="edica-breadcrumbs">
@@ -101,6 +154,50 @@
             <p class="edica-blog-post-meta" data-aos="fade-up"
                data-aos-delay="200">{{ $date->translatedFormat('F') }} {{ $date->day }}, {{ $date->year }}
                 • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $commentsCount }} Комментария</p>
+
+            {{-- Переключатель языка: видимая кнопка вместо голого ?lang=en.
+                 Показывается только если у поста есть сохранённый оригинал. --}}
+            @if($post->hasOriginal())
+                <div class="post-lang-toggle" data-aos="fade-up" data-aos-delay="200">
+                    @if($showOriginal)
+                        <a href="{{ $post->permalink() }}" class="post-lang-btn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+                            Читать перевод
+                        </a>
+                    @else
+                        <a href="{{ $post->originalPermalink() }}" class="post-lang-btn" rel="nofollow">
+                            Читать оригинал
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                        </a>
+                    @endif
+                </div>
+                <style>
+                    .post-lang-toggle {
+                        margin-bottom: 1rem;
+                    }
+
+                    .post-lang-btn {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                        padding: 6px 16px;
+                        border: 1px solid #ececec;
+                        border-radius: 50px;
+                        background: #fff;
+                        font-size: 0.9rem;
+                        font-weight: 600;
+                        color: #343a40;
+                        text-decoration: none;
+                        transition: border-color 0.15s ease, color 0.15s ease;
+                    }
+
+                    .post-lang-btn:hover {
+                        border-color: #f29431;
+                        color: #f29431;
+                        text-decoration: none;
+                    }
+                </style>
+            @endif
 
             {{-- Обложки в теле статьи нет намеренно.
 
