@@ -310,6 +310,44 @@ class GeminiTranslatorTest extends TestCase
         $this->assertSame($source, $rejoined, 'склейка кусков должна совпадать с оригиналом');
     }
 
+    /**
+     * Регрессия на пост 331 (evilmartians.com, 09.09.2026): вся статья лежит
+     * внутри одного контейнера (у них — astro-island с сериализованными
+     * props). Такой узел не резался («одиночный узел длиннее лимита не
+     * трогаем»), и 76 КБ уходили одним запросом — ответ обрывался по
+     * max_output_tokens, а джоба падала по таймауту. Контейнер раскрываем и
+     * режем по детям; неделимыми остаются только листовые блоки.
+     */
+    public function test_oversized_container_is_split_by_its_children(): void
+    {
+        config(['translation.gemini.max_chunk_chars' => 60]);
+
+        $inner = '<p>'.str_repeat('First. ', 8).'</p><p>'.str_repeat('Second. ', 8).'</p>';
+        $source = '<article>'.$inner.'</article>';
+
+        $sent = [];
+        Http::fake(function ($request) use (&$sent) {
+            $prompt = $request->data()['contents'][0]['parts'][0]['text'];
+            $sent[] = $prompt;
+            $fragment = $this->fragmentOf($prompt);
+
+            return Http::response(['candidates' => [[
+                'content' => ['parts' => [['text' => str_replace('First.', 'Первое.', str_replace('Second.', 'Второе.', $fragment))]]],
+                'finishReason' => 'STOP',
+            ]]]);
+        });
+
+        $result = $this->translator()->translateHtml($source);
+
+        $this->assertFalse($result->failed);
+        $this->assertGreaterThan(1, count($sent), 'контейнер длиннее лимита обязан резаться по детям');
+
+        // Обёртка контейнера при раскрытии теряется — это допустимо,
+        // валидатор на теги-обёртки не смотрит; важен сам текст.
+        $rejoined = implode('', array_map(fn (string $p) => $this->fragmentOf($p), $sent));
+        $this->assertSame($inner, $rejoined, 'склейка кусков должна совпадать с содержимым контейнера');
+    }
+
     public function test_partial_failure_does_not_produce_half_russian_article(): void
     {
         config(['translation.gemini.max_chunk_chars' => 60]);

@@ -293,28 +293,74 @@ class GeminiTranslator implements Translator
             return [$html];
         }
 
+        return $this->collectChunks($body->childNodes, $dom, $limit) ?: [$html];
+    }
+
+    /**
+     * Теги, которые не делим даже когда они длиннее лимита: разорванная
+     * фраза/таблица/листинг — та самая потеря контекста, от которой уходим.
+     * Отправляем как есть и полагаемся на контекст модели.
+     */
+    private const UNSPLITTABLE_TAGS = [
+        'p', 'pre', 'table', 'li', 'blockquote', 'figure', 'td', 'th',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    ];
+
+    /**
+     * Собирает куски из соседних узлов, не превышая лимит.
+     *
+     * Узел-КОНТЕЙНЕР (article, div, astro-island…), который один длиннее
+     * лимита, раскрываем и режем по его детям: правило «не делить одиночный
+     * узел» справедливо только для листовых блоков, а обёртка — не контент.
+     * Именно так устроен evilmartians.com: вся статья лежит в одном
+     * astro-island (76 КБ даже после вырезания props) и уходила одним
+     * запросом — ответ обрывался по max_output_tokens, джоба падала по
+     * таймауту (пост 331, 09.09.2026). Побочный эффект приемлемый: куски
+     * теряют обёртку контейнера, валидатор на теги-обёртки не смотрит.
+     *
+     * @param  iterable<\DOMNode>  $nodes
+     * @return string[]
+     */
+    private function collectChunks(iterable $nodes, \DOMDocument $dom, int $limit): array
+    {
         $chunks = [];
         $current = '';
 
-        foreach ($body->childNodes as $node) {
-            $piece = (string) $dom->saveHTML($node);
-
-            // Одиночный узел длиннее лимита не режем: делить абзац или
-            // таблицу внутри — та самая потеря контекста, от которой уходим.
-            // Отправляем как есть и полагаемся на контекст модели.
-            if ($current !== '' && mb_strlen($current.$piece) > $limit) {
+        $flush = function () use (&$chunks, &$current): void {
+            if ($current !== '') {
                 $chunks[] = $current;
                 $current = '';
+            }
+        };
+
+        foreach ($nodes as $node) {
+            $piece = (string) $dom->saveHTML($node);
+
+            $isSplittableOversized = mb_strlen($piece) > $limit
+                && $node instanceof \DOMElement
+                && ! in_array($node->nodeName, self::UNSPLITTABLE_TAGS, true)
+                && $node->getElementsByTagName('*')->length > 0;
+
+            if ($isSplittableOversized) {
+                $flush();
+
+                foreach ($this->collectChunks($node->childNodes, $dom, $limit) as $subChunk) {
+                    $chunks[] = $subChunk;
+                }
+
+                continue;
+            }
+
+            if ($current !== '' && mb_strlen($current.$piece) > $limit) {
+                $flush();
             }
 
             $current .= $piece;
         }
 
-        if ($current !== '') {
-            $chunks[] = $current;
-        }
+        $flush();
 
-        return $chunks ?: [$html];
+        return $chunks;
     }
 
     private function htmlPrompt(string $html): string
