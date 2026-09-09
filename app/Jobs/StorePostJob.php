@@ -1044,6 +1044,25 @@ class StorePostJob implements ShouldBeUnique, ShouldQueue
         $this->stripMediumSubscribeWidget($finder);
         $this->stripJetBrainsChrome($finder);
         $this->stripDuplicateTitleAndHero($finder);
+        $this->stripSerializedProps($finder);
+    }
+
+    /**
+     * Убирает атрибут props — сериализованные данные гидрации фронтенд-
+     * фреймворков (Astro/SvelteKit кладут туда JSON со всеми пропсами
+     * страницы). У evilmartians.com это 82 КБ из 109 КБ статьи: три четверти
+     * промпта переводчика (llm_calls: ~60K входных токенов при 3,4K текста)
+     * и гарантированный обрыв ответа по max_output_tokens. Контентом атрибут
+     * не является никогда — фреймворк читает его обратно в DOM, читателю он
+     * не виден.
+     */
+    private function stripSerializedProps(DOMXPath $finder): void
+    {
+        $nodes = $finder->query('//*[@props]');
+
+        foreach ($nodes === false ? [] : $nodes as $node) {
+            $node->removeAttribute('props');
+        }
     }
 
     /**
