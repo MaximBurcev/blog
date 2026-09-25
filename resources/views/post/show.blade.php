@@ -153,7 +153,7 @@
             <h1 class="edica-page-title" data-aos="fade-up">{{ $post->title }}</h1>
             <p class="edica-blog-post-meta" data-aos="fade-up"
                data-aos-delay="200">{{ $date->translatedFormat('F') }} {{ $date->day }}, {{ $date->year }}
-                • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $commentsCount }} Комментария</p>
+                • {{ $date->format('H:i') }} • {{ $post->readingTimeLabel() }} • {{ $post->viewsLabel($viewsCount) }} • {{ $post->commentsLabel($commentsCount) }}</p>
 
             {{-- Переключатель языка: видимая кнопка вместо голого ?lang=en.
                  Показывается только если у поста есть сохранённый оригинал. --}}

@@ -282,6 +282,27 @@ class Post extends Model
         return 'просмотров';
     }
 
+    public function commentsLabel(int $count): string
+    {
+        return $count.' '.$this->pluralComments($count);
+    }
+
+    private function pluralComments(int $count): string
+    {
+        $mod10 = $count % 10;
+        $mod100 = $count % 100;
+
+        if ($mod10 === 1 && $mod100 !== 11) {
+            return 'комментарий';
+        }
+
+        if (in_array($mod10, [2, 3, 4], true) && ! in_array($mod100, [12, 13, 14], true)) {
+            return 'комментария';
+        }
+
+        return 'комментариев';
+    }
+
     /**
      * Content — чужой скрейпленный HTML, рендерится через {!! !!} на
      * публичной странице и в Summernote в админке без экранирования.
