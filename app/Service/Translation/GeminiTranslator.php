@@ -125,11 +125,26 @@ class GeminiTranslator implements Translator
         $owns = $this->deadline()->start((int) config('translation.gemini.budget_seconds'));
 
         try {
+            // Код прячется от модели ещё до отправки — см. CodePlaceholders.
+            // Дальше по цепочке (разбиение на куски, промпт, валидация) везде
+            // ходит уже замаскированный текст; реальный код возвращается один
+            // раз, в самом конце, поверх готового русского текста.
+            $placeholders = new CodePlaceholders;
+            $masked = $placeholders->mask($html);
+
             $limit = (int) config('translation.gemini.max_chunk_chars');
 
-            return mb_strlen($html) > $limit
-                ? $this->translateInChunks($html, $limit)
-                : $this->translateSingle($html);
+            $result = mb_strlen($masked) > $limit
+                ? $this->translateInChunks($masked, $limit, $placeholders)
+                : $this->translateSingle($masked, $placeholders);
+
+            if ($result->failed) {
+                // Оригинал, а не замаскированный текст: неудача не имеет
+                // права протащить наружу голый плейсхолдер вместо кода.
+                return TranslationResult::failure($html);
+            }
+
+            return TranslationResult::success($placeholders->restore($result->text), $this->name());
         } finally {
             if ($owns) {
                 $this->deadline()->stop();
@@ -146,7 +161,7 @@ class GeminiTranslator implements Translator
      * бесконечную рекурсию «порезать → всё ещё длинно → порезать» и роняет
      * процесс переполнением стека.
      */
-    private function translateSingle(string $html): TranslationResult
+    private function translateSingle(string $html, CodePlaceholders $placeholders): TranslationResult
     {
         $answer = $this->client->ask($this->htmlPrompt($html), LlmCall::KIND_HTML);
 
@@ -159,7 +174,10 @@ class GeminiTranslator implements Translator
         if ($reason = $this->validator->reasonToReject($html, $translated)) {
             Log::warning('GeminiTranslator: перевод отклонён валидацией', [
                 'reason' => $reason,
-                'excerpt' => mb_substr($html, 0, 200),
+                // Код возвращаем в лог тем же restore(), которым он вернулся бы
+                // в статью при успехе — иначе кусок, где кода больше, чем
+                // прозы, оставляет в логе нечитаемое «...⟦CODE0⟧...».
+                'excerpt' => mb_substr($placeholders->restore($html), 0, 200),
             ]);
 
             // Токены за этот ответ уже списаны, поэтому вызов не исчезает из
@@ -256,12 +274,12 @@ class GeminiTranslator implements Translator
      * начало с непереведённым хвостом значит выдавать полурусскую статью за
      * готовую. Пусть лучше запасной движок переведёт её целиком.
      */
-    private function translateInChunks(string $html, int $limit): TranslationResult
+    private function translateInChunks(string $html, int $limit, CodePlaceholders $placeholders): TranslationResult
     {
         $translated = '';
 
         foreach ($this->splitTopLevel($html, $limit) as $chunk) {
-            $result = $this->translateSingle($chunk);
+            $result = $this->translateSingle($chunk, $placeholders);
 
             if ($result->failed) {
                 return TranslationResult::failure($html);
@@ -370,8 +388,9 @@ class GeminiTranslator implements Translator
 
         ПРАВИЛА:
         - Сохрани HTML-разметку в точности: те же теги, те же атрибуты, та же вложенность.
-        - НЕ переводи содержимое тегов <code> и <pre>. Код возвращай байт в байт, включая отступы
-          и комментарии (// и /* */) — комментарии внутри кода тоже остаются на английском без изменений.
+        - В тексте встретятся токены вида ⟦CODEn⟧ — это код, спрятанный до перевода.
+          Перенеси каждый такой токен в перевод БЕЗ ИЗМЕНЕНИЙ, на то же место по
+          смыслу. Не переводи его, не убирай и не создавай новых токенов.
         - Переводи только видимый читателю текст.
         - Названия команд, классов, методов, пакетов и ключей конфигурации оставляй на английском.
         - Устоявшиеся термины не калькируй дословно: пиши так, как их называет русскоязычный разработчик.

@@ -92,11 +92,13 @@ class LlmUsageTest extends TestCase
 
     public function test_rejection_reason_does_not_leak_the_article_into_the_journal(): void
     {
-        // TranslatedHtmlValidator дописывает к причине улику — до 60 символов
-        // кода из самой статьи. В журнал расходов она попасть не должна: он по
-        // построению не хранит ни промпта, ни ответа. Заодно с уликой каждый
-        // брак становился бы уникальной строкой, и отчёт «по каким причинам
-        // браковали» выродился бы в список из N причин вместо трёх с числами.
+        // TranslatedHtmlValidator дописывает к причине улику — сам потерянный
+        // плейсхолдер (⟦CODEn⟧, не код из статьи: GeminiTranslator прячет
+        // код за токеном ещё до отправки). В журнал расходов улика попасть не
+        // должна: он по построению не хранит ни промпта, ни ответа. Заодно с
+        // уликой каждый брак становился бы уникальной строкой, и отчёт «по
+        // каким причинам браковали» выродился бы в список из N причин вместо
+        // трёх с числами.
         $this->fakeAnswer('<p>Команда <code>queue:listen --tries=99</code> запускает воркер.</p>');
 
         $this->translator()->translateHtml(
@@ -105,7 +107,7 @@ class LlmUsageTest extends TestCase
 
         $error = (string) LlmCall::sole()->error;
 
-        $this->assertSame('код изменён или потерян', $error);
+        $this->assertSame('плейсхолдер кода потерян', $error);
         $this->assertStringNotContainsString('queue:work', $error);
     }
 

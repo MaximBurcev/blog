@@ -51,10 +51,27 @@ class GeminiTranslatorTest extends TestCase
         $source = '<p>The <code>queue:work</code> command starts a worker.</p>'
             .'<pre><code class="language-php">Bus::batch([])->dispatch();</code></pre>';
 
-        $answer = '<p>Команда <code>queue:work</code> запускает воркер.</p>'
-            .'<pre><code class="language-php">Bus::batch([])->dispatch();</code></pre>';
+        Http::fake(function ($request) {
+            $prompt = $request->data()['contents'][0]['parts'][0]['text'];
+            $fragment = $this->fragmentOf($prompt);
 
-        $this->fakeAnswer($answer);
+            // Код обязан прийти в модель уже спрятанным за плейсхолдер —
+            // иначе не проверить, что она вообще не видит его в этом тесте.
+            $this->assertStringNotContainsString('queue:work', $fragment);
+            $tokens = $this->codeTokensIn($fragment);
+            $this->assertCount(2, $tokens);
+
+            $translated = str_replace(
+                "The {$tokens[0]} command starts a worker.",
+                "Команда {$tokens[0]} запускает воркер.",
+                $fragment
+            );
+
+            return Http::response(['candidates' => [[
+                'content' => ['parts' => [['text' => $translated]]],
+                'finishReason' => 'STOP',
+            ]]]);
+        });
 
         $result = $this->translator()->translateHtml($source);
 
@@ -62,20 +79,76 @@ class GeminiTranslatorTest extends TestCase
         $this->assertSame('gemini-3.6-flash', $result->engine);
         $this->assertStringContainsString('Bus::batch([])->dispatch();', $result->text);
         $this->assertStringContainsString('class="language-php"', $result->text);
+        $this->assertStringContainsString('Команда <code>queue:work</code> запускает воркер.', $result->text);
     }
 
-    public function test_rewritten_code_is_rejected(): void
+    public function test_missing_code_placeholder_is_rejected(): void
     {
-        // Самая дорогая ошибка из возможных: читатель копирует пример из
-        // статьи и получает не работающий код. Такой ответ не сохраняем.
+        // Плейсхолдер не переписать — но его можно потерять, пересказав
+        // абзац своими словами. Та же цена, что раньше у переписанного кода:
+        // читатель недосчитается примера.
         $source = '<pre><code>Bus::batch([])->dispatch();</code></pre>';
 
-        $this->fakeAnswer('<pre><code>Автобус::пакет([])->отправить();</code></pre>');
+        $this->fakeAnswer('<p>Ознакомьтесь с примером в документации.</p>');
 
         $result = $this->translator()->translateHtml($source);
 
         $this->assertTrue($result->failed);
         $this->assertSame($source, $result->text, 'исходник должен остаться нетронутым');
+    }
+
+    public function test_pure_code_chunk_is_not_rejected_for_missing_cyrillic(): void
+    {
+        // Регрессия: кусок, целиком состоящий из кода, после маскировки — это
+        // один токен без единой русской буквы. Проверка «в ответе нет
+        // кириллицы» не имеет права бракова его — переводить тут нечего, а
+        // модель корректно вернула тот же токен.
+        $source = '<pre><code>Bus::batch([])->dispatch();</code></pre>';
+
+        Http::fake(function ($request) {
+            $prompt = $request->data()['contents'][0]['parts'][0]['text'];
+
+            return Http::response(['candidates' => [[
+                'content' => ['parts' => [['text' => $this->fragmentOf($prompt)]]],
+                'finishReason' => 'STOP',
+            ]]]);
+        });
+
+        $result = $this->translator()->translateHtml($source);
+
+        $this->assertFalse($result->failed);
+        $this->assertSame($source, $result->text);
+    }
+
+    public function test_garbled_code_placeholder_is_rejected(): void
+    {
+        // Токен, вернувшийся искажённым (лишний пробел внутри скобок), не
+        // совпадает с исходным по TOKEN_PATTERN — восстановить код нечем,
+        // и такой ответ обязан браковаться, а не оставлять мусор в статье.
+        $source = '<p>'.str_repeat('This paragraph has enough words to pass length checks. ', 3)
+            .'<code>artisan queue:work</code></p>';
+
+        Http::fake(function ($request) {
+            $prompt = $request->data()['contents'][0]['parts'][0]['text'];
+            $fragment = $this->fragmentOf($prompt);
+            $tokens = $this->codeTokensIn($fragment);
+
+            $translated = str_replace(
+                'This paragraph has enough words to pass length checks. ',
+                'В этом абзаце достаточно слов, чтобы пройти проверки длины. ',
+                $fragment
+            );
+            $translated = str_replace($tokens[0], str_replace('CODE', 'CODE ', $tokens[0]), $translated);
+
+            return Http::response(['candidates' => [[
+                'content' => ['parts' => [['text' => $translated]]],
+                'finishReason' => 'STOP',
+            ]]]);
+        });
+
+        $result = $this->translator()->translateHtml($source);
+
+        $this->assertTrue($result->failed);
     }
 
     public function test_extra_code_tag_added_by_model_is_allowed(): void
@@ -101,11 +174,22 @@ class GeminiTranslatorTest extends TestCase
 
     public function test_lost_code_fragment_is_rejected(): void
     {
-        // А вот пропажа исходного фрагмента — порча статьи: читатель
-        // недосчитается примера.
+        // Пропажа ОДНОГО из двух плейсхолдеров — порча статьи: читатель
+        // недосчитается примера, даже если второй код на месте.
         $source = '<p>Run <code>php artisan queue:work</code> and then <code>php artisan migrate</code>.</p>';
 
-        $this->fakeAnswer('<p>Запустите <code>php artisan queue:work</code>, а затем выполните миграции.</p>');
+        Http::fake(function ($request) {
+            $prompt = $request->data()['contents'][0]['parts'][0]['text'];
+            $tokens = $this->codeTokensIn($this->fragmentOf($prompt));
+
+            // Второй токен переносим в перевод, первый умышленно теряем.
+            $translated = "<p>Запустите её, а затем выполните {$tokens[1]}.</p>";
+
+            return Http::response(['candidates' => [[
+                'content' => ['parts' => [['text' => $translated]]],
+                'finishReason' => 'STOP',
+            ]]]);
+        });
 
         $result = $this->translator()->translateHtml($source);
 
@@ -461,6 +545,18 @@ class GeminiTranslatorTest extends TestCase
         preg_match('/<<<НАЧАЛО ФРАГМЕНТА>>>\s*(.*?)\s*<<<КОНЕЦ ФРАГМЕНТА>>>/su', $prompt, $m);
 
         return $m[1] ?? '';
+    }
+
+    /**
+     * Плейсхолдеры кода (⟦CODEn⟧), которые GeminiTranslator подставил в промпт.
+     *
+     * @return string[]
+     */
+    private function codeTokensIn(string $html): array
+    {
+        preg_match_all('/⟦CODE\d+⟧/u', $html, $m);
+
+        return $m[0];
     }
 
     private function translator(): GeminiTranslator
